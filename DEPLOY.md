@@ -175,3 +175,121 @@ Como todo vive en un solo archivo, el traspaso es simple:
 3. Reinicia el servicio: `systemctl restart menudigital`.
 
 Todo el negocio, pedidos y clientes quedan intactos en la nueva dirección.
+
+---
+
+## Opción C: varios clientes en el mismo VPS, con subdominios
+
+Para cuando alojas varios negocios en un solo servidor (ej. `pizzasdonpedro.surdigital.cl`, `otronegocio.surdigital.cl`) en vez de un VPS por cliente. Es el mismo VPS de la Opción B, con más instalaciones adentro - cada cliente sigue siendo una instalación completa e independiente (su propia base de datos, su propio proceso), solo que conviven en el mismo servidor para ahorrar costo.
+
+**Por qué una copia completa por cliente y no una sola compartida**: así cada negocio queda tan aislado como si tuviera su propio servidor - un problema en los datos de un cliente no puede tocar los de otro, y coincide con el resto de esta guía sin tener que tocar código. El costo es un poco más de disco por cliente (~200-300 MB cada uno, incluyendo su propio entorno virtual) - con almacenamiento NVMe de sobra en estos planes, no es un problema real hasta con 15-20 clientes.
+
+### 1. Una carpeta y un servicio por cliente
+
+Repite esto por cada cliente nuevo, cambiando el nombre y el puerto (8001, 8002, 8003...):
+
+```bash
+cd /opt/clientes
+git clone https://github.com/ManuelRuizU/Menu_Digital.git pizzasdonpedro
+cd pizzasdonpedro
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+flask db upgrade
+```
+
+Crea `/etc/systemd/system/pizzasdonpedro.service` (mismo formato que en la Opción B, con un puerto distinto por cliente):
+
+```ini
+[Unit]
+Description=Menu Digital - Pizzas Don Pedro
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/clientes/pizzasdonpedro
+ExecStart=/opt/clientes/pizzasdonpedro/.venv/bin/gunicorn -w 1 --timeout 60 -b 127.0.0.1:8001 manage:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now pizzasdonpedro
+```
+
+### 2. DNS: subdominios apuntando al mismo VPS
+
+En el proveedor de DNS de `surdigital.cl`, crea un registro **A** por cada subdominio (o uno solo tipo wildcard `*.surdigital.cl`) apuntando a la IP del VPS.
+
+**Recomendación**: mueve el DNS de `surdigital.cl` a Cloudflare (gratis) en vez de dejarlo en el DNS del registrador - hace mucho más simple el paso siguiente (certificado wildcard), porque certbot tiene un conector oficial para Cloudflare que actualiza los registros automáticamente en cada renovación, sin tocar nada a mano.
+
+### 3. Certificado wildcard (cubre todos los subdominios de una vez)
+
+A diferencia de la Opción B (un dominio simple), acá conviene un solo certificado que cubra `*.surdigital.cl` - así no hay que sacar uno nuevo cada vez que agregas un cliente. Esto requiere validar que controlas el DNS (no basta con que el sitio responda), por eso el paso de Cloudflare de arriba:
+
+```bash
+apt install -y certbot python3-certbot-dns-cloudflare
+```
+
+Crea `/etc/letsencrypt/cloudflare.ini` con un token de API de Cloudflare (se genera en el dashboard de Cloudflare, con permiso de solo editar DNS):
+
+```ini
+dns_cloudflare_api_token = tu_token_aqui
+```
+
+```bash
+chmod 600 /etc/letsencrypt/cloudflare.ini
+
+certbot certonly \
+  --dns-cloudflare \
+  --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
+  -d surdigital.cl -d '*.surdigital.cl'
+```
+
+Certbot renueva esto solo (incluyendo el wildcard) sin que tengas que hacer nada más.
+
+### 4. Nginx: un bloque por cliente, mismo certificado para todos
+
+Crea `/etc/nginx/sites-available/pizzasdonpedro`:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name pizzasdonpedro.surdigital.cl;
+
+    ssl_certificate /etc/letsencrypt/live/surdigital.cl/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/surdigital.cl/privkey.pem;
+
+    client_max_body_size 15M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+server {
+    listen 80;
+    server_name pizzasdonpedro.surdigital.cl;
+    return 301 https://$host$request_uri;
+}
+```
+
+```bash
+ln -s /etc/nginx/sites-available/pizzasdonpedro /etc/nginx/sites-enabled/
+nginx -t
+systemctl restart nginx
+```
+
+Repite el bloque de Nginx (con su propio puerto) por cada cliente nuevo - el certificado wildcard ya los cubre a todos, no hay que sacar uno nuevo.
+
+### 5. Primer acceso de cada cliente
+
+`https://pizzasdonpedro.surdigital.cl/register` - igual que siempre, la primera visita crea al dueño de esa instalación específica.
+
+### Cuándo subir de plan
+
+Cada cliente nuevo es una copia completa corriendo en paralelo (~116 MB de RAM medidos en esta app). Con un plan de 4 GB, el techo cómodo son unos 10-12 clientes antes de que convenga subir a un plan con más RAM/CPU - revisa el uso real con `free -h` y `htop` a medida que sumas clientes, y sube de plan antes de que el rendimiento se sienta, no después.
