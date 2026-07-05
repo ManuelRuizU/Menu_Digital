@@ -43,6 +43,59 @@ body[data-theme="claro"] {
   --body-weight: 300;
 }
 
+body[data-theme="urbano"] {
+  color-scheme: dark;
+  --bg-start: #0a0a0a;
+  --bg-end: #000000;
+  --surface: #161616;
+  --surface-2: #1e1e1e;
+  --text: #f5f5f0;
+  --text-strong: #ffffff;
+  --muted: #a8a8a0;
+  --primary: #ffcc00;
+  --primary-rgb: 255,204,0;
+  --accent: #ff3d1a;
+  --accent-rgb: 255,61,26;
+  --border: rgba(255,255,255,0.14);
+  --tint-1: rgba(255,255,255,0.05);
+  --tint-2: rgba(255,255,255,0.1);
+  --tint-3: rgba(255,255,255,0.18);
+  --shadow: 0 8px 0 rgba(0,0,0,0.9);
+  --shadow-soft: 0 6px 0 rgba(0,0,0,0.85);
+  --body-weight: 600;
+}
+
+/* Bolder, sharper-edged "poster" feel - straighter corners, punchier headings,
+   flat hard shadows instead of soft blurred ones. */
+body[data-theme="urbano"] .hero,
+body[data-theme="urbano"] .panel,
+body[data-theme="urbano"] .product-card,
+body[data-theme="urbano"] .cart-item,
+body[data-theme="urbano"] .upsell-item,
+body[data-theme="urbano"] .accordion-section,
+body[data-theme="urbano"] .modal,
+body[data-theme="urbano"] .card-actions button[data-add],
+body[data-theme="urbano"] .details-btn,
+body[data-theme="urbano"] .button {
+  border-radius: 6px;
+}
+body[data-theme="urbano"] .business-name {
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  font-weight: 800;
+}
+body[data-theme="urbano"] .section-header h2,
+body[data-theme="urbano"] .menu-section-title {
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+body[data-theme="urbano"] .card-actions button[data-add],
+body[data-theme="urbano"] .button-primary {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%); color: var(--text); }
 body { font-family: 'Inter', sans-serif; font-weight: var(--body-weight); }

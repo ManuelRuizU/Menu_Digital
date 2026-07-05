@@ -14,6 +14,7 @@ BUSINESS_TZ = ZoneInfo('America/Santiago')
 THEMES = {
     'oscuro': {'label': 'Oscuro moderno', 'primary': '#4ecdc4', 'accent': '#ff6b6b'},
     'claro': {'label': 'Minimalista claro', 'primary': '#5c7c5a', 'accent': '#8a6b4f'},
+    'urbano': {'label': 'Urbano llamativo', 'primary': '#ffcc00', 'accent': '#ff3d1a'},
 }
 
 
