@@ -1,0 +1,243 @@
+import json
+import math
+import re
+
+from flask import jsonify, render_template, request, url_for
+from shapely.geometry import Point, shape
+
+from app.main import main
+from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, Product, User
+from app import csrf, db
+
+
+def get_owner():
+    return User.query.filter_by(is_admin=True).first()
+
+
+def has_delivery_configured():
+    return db.session.query(DeliveryRadiusTier.query.exists()).scalar() or \
+        db.session.query(DeliveryZone.query.exists()).scalar()
+
+
+def is_within_business_hours(time_str, opens_at, closes_at):
+    """True when no hours are configured, or time_str falls inside [opens_at, closes_at].
+
+    Handles ranges that cross midnight (e.g. opens_at='18:00', closes_at='02:00').
+    """
+    if not opens_at or not closes_at:
+        return True
+    if opens_at <= closes_at:
+        return opens_at <= time_str <= closes_at
+    return time_str >= opens_at or time_str <= closes_at
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    r = 6371
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = math.sin(d_lat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(d_lon / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def compute_shipping_cost(lat, lng):
+    """Return (cost, covered). Polygon zones take precedence over radius tiers."""
+    point = Point(lng, lat)
+    for zone in DeliveryZone.query.order_by(DeliveryZone.id).all():
+        try:
+            polygon = shape(json.loads(zone.geojson))
+        except (ValueError, TypeError):
+            continue
+        if polygon.contains(point):
+            return zone.price, True
+
+    owner = get_owner()
+    if not owner or owner.latitude is None or owner.longitude is None:
+        return None, False
+
+    distance_km = _haversine_km(owner.latitude, owner.longitude, lat, lng)
+    tier = (DeliveryRadiusTier.query
+            .filter(DeliveryRadiusTier.min_km <= distance_km, DeliveryRadiusTier.max_km > distance_km)
+            .order_by(DeliveryRadiusTier.min_km)
+            .first())
+    if tier is None:
+        return None, False
+    return tier.price, True
+
+
+@main.route('/')
+def index():
+    owner = get_owner()
+    logo_url = url_for('static', filename='uploads/logos/' + owner.logo_filename) if owner and owner.logo_filename else None
+    return render_template(
+        'index.html',
+        business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
+        business_address=(owner.address if owner else None),
+        logo_url=logo_url,
+        primary_color=(owner.primary_color if owner and owner.primary_color else '#4ecdc4'),
+        accent_color=(owner.accent_color if owner and owner.accent_color else '#ff6b6b'),
+        accepts_cash=(owner.accepts_cash if owner else True),
+        accepts_transfer=(owner.accepts_transfer if owner else True),
+        accepts_card=(owner.accepts_card if owner else True),
+        bank_details=(owner.bank_details if owner else None),
+        has_delivery=has_delivery_configured(),
+        business_lat=(owner.latitude if owner and owner.latitude is not None else -33.4489),
+        business_lng=(owner.longitude if owner and owner.longitude is not None else -70.6693),
+        min_delivery_order=(owner.min_delivery_order if owner else None),
+        opens_at=(owner.opens_at if owner else None),
+        closes_at=(owner.closes_at if owner else None),
+    )
+
+
+@main.route('/api/products')
+def products_api():
+    products = (Product.query.filter_by(is_active=True)
+                .order_by(Product.category_id, Product.subcategory_id, Product.name)
+                .all())
+    payload = [
+        {
+            'id': product.id,
+            'name': product.name,
+            'description': product.description,
+            'price': product.price,
+            'categoryId': product.category_id,
+            'category': product.category.name,
+            'subcategoryId': product.subcategory_id,
+            'subcategory': product.subcategory.name if product.subcategory else None,
+            'soldOut': product.sold_out,
+            'featured': product.is_featured,
+            'imageUrl': (url_for('static', filename='uploads/products/' + product.image_filename)
+                         if product.image_filename else None),
+        }
+        for product in products
+    ]
+    return jsonify(payload)
+
+
+@main.route('/api/whatsapp-number')
+def whatsapp_number_api():
+    owner = get_owner()
+    number = owner.whatsapp_number if owner and owner.whatsapp_number else ''
+    return jsonify({'whatsappNumber': number})
+
+
+@main.route('/api/shipping-cost', methods=['POST'])
+@csrf.exempt
+def shipping_cost_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        lat = float(data.get('lat'))
+        lng = float(data.get('lng'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'message': 'Coordenadas inválidas.'}), 400
+
+    cost, covered = compute_shipping_cost(lat, lng)
+    return jsonify({'covered': covered, 'shippingCost': cost if covered else None})
+
+
+@main.route('/api/orders', methods=['POST'])
+@csrf.exempt
+def create_order():
+    data = request.get_json(silent=True) or {}
+    items = data.get('items', [])
+    customer_name = data.get('customerName')
+    phone = data.get('phone')
+    address = data.get('address')
+    delivery_mode = data.get('deliveryMode') or 'retira'
+    payment_method = data.get('paymentMethod')
+    notes = (data.get('notes') or '').strip()[:500] or None
+    requested_time = data.get('requestedTime')
+    if not requested_time or not re.match(r'^\d{2}:\d{2}$', requested_time):
+        requested_time = None
+
+    if not items or not customer_name or not phone:
+        return jsonify({'ok': False, 'message': 'Faltan datos del pedido.'}), 400
+
+    owner = get_owner()
+    enabled_methods = {
+        'efectivo': owner.accepts_cash if owner else True,
+        'transferencia': owner.accepts_transfer if owner else True,
+        'tarjeta': owner.accepts_card if owner else True,
+    }
+    if payment_method not in enabled_methods or not enabled_methods[payment_method]:
+        return jsonify({'ok': False, 'message': 'Ese método de pago no está disponible.'}), 400
+
+    if requested_time and owner and not is_within_business_hours(requested_time, owner.opens_at, owner.closes_at):
+        return jsonify({
+            'ok': False,
+            'message': f'Solo recibimos pedidos entre las {owner.opens_at} y las {owner.closes_at}.',
+        }), 400
+
+    cash_amount = None
+    if payment_method == 'efectivo':
+        try:
+            cash_amount = float(data.get('cashAmount'))
+        except (TypeError, ValueError):
+            cash_amount = None
+
+    shipping_cost = 0
+    lat = lng = None
+    if delivery_mode == 'envio':
+        if not has_delivery_configured():
+            return jsonify({'ok': False, 'message': 'Este negocio no ofrece despacho.'}), 400
+        try:
+            lat = float(data.get('lat'))
+            lng = float(data.get('lng'))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'message': 'Selecciona una ubicación de despacho válida.'}), 400
+
+        shipping_cost, covered = compute_shipping_cost(lat, lng)
+        if not covered:
+            return jsonify({'ok': False, 'message': 'Esa dirección está fuera de la zona de reparto.'}), 400
+
+    order_lines = []
+    subtotal = 0
+    for item in items:
+        product_id = item.get('id')
+        quantity = item.get('quantity')
+        if not isinstance(quantity, int) or quantity < 1:
+            return jsonify({'ok': False, 'message': 'Cantidad inválida en el pedido.'}), 400
+        product = Product.query.get(product_id)
+        if product is None or not product.is_active or product.sold_out:
+            return jsonify({'ok': False, 'message': 'Uno de los productos ya no está disponible.'}), 400
+        if product.stock_quantity is not None and product.stock_quantity < quantity:
+            return jsonify({'ok': False, 'message': f'Solo quedan {product.stock_quantity} unidades de {product.name}.'}), 400
+        order_lines.append((product, quantity))
+        subtotal += product.price * quantity
+
+    if delivery_mode == 'envio' and owner and owner.min_delivery_order and subtotal < owner.min_delivery_order:
+        return jsonify({
+            'ok': False,
+            'message': f'El pedido mínimo para despacho es ${owner.min_delivery_order:.0f}.',
+        }), 400
+
+    try:
+        order = Order(
+            customer_name=customer_name,
+            phone=phone,
+            address=address,
+            delivery_mode=delivery_mode,
+            payment_method=payment_method,
+            cash_amount=cash_amount,
+            notes=notes,
+            requested_time=requested_time,
+            latitude=lat,
+            longitude=lng,
+            shipping_cost=shipping_cost,
+            total_price=subtotal + shipping_cost,
+            status='Pending',
+        )
+        db.session.add(order)
+        db.session.flush()
+        for product, quantity in order_lines:
+            db.session.add(OrderItem(order_id=order.id, product_id=product.id, quantity=quantity, price=product.price))
+            if product.stock_quantity is not None:
+                product.stock_quantity = max(product.stock_quantity - quantity, 0)
+                if product.stock_quantity == 0:
+                    product.sold_out = True
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
+
+    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.', 'orderId': order.id})

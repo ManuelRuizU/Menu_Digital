@@ -1,0 +1,183 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Perfil del negocio{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+{% endblock %}
+{% block content %}
+    <h1>Perfil del negocio</h1>
+    <p>Configura los datos de tu negocio que verán tus clientes en el menú.</p>
+
+    <form method="post" action="{{ url_for('auth.update_business_profile') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      {% if current_user.logo_filename %}
+        <img src="{{ url_for('static', filename='uploads/logos/' + current_user.logo_filename) }}"
+             alt="Logo actual" style="max-width:120px;max-height:120px;border-radius:12px;">
+      {% endif %}
+
+      <label for="business_name">Nombre del negocio</label>
+      <input id="business_name" name="business_name" placeholder="Sushi Lou" value="{{ current_user.business_name or '' }}">
+
+      <label for="address">Dirección</label>
+      <input id="address" name="address" placeholder="Av. Siempre Viva 123" value="{{ current_user.address or '' }}">
+      <p class="muted">Busca tu dirección y ajusta el marcador en el mapa: este será el punto de origen para calcular el reparto.</p>
+      <div id="business-map" class="panel-map"></div>
+      <input type="hidden" id="latitude" name="latitude" value="{{ current_user.latitude or '' }}">
+      <input type="hidden" id="longitude" name="longitude" value="{{ current_user.longitude or '' }}">
+
+      <label for="logo">Logo del negocio</label>
+      <input type="file" id="logo" name="logo" accept="image/png,image/jpeg,image/webp">
+
+      <label for="primary_color">Color principal</label>
+      <input type="color" id="primary_color" name="primary_color" value="{{ current_user.primary_color or '#4ecdc4' }}">
+
+      <label for="accent_color">Color de acento</label>
+      <input type="color" id="accent_color" name="accent_color" value="{{ current_user.accent_color or '#ff6b6b' }}">
+      <p class="muted">Estos colores se usan en los botones y detalles del menú que ven tus clientes.</p>
+
+      <label for="whatsapp_number">Número de WhatsApp</label>
+      <input id="whatsapp_number" name="whatsapp_number" placeholder="56912345678" value="{{ current_user.whatsapp_number or '' }}">
+
+      <label>Formas de pago que aceptas</label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="accepts_cash" {{ 'checked' if current_user.accepts_cash else '' }}> Efectivo
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="accepts_transfer" {{ 'checked' if current_user.accepts_transfer else '' }}> Transferencia
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="accepts_card" {{ 'checked' if current_user.accepts_card else '' }}> Tarjeta al recibir
+      </label>
+
+      <label for="bank_details">Datos para transferencia</label>
+      <textarea id="bank_details" name="bank_details" placeholder="Banco Estado, Cuenta Vista 123456789, Juan Pérez, RUT 12.345.678-9">{{ current_user.bank_details or '' }}</textarea>
+      <p class="muted">Se muestran automáticamente a tus clientes cuando eligen pagar por transferencia.</p>
+
+      <label for="min_delivery_order">Monto mínimo de compra para despacho</label>
+      <input type="number" step="1" min="0" id="min_delivery_order" name="min_delivery_order" placeholder="5000" value="{{ current_user.min_delivery_order|int if current_user.min_delivery_order else '' }}">
+      <p class="muted">Déjalo vacío si no quieres exigir un mínimo. Solo aplica al despacho, no al retiro.</p>
+
+      <label for="opens_at">Horario de atención - Abre a las</label>
+      <input type="time" id="opens_at" name="opens_at" value="{{ current_user.opens_at or '' }}">
+
+      <label for="closes_at">Horario de atención - Cierra a las</label>
+      <input type="time" id="closes_at" name="closes_at" value="{{ current_user.closes_at or '' }}">
+      <p class="muted">Opcional. Si lo defines, tus clientes solo podrán elegir un horario sugerido dentro de este rango - no importa a qué hora entren al menú, solo a qué hora piden que llegue el pedido. Deja ambos vacíos si atiendes sin horario fijo.</p>
+
+      <label for="printer_ip">IP de la impresora térmica (opcional)</label>
+      <input id="printer_ip" name="printer_ip" placeholder="192.168.1.50" value="{{ current_user.printer_ip or '' }}">
+
+      <label for="printer_width_mm">Ancho del papel</label>
+      <select id="printer_width_mm" name="printer_width_mm">
+        <option value="80" {{ 'selected' if (current_user.printer_width_mm or 80) == 80 }}>80mm</option>
+        <option value="58" {{ 'selected' if current_user.printer_width_mm == 58 }}>58mm</option>
+      </select>
+      <p class="muted">
+        Solo si tienes una impresora térmica de tickets por WiFi o red (ej. Xprinter). Busca la IP en el
+        menú de configuración de la impresora, o imprime su "ticket de prueba" - ahí suele aparecer.
+        Déjalo vacío si no tienes impresora; el botón de imprimir no aparecerá.
+      </p>
+
+      <label for="backup_email_host">Respaldo automático - Servidor de correo (SMTP)</label>
+      <input id="backup_email_host" name="backup_email_host" placeholder="smtp.gmail.com" value="{{ current_user.backup_email_host or '' }}">
+
+      <label for="backup_email_port">Puerto</label>
+      <input id="backup_email_port" name="backup_email_port" type="number" placeholder="587" value="{{ current_user.backup_email_port or '' }}">
+
+      <label for="backup_email_address">Tu correo (el que envía el respaldo)</label>
+      <input id="backup_email_address" name="backup_email_address" type="email" placeholder="tu_correo@gmail.com" value="{{ current_user.backup_email_address or '' }}">
+
+      <label for="backup_email_password">Contraseña de aplicación</label>
+      <input id="backup_email_password" name="backup_email_password" type="password" placeholder="{{ '••••••••' if current_user.backup_email_password else 'Genera una en tu correo' }}">
+
+      <label for="backup_email_to">Correo donde quieres recibir el respaldo</label>
+      <input id="backup_email_to" name="backup_email_to" type="email" placeholder="tu_correo@gmail.com" value="{{ current_user.backup_email_to or '' }}">
+
+      <p class="muted">
+        Opcional, pero muy recomendado. Con Gmail: activa la verificación en dos pasos y genera una
+        "contraseña de aplicación" en myaccount.google.com/apppasswords - no uses tu contraseña normal.
+        Configurado esto, se envía un respaldo automático de tu base de datos todos los días, sin que
+        tengas que hacer nada.
+        {% if current_user.backup_last_sent_at %}
+          <br>Último respaldo enviado: {{ current_user.backup_last_sent_at.strftime('%d/%m/%Y %H:%M') }} (hora UTC).
+        {% endif %}
+      </p>
+
+      <button type="submit">Guardar</button>
+    </form>
+
+    {% if current_user.backup_email_host %}
+      <form method="post" action="{{ url_for('auth.send_backup_now') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="secondary">📧 Enviar respaldo ahora</button>
+      </form>
+    {% endif %}
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+      (function () {
+        const startLat = {{ current_user.latitude or -33.4489 }};
+        const startLng = {{ current_user.longitude or -70.6693 }};
+        const latInput = document.getElementById('latitude');
+        const lngInput = document.getElementById('longitude');
+        const addressInput = document.getElementById('address');
+
+        const map = L.map('business-map').setView([startLat, startLng], {{ 15 if current_user.latitude else 12 }});
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
+
+        function setPoint(lat, lng) {
+          latInput.value = lat;
+          lngInput.value = lng;
+          marker.setLatLng([lat, lng]);
+          map.setView([lat, lng], 15);
+        }
+
+        marker.on('dragend', () => {
+          const pos = marker.getLatLng();
+          setPoint(pos.lat, pos.lng);
+        });
+        map.on('click', (e) => setPoint(e.latlng.lat, e.latlng.lng));
+
+        let timeoutId = null;
+        addressInput.addEventListener('input', () => {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(async () => {
+            const query = addressInput.value.trim();
+            if (query.length < 4) return;
+            try {
+              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+              const results = await res.json();
+              renderSuggestions(results.slice(0, 6));
+            } catch (error) {
+              // ignore network errors, the owner can still click the map directly
+            }
+          }, 300);
+        });
+
+        function renderSuggestions(results) {
+          let list = document.querySelector('.suggestions-list');
+          if (!list) {
+            list = document.createElement('ul');
+            list.className = 'suggestions-list';
+            addressInput.parentNode.insertBefore(list, addressInput.nextSibling);
+          }
+          if (!results.length) {
+            list.innerHTML = '<li class="suggestion-item">No se encontraron direcciones</li>';
+            return;
+          }
+          list.innerHTML = results.map((item) => `
+            <li class="suggestion-item" data-lat="${item.lat}" data-lon="${item.lon}">${item.display_name}</li>
+          `).join('');
+          list.querySelectorAll('.suggestion-item[data-lat]').forEach((el) => {
+            el.addEventListener('click', () => {
+              setPoint(Number(el.dataset.lat), Number(el.dataset.lon));
+              list.innerHTML = '';
+            });
+          });
+        }
+      })();
+    </script>
+{% endblock %}

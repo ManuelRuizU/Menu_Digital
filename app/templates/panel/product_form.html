@@ -1,0 +1,77 @@
+{% extends "panel/_layout.html" %}
+{% block title %}{{ 'Editar producto' if product else 'Nuevo producto' }}{% endblock %}
+{% block content %}
+    <h1>{{ 'Editar producto' if product else 'Nuevo producto' }}</h1>
+
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      {% if product and product.image_filename %}
+        <img src="{{ url_for('static', filename='uploads/products/' + product.image_filename) }}"
+             alt="{{ product.name }}" style="max-width:140px;max-height:140px;border-radius:12px;">
+      {% endif %}
+
+      <label for="name">Nombre</label>
+      <input id="name" name="name" required value="{{ product.name if product else '' }}">
+
+      <label for="description">Descripción</label>
+      <textarea id="description" name="description" rows="3" required>{{ product.description if product else '' }}</textarea>
+
+      <label for="price">Precio</label>
+      <input id="price" name="price" type="number" step="1" min="0" required value="{{ product.price if product else '' }}">
+
+      <label for="category_id">Categoría</label>
+      <select id="category_id" name="category_id" required>
+        <option value="">Selecciona una categoría</option>
+        {% for category in categories %}
+          <option value="{{ category.id }}" {{ 'selected' if product and product.category_id == category.id else '' }}>{{ category.name }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="subcategory_id">Subcategoría (opcional)</label>
+      <select id="subcategory_id" name="subcategory_id">
+        <option value="">Sin subcategoría</option>
+        {% for sub in subcategories %}
+          <option value="{{ sub.id }}" data-category="{{ sub.category_id }}"
+                  {{ 'selected' if product and product.subcategory_id == sub.id else '' }}>{{ sub.name }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="image">Foto del producto</label>
+      <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp">
+
+      <label for="stock_quantity">Stock disponible (opcional)</label>
+      <input id="stock_quantity" name="stock_quantity" type="number" step="1" min="0"
+             value="{{ product.stock_quantity if product and product.stock_quantity is not none else '' }}"
+             placeholder="Déjalo vacío si no llevas conteo">
+      <p class="muted">
+        Solo para productos con cantidad fija (ej. bebidas embotelladas). Se descuenta solo con cada venta y
+        se marca "Agotado" al llegar a 0. Para lo que preparas al momento (pizza, empanadas), déjalo vacío y
+        marca "Agotado" a mano cuando corresponda.
+      </p>
+
+      <button type="submit">Guardar producto</button>
+    </form>
+
+    <script>
+      (function () {
+        const categorySelect = document.getElementById('category_id');
+        const subcategorySelect = document.getElementById('subcategory_id');
+        const subOptions = Array.from(subcategorySelect.options).slice(1);
+
+        function filterSubcategories() {
+          const categoryId = categorySelect.value;
+          subOptions.forEach((option) => {
+            const matches = option.dataset.category === categoryId;
+            option.hidden = categoryId !== '' && !matches;
+            if (option.hidden && option.selected) {
+              subcategorySelect.value = '';
+            }
+          });
+        }
+
+        categorySelect.addEventListener('change', filterSubcategories);
+        filterSubcategories();
+      })();
+    </script>
+{% endblock %}

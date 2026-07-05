@@ -1,0 +1,18 @@
+# Entorno virtual y caché de Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Base de datos real, respaldos y clave secreta - nunca a un repo compartido
+instance/
+
+# Imágenes subidas por cada negocio (logo, fotos de productos) - contenido de cada instalación, no del código
+app/static/uploads/*
+!app/static/uploads/.gitkeep
+!app/static/uploads/logos/.gitkeep
+!app/static/uploads/products/.gitkeep
+
+# Sistema operativo / editores
+.DS_Store
+*.swp

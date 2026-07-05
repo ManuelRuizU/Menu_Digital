@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Completar perfil</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .setup-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 450px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="tel"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="tel"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .checkbox-label {
+            margin: 0;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .business-fields {
+            display: none;
+            padding: 20px;
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .business-fields.active {
+            display: block;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #666;
+            margin-top: 8px;
+            line-height: 1.4;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .messages {
+            margin-bottom: 20px;
+        }
+
+        .messages ul {
+            list-style: none;
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c33;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .messages li {
+            padding: 4px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <h1>Completar perfil</h1>
+        <p class="subtitle">Cuéntanos sobre ti para personalizar tu experiencia</p>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="messages">
+                    <ul>
+                        {% for message in messages %}
+                            <li>{{ message }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="business_name">Nombre del negocio</label>
+                <input type="text" id="business_name" name="business_name" placeholder="Sushi Lou">
+            </div>
+
+            <div class="form-group">
+                <label for="address">Dirección</label>
+                <input type="text" id="address" name="address" placeholder="Av. Siempre Viva 123">
+            </div>
+
+            <div class="form-group">
+                <label for="logo">Logo del negocio</label>
+                <input type="file" id="logo" name="logo" accept="image/png,image/jpeg,image/webp">
+            </div>
+
+            <div class="form-group">
+                <label for="whatsapp_number">Número de WhatsApp para pedidos</label>
+                <input type="tel" id="whatsapp_number" name="whatsapp_number" placeholder="56912345678">
+                <p class="info-text">
+                    Tus clientes usarán este número para enviar sus pedidos.
+                    Incluye el código de país (ej: 56 para Chile).
+                </p>
+            </div>
+
+            <button type="submit">Continuar</button>
+        </form>
+    </div>
+</body>
+</html>

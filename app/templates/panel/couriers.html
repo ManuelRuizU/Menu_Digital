@@ -1,0 +1,35 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Repartidores{% endblock %}
+{% block content %}
+    <h1>Repartidores</h1>
+    <p class="muted">
+      Opcional. Sin repartidores agregados, "Enviar a repartidor" abre WhatsApp y tú eliges el contacto
+      cada vez (modo libre) - útil si rotas entre varias personas. Si agregas nombres aquí, aparece un
+      botón directo por cada uno (modo dirigido).
+    </p>
+
+    <form method="post" action="{{ url_for('catalog.create_courier') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="name">Nombre</label>
+      <input id="name" name="name" placeholder="Pedro" required>
+      <label for="whatsapp_number">WhatsApp</label>
+      <input id="whatsapp_number" name="whatsapp_number" placeholder="56912345678" required>
+      <button type="submit">Agregar repartidor</button>
+    </form>
+
+    {% for courier in couriers %}
+      <div class="card card-row">
+        <div>
+          <strong>{{ courier.name }}</strong>
+          <span class="muted">· {{ courier.whatsapp_number }}</span>
+        </div>
+        <form method="post" action="{{ url_for('catalog.delete_courier', courier_id=courier.id) }}"
+              onsubmit="return confirm('¿Eliminar este repartidor?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger">Eliminar</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="muted">Todavía no has agregado ningún repartidor. Se usará el modo libre.</p>
+    {% endfor %}
+{% endblock %}

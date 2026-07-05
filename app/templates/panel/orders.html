@@ -1,0 +1,120 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Pedidos de hoy{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Pedidos de hoy</h1>
+      <a href="{{ url_for('catalog.order_history') }}"><button type="button" class="secondary">Ver historial completo</button></a>
+    </div>
+    <p class="muted">
+      Ordenados por hora de entrega, para que veas la forma del día y decidas si hay espacio para un sobrecupo.
+      El sistema no sabe si la venta realmente se cerró — marca "Confirmar" solo en los que efectivamente
+      concretaste en la conversación.
+    </p>
+    <p><strong>{{ orders|length }}</strong> pedidos hoy · <strong>{{ confirmed_count }}</strong> confirmados</p>
+
+    <form id="route-form" method="post" action="{{ url_for('catalog.send_route') }}" target="_blank">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Recorrido: marca abajo los pedidos de despacho que lleva un mismo repartidor</label>
+      <div class="inline-actions">
+        {% for courier in couriers %}
+          <label class="checkbox-row"><input type="radio" name="courier_id" value="{{ courier.id }}" {{ 'checked' if loop.first else '' }}> {{ courier.name }}</label>
+        {% endfor %}
+        <label class="checkbox-row"><input type="radio" name="courier_id" value="" {{ 'checked' if not couriers else '' }}> Elegir contacto (modo libre)</label>
+      </div>
+      <button type="submit">🛵 Enviar recorrido</button>
+    </form>
+
+    {% for order in orders %}
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <strong>{{ order.customer_name }}</strong>
+            <span class="muted">· {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
+          </div>
+          <span class="status-pill {{ 'confirmed' if order.status == 'Confirmed' else 'pending' }}">
+            {{ 'Confirmado' if order.status == 'Confirmed' else 'Pendiente' }}
+          </span>
+        </div>
+
+        <ul class="order-items">
+          {% for item in order.order_items %}
+            <li class="subitem">
+              <span>{{ item.quantity }}× {{ item.product.name if item.product else 'Producto eliminado' }} — ${{ '%.0f'|format(item.price * item.quantity) }}</span>
+              <form method="post" action="{{ url_for('catalog.remove_order_item', order_id=order.id, item_id=item.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="next" value="{{ request.path }}">
+                <button type="submit" class="danger" style="padding:4px 10px;">×</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+
+        <p class="muted">
+          {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
+          {% if order.delivery_mode == 'envio' and order.address %}· {{ order.address }}{% endif %}
+          · Hora: {{ order.requested_time_label }}
+          {% if order.payment_method %}· Pago: {{ {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}.get(order.payment_method, order.payment_method) }}{% endif %}
+        </p>
+        {% if order.notes %}<p class="muted">Notas: {{ order.notes }}</p>{% endif %}
+        <p><strong>Total: ${{ '%.0f'|format(order.total_price) }}</strong></p>
+
+        <details>
+          <summary class="muted">Editar productos (agregó algo por WhatsApp)</summary>
+          <form method="post" action="{{ url_for('catalog.add_order_item', order_id=order.id) }}" style="margin-top:8px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <label>Producto</label>
+            <select name="product_id" required>
+              <option value="" disabled selected>Elige un producto...</option>
+              {% for product in available_products %}
+                <option value="{{ product.id }}">{{ product.name }} — ${{ '%.0f'|format(product.price) }}</option>
+              {% endfor %}
+            </select>
+            <label>Cantidad</label>
+            <input type="number" name="quantity" min="1" value="1">
+            <button type="submit" class="secondary">Agregar al pedido</button>
+          </form>
+        </details>
+
+        <details>
+          <summary class="muted">Ajustar hora (sobrecupo / adelanto de producción)</summary>
+          <form method="post" action="{{ url_for('catalog.update_order_time', order_id=order.id) }}" style="margin-top:8px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <label>Desde</label>
+            <input type="time" name="requested_time" value="{{ order.requested_time or '' }}" required>
+            <label>Hasta (opcional, para un rango)</label>
+            <input type="time" name="requested_time_end" value="{{ order.requested_time_end or '' }}">
+            <button type="submit" class="secondary">Guardar horario</button>
+          </form>
+        </details>
+
+        {% if order.delivery_mode == 'envio' %}
+          <label class="checkbox-row"><input type="checkbox" name="order_ids" value="{{ order.id }}" form="route-form"> Incluir en el recorrido</label>
+        {% endif %}
+
+        <div class="inline-actions">
+          <a class="whatsapp-link" style="padding:12px 16px;border-radius:8px;color:white;font-weight:600;" href="https://wa.me/{{ order.phone_digits }}" target="_blank" rel="noopener">📱 WhatsApp cliente</a>
+          {% for courier in courier_links[order.id] or [] %}
+            <a class="whatsapp-link" style="padding:12px 16px;border-radius:8px;color:white;font-weight:600;background:#0d2236;" href="{{ courier.url }}" target="_blank" rel="noopener">🛵 {{ courier.name or 'Enviar a repartidor' }}</a>
+          {% endfor %}
+          {% if printer_configured and order.status == 'Confirmed' %}
+            <form method="post" action="{{ url_for('catalog.print_order_ticket', order_id=order.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="secondary">🖨️ Imprimir ticket</button>
+            </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('catalog.toggle_order_status', order_id=order.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <button type="submit" class="{{ 'secondary' if order.status == 'Confirmed' else '' }}">
+              {{ 'Marcar como pendiente' if order.status == 'Confirmed' else 'Confirmar' }}
+            </button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Todavía no ha llegado ningún pedido hoy.</p>
+    {% endfor %}
+{% endblock %}

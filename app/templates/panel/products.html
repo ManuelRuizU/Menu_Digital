@@ -1,0 +1,51 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Productos{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Productos</h1>
+      <a href="{{ url_for('catalog.create_product') }}"><button type="button">Agregar producto</button></a>
+    </div>
+
+    {% for product in products %}
+      <div class="card">
+        <div class="card-row">
+          <div>
+            {% if product.image_filename %}
+              <img class="product-thumb" src="{{ url_for('static', filename='uploads/products/' + product.image_filename) }}" alt="{{ product.name }}">
+            {% endif %}
+            <strong>{{ product.name }}</strong>
+            <span class="muted">
+              — {{ product.category.name if product.category else 'Sin categoría' }}{% if product.subcategory %} / {{ product.subcategory.name }}{% endif %}
+              {% if not product.is_active %}· inactivo{% endif %}
+              {% if product.sold_out %}· agotado{% endif %}
+              {% if product.is_featured %}· recomendado{% endif %}
+              {% if product.stock_quantity is not none %}· stock: {{ product.stock_quantity }}{% endif %}
+            </span>
+          </div>
+          <div>${{ '%.0f'|format(product.price) }}</div>
+        </div>
+        <div class="inline-actions" style="margin-top:10px;">
+          <a href="{{ url_for('catalog.edit_product', product_id=product.id) }}"><button type="button">Editar</button></a>
+          <form method="post" action="{{ url_for('catalog.toggle_product_active', product_id=product.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">{{ 'Desactivar' if product.is_active else 'Activar' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.toggle_product_sold_out', product_id=product.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">{{ 'Marcar disponible' if product.sold_out else 'Marcar agotado' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.toggle_product_featured', product_id=product.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">{{ 'Quitar recomendado' if product.is_featured else 'Marcar recomendado' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.delete_product', product_id=product.id) }}"
+                onsubmit="return confirm('¿Eliminar este producto?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger">Eliminar</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Aún no tienes productos. Agrega el primero arriba.</p>
+    {% endfor %}
+{% endblock %}

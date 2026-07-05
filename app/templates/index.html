@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}<title>{{ business_name }}</title>{% endblock %}
+
+{% block head %}
+<style>
+  :root { --primary: {{ primary_color }}; --accent: {{ accent_color }}; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-shell">
+  <header class="hero">
+    <button type="button" id="nav-toggle" class="hamburger-btn" aria-label="Ver categorías">☰</button>
+    {% if logo_url %}
+      <img src="{{ logo_url }}" alt="{{ business_name }}" class="business-logo">
+    {% endif %}
+    <div class="hero-info">
+      <h1 class="business-name">{{ business_name }}</h1>
+      {% if business_address %}
+        <p class="business-address">{{ business_address }}</p>
+      {% endif %}
+      {% if opens_at and closes_at %}
+        <p class="business-hours">🕒 Atendemos de {{ opens_at }} a {{ closes_at }}</p>
+      {% endif %}
+    </div>
+  </header>
+
+  <div id="nav-backdrop" class="nav-backdrop"></div>
+  <aside id="nav-drawer" class="nav-drawer">
+    <div class="section-header">
+      <div>
+        <p class="section-label">Menú</p>
+        <h2>Categorías</h2>
+      </div>
+      <button type="button" id="nav-close" class="cart-close" aria-label="Cerrar categorías">✕</button>
+    </div>
+    <div id="nav-links"></div>
+  </aside>
+
+  <main class="layout">
+    <section class="panel product-panel">
+      <div class="section-header">
+        <div>
+          <p class="section-label">Menú</p>
+          <h2>Productos</h2>
+        </div>
+        <span id="product-count" class="badge">0</span>
+      </div>
+      <input id="product-search" type="search" placeholder="Buscar producto..." class="search-input">
+      <div id="products-grid" class="products-list">
+        <p class="hint">Cargando productos...</p>
+      </div>
+    </section>
+
+    <div id="cart-backdrop" class="cart-backdrop"></div>
+    <aside id="cart-panel" class="panel cart-panel">
+      <div class="section-header">
+        <div>
+          <p class="section-label">Tu carrito</p>
+          <h2>Pedido</h2>
+        </div>
+        <button type="button" id="cart-close" class="cart-close" aria-label="Cerrar carrito">✕</button>
+      </div>
+      <div id="cart-items" class="cart-items">
+        <p class="hint">Aún no hay productos en el carrito.</p>
+      </div>
+      <div id="upsell-suggestions" class="upsell-suggestions"></div>
+      <div class="summary">
+        <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
+        <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
+        <div class="summary-row total"><span>Total</span><strong id="total">$0</strong></div>
+      </div>
+
+      {% set payment_options = [] %}
+      {% if accepts_cash %}{% set _ = payment_options.append(('efectivo', 'Efectivo')) %}{% endif %}
+      {% if accepts_transfer %}{% set _ = payment_options.append(('transferencia', 'Transferencia')) %}{% endif %}
+      {% if accepts_card %}{% set _ = payment_options.append(('tarjeta', 'Tarjeta al recibir')) %}{% endif %}
+
+      <div class="accordion">
+        <details class="accordion-section" open>
+          <summary>Entrega</summary>
+          <div class="accordion-body">
+            {% if has_delivery %}
+              <label>Tipo de entrega</label>
+              <div class="delivery-options" id="delivery-mode-options" data-min-order="{{ min_delivery_order or '' }}">
+                <label><input type="radio" name="delivery-mode" value="retira" checked> Retiro</label>
+                <label><input type="radio" name="delivery-mode" value="envio"> Despacho</label>
+              </div>
+              <p id="min-order-hint" class="hint" style="display:none;"></p>
+            {% endif %}
+
+            <label for="requested-time">Horario sugerido</label>
+            <input id="requested-time" type="time"
+              {% if opens_at and closes_at and opens_at <= closes_at %}min="{{ opens_at }}" max="{{ closes_at }}"{% endif %}
+              data-opens-at="{{ opens_at or '' }}" data-closes-at="{{ closes_at or '' }}">
+            {% if opens_at and closes_at %}
+              <p id="business-hours-hint" class="hint">Horario sugerido debe estar entre las {{ opens_at }} y las {{ closes_at }}.</p>
+            {% endif %}
+
+            <div id="delivery-address-block" style="display:none;">
+              <label for="address">Dirección</label>
+              <input id="address" type="text" placeholder="Escribe tu dirección" autocomplete="street-address">
+              <div id="address-hint" class="hint">Busca tu dirección; si no aparece exacta, ajusta el pin del mapa a tu ubicación real.</div>
+              <div id="map" class="map" data-lat="{{ business_lat }}" data-lng="{{ business_lng }}"></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="accordion-section" open>
+          <summary>Tus datos</summary>
+          <div class="accordion-body">
+            <label for="customer-name">Nombre</label>
+            <input id="customer-name" type="text" placeholder="Tu nombre" autocomplete="name">
+
+            <label for="phone">Teléfono</label>
+            <input id="phone" type="tel" placeholder="56912345678" autocomplete="tel">
+          </div>
+        </details>
+
+        <details class="accordion-section" open>
+          <summary>Pago</summary>
+          <div class="accordion-body">
+            <label>Forma de pago</label>
+            <div class="delivery-options">
+              {% for value, label in payment_options %}
+                <label><input type="radio" name="payment-method" value="{{ value }}" {{ 'checked' if loop.first else '' }}> {{ label }}</label>
+              {% endfor %}
+            </div>
+
+            <div id="cash-block" style="display:none;">
+              <p id="cash-total-hint" class="hint"></p>
+              <label for="cash-amount">¿Con cuánto pagas?</label>
+              <div id="quick-cash-buttons" class="delivery-options"></div>
+              <input id="cash-amount" type="number" min="0" step="1" placeholder="10000">
+              <div id="change-hint" class="hint"></div>
+            </div>
+
+            {% if bank_details %}
+              <div id="transfer-block" style="display:none;">
+                <p class="hint">Datos para transferir:</p>
+                <p class="hint" style="white-space:pre-line;">{{ bank_details }}</p>
+              </div>
+            {% endif %}
+          </div>
+        </details>
+
+        <details class="accordion-section">
+          <summary>Notas</summary>
+          <div class="accordion-body">
+            <label for="notes">¿Algo que quieras agregar?</label>
+            <textarea id="notes" placeholder="Ej: sin cebolla, tocar timbre 2 veces" rows="2"></textarea>
+          </div>
+        </details>
+      </div>
+
+      <button id="checkout-btn" class="button button-primary">Enviar por WhatsApp</button>
+    </aside>
+  </main>
+
+  <button type="button" id="cart-fab" class="cart-fab">
+    <span>🛒 <span id="cart-fab-count">0</span> productos</span>
+    <span id="cart-fab-total">$0</span>
+  </button>
+
+  <div id="product-modal-backdrop" class="modal-backdrop"></div>
+  <div id="product-modal" class="modal">
+    <button type="button" id="product-modal-close" class="cart-close" aria-label="Cerrar">✕</button>
+    <img id="product-modal-image" class="modal-photo" style="display:none;" alt="">
+    <h3 id="product-modal-name"></h3>
+    <p id="product-modal-description" class="hint"></p>
+    <div class="price" id="product-modal-price"></div>
+    <button type="button" id="product-modal-add" class="button button-primary">Agregar</button>
+  </div>
+</div>
+{% endblock %}

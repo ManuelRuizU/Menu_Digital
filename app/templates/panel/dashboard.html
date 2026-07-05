@@ -1,0 +1,70 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+    <h1>Dashboard</h1>
+
+    <div class="card-row" style="gap:12px;">
+      <div class="card" style="flex:1;text-align:center;">
+        <div class="muted">Pedidos recibidos</div>
+        <div style="font-size:1.8rem;font-weight:700;">{{ total_orders }}</div>
+      </div>
+      <div class="card" style="flex:1;text-align:center;">
+        <div class="muted">Confirmados</div>
+        <div style="font-size:1.8rem;font-weight:700;">{{ confirmed_orders }}</div>
+      </div>
+      <div class="card" style="flex:1;text-align:center;">
+        <div class="muted">% marcados como confirmados</div>
+        <div style="font-size:1.8rem;font-weight:700;">{{ confirmation_rate }}%</div>
+      </div>
+    </div>
+    <p class="muted">
+      Este porcentaje solo mide cuántos pedidos marcaste como "Confirmado" tú mismo - el sistema no sabe
+      si la venta realmente se cerró por WhatsApp, así que no es una tasa de conversión real.
+    </p>
+
+    <h2>Clientes</h2>
+    <p class="muted">Busca por nombre o teléfono para ver el último pedido de un cliente - útil si te escriben directo por WhatsApp pidiendo "lo mismo de la última vez".</p>
+    <input id="customer-search" type="search" placeholder="Buscar cliente..." style="margin-bottom:16px;">
+
+    {% for order in customers %}
+      <div class="card customer-card" data-search="{{ (order.customer_name ~ ' ' ~ order.phone)|lower }}">
+        <div class="card-row">
+          <div>
+            <strong>{{ order.customer_name }}</strong>
+            <span class="muted">· {{ order.phone }} · {{ order_counts.get(order.phone, 1) }} pedido(s)</span>
+          </div>
+          <span class="muted">Último: {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
+        </div>
+
+        <ul class="order-items">
+          {% for item in order.order_items %}
+            <li>{{ item.quantity }}× {{ item.product.name if item.product else 'Producto eliminado' }} — ${{ '%.0f'|format(item.price * item.quantity) }}</li>
+          {% endfor %}
+        </ul>
+
+        <p class="muted">
+          {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
+          {% if order.delivery_mode == 'envio' and order.address %}· {{ order.address }}{% endif %}
+          · Hora: {{ order.requested_time or 'Lo antes posible' }}
+          {% if order.payment_method %}· Pago: {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }}{% endif %}
+        </p>
+        {% if order.notes %}<p class="muted">Notas: {{ order.notes }}</p>{% endif %}
+        <p><strong>Total: ${{ '%.0f'|format(order.total_price) }}</strong></p>
+
+        <div class="inline-actions">
+          <a class="whatsapp-link" style="padding:12px 16px;border-radius:8px;color:white;font-weight:600;" href="https://wa.me/{{ order.phone_digits }}" target="_blank" rel="noopener">📱 WhatsApp cliente</a>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Todavía no ha llegado ningún pedido.</p>
+    {% endfor %}
+
+    <script>
+      document.getElementById('customer-search').addEventListener('input', (e) => {
+        const term = e.target.value.trim().toLowerCase()
+        document.querySelectorAll('.customer-card').forEach((card) => {
+          card.style.display = card.dataset.search.includes(term) ? '' : 'none'
+        })
+      })
+    </script>
+{% endblock %}

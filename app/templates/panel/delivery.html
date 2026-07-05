@@ -1,0 +1,109 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Zonas de reparto{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.2/dist/leaflet-geoman.css" />
+{% endblock %}
+{% block content %}
+    <h1>Zonas de reparto</h1>
+
+    {% if not current_user.latitude %}
+      <p class="muted">Aún no has definido la ubicación de tu negocio. <a href="{{ url_for('auth.admin_panel') }}">Configúrala aquí</a> para que los rangos por distancia funcionen.</p>
+    {% endif %}
+
+    <h2>Rangos por distancia</h2>
+    <form method="post" action="{{ url_for('catalog.create_delivery_tier') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="min_km">Desde (km)</label>
+      <input type="number" step="0.1" min="0" id="min_km" name="min_km" required>
+      <label for="max_km">Hasta (km)</label>
+      <input type="number" step="0.1" min="0" id="max_km" name="max_km" required>
+      <label for="price">Precio</label>
+      <input type="number" step="1" min="0" id="price" name="price" required>
+      <button type="submit">Agregar rango</button>
+    </form>
+
+    {% for tier in tiers %}
+      <div class="card card-row">
+        <span>{{ tier.min_km }} km – {{ tier.max_km }} km</span>
+        <span>${{ '%.0f'|format(tier.price) }}</span>
+        <form method="post" action="{{ url_for('catalog.delete_delivery_tier', tier_id=tier.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger">Eliminar</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="muted">Aún no tienes rangos de reparto configurados.</p>
+    {% endfor %}
+
+    <h2>Áreas con precio especial</h2>
+    <p class="muted">Dibuja un área en el mapa para asignarle un precio fijo que reemplaza al rango por distancia.</p>
+    <div id="delivery-map" class="panel-map"></div>
+
+    <form method="post" action="{{ url_for('catalog.create_delivery_zone') }}" id="zone-form" style="display:none;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="geojson" id="zone-geojson">
+      <label for="zone-name">Nombre del área</label>
+      <input id="zone-name" name="name" required>
+      <label for="zone-price">Precio</label>
+      <input type="number" step="1" min="0" id="zone-price" name="price" required>
+      <button type="submit">Guardar área</button>
+    </form>
+
+    {% for zone in zones %}
+      <div class="card card-row">
+        <span>{{ zone.name }}</span>
+        <span>${{ '%.0f'|format(zone.price) }}</span>
+        <form method="post" action="{{ url_for('catalog.delete_delivery_zone', zone_id=zone.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger">Eliminar</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="muted">Aún no tienes áreas con precio especial.</p>
+    {% endfor %}
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.2/dist/leaflet-geoman.min.js"></script>
+    <script>
+      (function () {
+        const centerLat = {{ current_user.latitude or -33.4489 }};
+        const centerLng = {{ current_user.longitude or -70.6693 }};
+        const existingZones = {{ zones_geojson|safe }};
+
+        const map = L.map('delivery-map').setView([centerLat, centerLng], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        {% if current_user.latitude %}
+          L.marker([centerLat, centerLng]).addTo(map).bindPopup('Tu negocio');
+        {% endif %}
+
+        existingZones.forEach((geojson) => {
+          L.geoJSON(geojson, { style: { color: '#e15c5c' } }).addTo(map);
+        });
+
+        map.pm.addControls({
+          position: 'topleft',
+          drawMarker: false,
+          drawCircleMarker: false,
+          drawPolyline: false,
+          drawRectangle: false,
+          drawCircle: false,
+          drawText: false,
+          editMode: false,
+          dragMode: false,
+          cutPolygon: false,
+          removalMode: false,
+        });
+
+        map.on('pm:create', (e) => {
+          const geojson = e.layer.toGeoJSON().geometry;
+          document.getElementById('zone-geojson').value = JSON.stringify(geojson);
+          document.getElementById('zone-form').style.display = 'grid';
+          document.getElementById('zone-form').scrollIntoView({ behavior: 'smooth' });
+        });
+      })();
+    </script>
+{% endblock %}

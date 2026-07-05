@@ -1,0 +1,52 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Historial de pedidos{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Historial de pedidos</h1>
+      <a href="{{ url_for('catalog.orders') }}"><button type="button">Volver a hoy</button></a>
+    </div>
+    <p class="muted">Todos los pedidos recibidos, del más reciente al más antiguo.</p>
+    <p><strong>{{ orders|length }}</strong> pedidos en total · <strong>{{ confirmed_count }}</strong> confirmados</p>
+
+    {% for order in orders %}
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <strong>{{ order.customer_name }}</strong>
+            <span class="muted">· {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
+          </div>
+          <span class="status-pill {{ 'confirmed' if order.status == 'Confirmed' else 'pending' }}">
+            {{ 'Confirmado' if order.status == 'Confirmed' else 'Pendiente' }}
+          </span>
+        </div>
+
+        <ul class="order-items">
+          {% for item in order.order_items %}
+            <li>{{ item.quantity }}× {{ item.product.name if item.product else 'Producto eliminado' }} — ${{ '%.0f'|format(item.price * item.quantity) }}</li>
+          {% endfor %}
+        </ul>
+
+        <p class="muted">
+          {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
+          {% if order.delivery_mode == 'envio' and order.address %}· {{ order.address }}{% endif %}
+          · Hora: {{ order.requested_time_label }}
+          {% if order.payment_method %}· Pago: {{ {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}.get(order.payment_method, order.payment_method) }}{% endif %}
+        </p>
+        {% if order.notes %}<p class="muted">Notas: {{ order.notes }}</p>{% endif %}
+        <p><strong>Total: ${{ '%.0f'|format(order.total_price) }}</strong></p>
+
+        <div class="inline-actions">
+          <a class="whatsapp-link" style="padding:12px 16px;border-radius:8px;color:white;font-weight:600;" href="https://wa.me/{{ order.phone_digits }}" target="_blank" rel="noopener">📱 WhatsApp cliente</a>
+          <form method="post" action="{{ url_for('catalog.toggle_order_status', order_id=order.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <button type="submit" class="{{ 'secondary' if order.status == 'Confirmed' else '' }}">
+              {{ 'Marcar como pendiente' if order.status == 'Confirmed' else 'Confirmar' }}
+            </button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Todavía no ha llegado ningún pedido.</p>
+    {% endfor %}
+{% endblock %}
