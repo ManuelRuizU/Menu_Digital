@@ -66,7 +66,11 @@ button, input { font: inherit; }
 .cart-item { display: grid; grid-template-columns: 1fr auto; gap: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; padding: 14px; }
 .cart-item strong { display: block; color: white; margin-bottom: 6px; }
 .cart-item small { color: var(--muted); }
-.cart-item button { border: none; background: transparent; color: var(--accent); cursor: pointer; font-weight: 700; }
+.cart-item-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.cart-item-controls .qty-btn { width: 28px; height: 28px; border: none; border-radius: 8px; background: rgba(255,255,255,0.08); color: white; font-size: 1rem; font-weight: 700; cursor: pointer; line-height: 1; }
+.cart-item-controls .qty-value { min-width: 18px; text-align: center; color: white; font-weight: 600; }
+.cart-item-controls > div { display: flex; align-items: center; gap: 6px; }
+.cart-item-controls .remove-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
 .summary { margin-top: 18px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; display: grid; gap: 10px; }
 .summary-row { display: flex; justify-content: space-between; color: var(--muted); }
 .summary-row.total { font-size: 1.1rem; color: white; font-weight: 700; }

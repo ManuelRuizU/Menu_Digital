@@ -376,9 +376,16 @@ function renderCart() {
       <article class="cart-item">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
-          <small>${item.quantity} × ${formatPrice(item.price)}</small>
+          <small>${formatPrice(item.price)} c/u</small>
         </div>
-        <button type="button" data-remove="${item.id}">Quitar</button>
+        <div class="cart-item-controls">
+          <div>
+            <button type="button" class="qty-btn" data-decrement="${item.id}" aria-label="Restar ${escapeHtml(item.name)}">−</button>
+            <span class="qty-value">${item.quantity}</span>
+            <button type="button" class="qty-btn" data-increment="${item.id}" aria-label="Sumar ${escapeHtml(item.name)}">+</button>
+          </div>
+          <button type="button" class="remove-btn" data-remove="${item.id}" aria-label="Quitar ${escapeHtml(item.name)}">Quitar</button>
+        </div>
       </article>
     `).join('')
   }
@@ -549,6 +556,25 @@ function removeFromCart(productId) {
   renderCart()
 }
 
+function incrementCartItem(productId) {
+  const item = STATE.cart.find((cartItem) => cartItem.id === Number(productId))
+  if (!item) return
+  item.quantity += 1
+  saveCart()
+  renderCart()
+}
+
+function decrementCartItem(productId) {
+  const item = STATE.cart.find((cartItem) => cartItem.id === Number(productId))
+  if (!item) return
+  item.quantity -= 1
+  if (item.quantity <= 0) {
+    STATE.cart = STATE.cart.filter((cartItem) => cartItem.id !== Number(productId))
+  }
+  saveCart()
+  renderCart()
+}
+
 const PAYMENT_METHOD_LABELS = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta al recibir' }
 
 function buildWhatsAppText() {
@@ -697,12 +723,16 @@ window.addEventListener('load', () => {
     if (details) openProductModal(details.getAttribute('data-details'))
     const add = event.target.closest('[data-add]')
     const remove = event.target.closest('[data-remove]')
+    const increment = event.target.closest('[data-increment]')
+    const decrement = event.target.closest('[data-decrement]')
     if (add) {
       addToCart(add.getAttribute('data-add'))
       openCart()
       closeProductModal()
     }
     if (remove) removeFromCart(remove.getAttribute('data-remove'))
+    if (increment) incrementCartItem(increment.getAttribute('data-increment'))
+    if (decrement) decrementCartItem(decrement.getAttribute('data-decrement'))
     const quickCash = event.target.closest('.quick-cash-option')
     if (quickCash) {
       elements.cashAmount.value = quickCash.dataset.amount
