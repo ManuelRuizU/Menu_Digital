@@ -40,6 +40,36 @@
       si la venta realmente se cerró por WhatsApp, así que no es una tasa de conversión real.
     </p>
 
+    <h2>Productos más vendidos</h2>
+    <p class="muted">Solo cuenta pedidos que marcaste como "Confirmado" - un pedido pendiente podría no haberse cerrado nunca por WhatsApp.</p>
+
+    {% if top_products %}
+      <div class="card" style="margin-bottom:24px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left;">
+              <th style="padding:8px 6px;">#</th>
+              <th style="padding:8px 6px;">Producto</th>
+              <th style="padding:8px 6px;text-align:right;">Unidades vendidas</th>
+              <th style="padding:8px 6px;text-align:right;">Ingresos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for name, total_quantity, total_revenue in top_products %}
+              <tr style="border-top:1px solid rgba(255,255,255,0.08);">
+                <td style="padding:8px 6px;" class="muted">{{ loop.index }}</td>
+                <td style="padding:8px 6px;">{{ name }}</td>
+                <td style="padding:8px 6px;text-align:right;">{{ total_quantity }}</td>
+                <td style="padding:8px 6px;text-align:right;">${{ '%.0f'|format(total_revenue) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">Todavía no hay pedidos confirmados para mostrar un ranking.</p>
+    {% endif %}
+
     <h2>Clientes</h2>
     <p class="muted">Busca por nombre o teléfono para ver el último pedido de un cliente - útil si te escriben directo por WhatsApp pidiendo "lo mismo de la última vez".</p>
     <input id="customer-search" type="search" placeholder="Buscar cliente..." style="margin-bottom:16px;">

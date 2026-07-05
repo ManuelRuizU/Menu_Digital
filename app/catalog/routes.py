@@ -519,6 +519,23 @@ def dashboard():
     order_counts = dict(db.session.query(Order.phone, func.count(Order.id)).group_by(Order.phone).all())
     owner = User.query.filter_by(is_owner=True).first()
 
+    # Only counts confirmed orders - a pending order might never have actually closed
+    # over WhatsApp, so counting it here would overstate what's really selling.
+    top_products = (
+        db.session.query(
+            Product.name,
+            func.sum(OrderItem.quantity).label('total_quantity'),
+            func.sum(OrderItem.price * OrderItem.quantity).label('total_revenue'),
+        )
+        .join(OrderItem, OrderItem.product_id == Product.id)
+        .join(Order, Order.id == OrderItem.order_id)
+        .filter(Order.status == 'Confirmed')
+        .group_by(Product.id, Product.name)
+        .order_by(func.sum(OrderItem.quantity).desc())
+        .limit(10)
+        .all()
+    )
+
     return render_template(
         'panel/dashboard.html',
         total_orders=total_orders,
@@ -528,6 +545,7 @@ def dashboard():
         order_counts=order_counts,
         PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS,
         owner=owner,
+        top_products=top_products,
     )
 
 
