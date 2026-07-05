@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from flask import current_app, flash, redirect, render_template, request, url_for, Response
 from flask_login import login_required
+import qrcode
 from PIL import Image, ImageDraw, ImageFont
 from escpos.printer import Network
 from shapely.geometry import shape
@@ -536,6 +537,8 @@ def dashboard():
         .all()
     )
 
+    menu_url = url_for('main.index', _external=True)
+
     return render_template(
         'panel/dashboard.html',
         total_orders=total_orders,
@@ -546,7 +549,21 @@ def dashboard():
         PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS,
         owner=owner,
         top_products=top_products,
+        menu_url=menu_url,
+        menu_share_url=f'https://wa.me/?text={quote(f"Mira nuestro menú: {menu_url}")}',
     )
+
+
+@catalog.route('/menu-qr.png')
+@login_required
+@admin_required
+def menu_qr():
+    """QR code for the public menu link - for flyers, Instagram bio, WhatsApp Business, etc."""
+    menu_url = url_for('main.index', _external=True)
+    img = qrcode.make(menu_url, box_size=8, border=2)
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    return Response(buf.getvalue(), mimetype='image/png')
 
 
 @catalog.route('/toggle-closed', methods=['POST'])

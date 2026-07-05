@@ -21,6 +21,21 @@
       </div>
     {% endif %}
 
+    <div class="card" style="margin-bottom:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <img src="{{ url_for('catalog.menu_qr') }}" alt="Código QR del menú" style="width:96px;height:96px;border-radius:8px;background:white;padding:6px;">
+      <div style="flex:1;min-width:200px;">
+        <strong>Comparte tu menú</strong>
+        <p class="muted" style="margin:4px 0 10px;">
+          Cuando alguien te pida la carta por redes sociales, mándale este link en vez de un Word o fotos sueltas.
+          El código QR sirve para tus historias, tu WhatsApp Business o para imprimir en un flyer.
+        </p>
+        <div class="inline-actions" style="flex-wrap:wrap;">
+          <a class="whatsapp-link" style="padding:10px 16px;border-radius:8px;color:white;font-weight:600;" href="{{ menu_share_url }}" target="_blank" rel="noopener">📱 Compartir por WhatsApp</a>
+          <a href="{{ menu_url }}" target="_blank" rel="noopener">{{ menu_url }}</a>
+        </div>
+      </div>
+    </div>
+
     <div class="card-row" style="gap:12px;">
       <div class="card" style="flex:1;text-align:center;">
         <div class="muted">Pedidos recibidos</div>
