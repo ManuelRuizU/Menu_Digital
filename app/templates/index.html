@@ -4,9 +4,9 @@
 
 {% block head %}
 <style>
-  /* Same specificity as the theme's body[data-theme] rules in menu.css, and loaded
+  /* Same specificity as the theme's html[data-theme] rules in menu.css, and loaded
      after it - so the owner's custom colors always win, on top of any theme. */
-  body[data-theme] { --primary: {{ primary_color }}; --accent: {{ accent_color }}; }
+  html[data-theme] { --primary: {{ primary_color }}; --accent: {{ accent_color }}; }
 </style>
 {% endblock %}
 

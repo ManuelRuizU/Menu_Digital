@@ -23,7 +23,7 @@
   --font-heading: 'Inter', system-ui, sans-serif;
 }
 
-body[data-theme="claro"] {
+html[data-theme="claro"] {
   color-scheme: light;
   --bg-start: #efece2;
   --bg-end: #e8e4d6;
@@ -46,7 +46,7 @@ body[data-theme="claro"] {
   --body-weight: 300;
 }
 
-body[data-theme="urbano"] {
+html[data-theme="urbano"] {
   color-scheme: dark;
   --bg-start: #0a0a0a;
   --bg-end: #000000;
@@ -69,7 +69,7 @@ body[data-theme="urbano"] {
   --body-weight: 600;
 }
 
-body[data-theme="cafeteria"] {
+html[data-theme="cafeteria"] {
   color-scheme: light;
   --bg-start: #eeeeea;
   --bg-end: #e6e6e0;
@@ -92,7 +92,7 @@ body[data-theme="cafeteria"] {
   --body-weight: 300;
 }
 
-body[data-theme="trattoria"] {
+html[data-theme="trattoria"] {
   color-scheme: light;
   --bg-start: #f7ecd8;
   --bg-end: #f0e2c6;
@@ -115,58 +115,58 @@ body[data-theme="trattoria"] {
   --body-weight: 400;
   --font-heading: 'Playfair Display', 'Georgia', serif;
 }
-body[data-theme="trattoria"] .business-name {
+html[data-theme="trattoria"] .business-name {
   font-weight: 700;
   font-style: italic;
 }
-body[data-theme="trattoria"] .section-header h2,
-body[data-theme="trattoria"] .menu-section-title {
+html[data-theme="trattoria"] .section-header h2,
+html[data-theme="trattoria"] .menu-section-title {
   font-family: var(--font-heading);
   font-weight: 600;
 }
 
 /* Airier, more spaced-out feel to match "minimalista" - a single accent (no two-tone
    gradients, since --primary equals --accent here) and lighter borders/shadows. */
-body[data-theme="cafeteria"] .hero,
-body[data-theme="cafeteria"] .panel {
+html[data-theme="cafeteria"] .hero,
+html[data-theme="cafeteria"] .panel {
   padding: 32px 34px;
 }
-body[data-theme="cafeteria"] .product-card {
+html[data-theme="cafeteria"] .product-card {
   padding: 20px;
   gap: 16px;
 }
-body[data-theme="cafeteria"] .section-header h2,
-body[data-theme="cafeteria"] .business-name {
+html[data-theme="cafeteria"] .section-header h2,
+html[data-theme="cafeteria"] .business-name {
   font-weight: 500;
 }
 
 /* Bolder, sharper-edged "poster" feel - straighter corners, punchier headings,
    flat hard shadows instead of soft blurred ones. */
-body[data-theme="urbano"] .hero,
-body[data-theme="urbano"] .panel,
-body[data-theme="urbano"] .product-card,
-body[data-theme="urbano"] .cart-item,
-body[data-theme="urbano"] .upsell-item,
-body[data-theme="urbano"] .accordion-section,
-body[data-theme="urbano"] .modal,
-body[data-theme="urbano"] .card-actions button[data-add],
-body[data-theme="urbano"] .details-btn,
-body[data-theme="urbano"] .button {
+html[data-theme="urbano"] .hero,
+html[data-theme="urbano"] .panel,
+html[data-theme="urbano"] .product-card,
+html[data-theme="urbano"] .cart-item,
+html[data-theme="urbano"] .upsell-item,
+html[data-theme="urbano"] .accordion-section,
+html[data-theme="urbano"] .modal,
+html[data-theme="urbano"] .card-actions button[data-add],
+html[data-theme="urbano"] .details-btn,
+html[data-theme="urbano"] .button {
   border-radius: 6px;
 }
-body[data-theme="urbano"] .business-name {
+html[data-theme="urbano"] .business-name {
   text-transform: uppercase;
   letter-spacing: 0.01em;
   font-weight: 800;
 }
-body[data-theme="urbano"] .section-header h2,
-body[data-theme="urbano"] .menu-section-title {
+html[data-theme="urbano"] .section-header h2,
+html[data-theme="urbano"] .menu-section-title {
   text-transform: uppercase;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
-body[data-theme="urbano"] .card-actions button[data-add],
-body[data-theme="urbano"] .button-primary {
+html[data-theme="urbano"] .card-actions button[data-add],
+html[data-theme="urbano"] .button-primary {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
