@@ -19,6 +19,7 @@
   --shadow: 0 10px 40px rgba(0,0,0,0.5);
   --shadow-soft: 0 10px 30px rgba(0,0,0,0.4);
   --body-weight: 400;
+  --font-heading: 'Inter', system-ui, sans-serif;
 }
 
 body[data-theme="claro"] {
@@ -87,6 +88,38 @@ body[data-theme="cafeteria"] {
   --body-weight: 300;
 }
 
+body[data-theme="trattoria"] {
+  color-scheme: light;
+  --bg-start: #fdf6ea;
+  --bg-end: #f7ecd6;
+  --surface: #fffaf0;
+  --surface-2: #f6ead2;
+  --text: #3a2a1e;
+  --text-strong: #2a1c12;
+  --muted: #8a7561;
+  --primary: #a5312f;
+  --primary-rgb: 165,49,47;
+  --accent: #3f6b45;
+  --accent-rgb: 63,107,69;
+  --border: rgba(58,42,30,0.14);
+  --tint-1: rgba(58,42,30,0.04);
+  --tint-2: rgba(58,42,30,0.07);
+  --tint-3: rgba(58,42,30,0.12);
+  --shadow: 0 10px 26px rgba(58,42,30,0.15);
+  --shadow-soft: 0 8px 20px rgba(58,42,30,0.12);
+  --body-weight: 400;
+  --font-heading: 'Playfair Display', 'Georgia', serif;
+}
+body[data-theme="trattoria"] .business-name {
+  font-weight: 700;
+  font-style: italic;
+}
+body[data-theme="trattoria"] .section-header h2,
+body[data-theme="trattoria"] .menu-section-title {
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
 /* Airier, more spaced-out feel to match "minimalista" - a single accent (no two-tone
    gradients, since --primary equals --accent here) and lighter borders/shadows. */
 body[data-theme="cafeteria"] .hero,
@@ -150,6 +183,7 @@ button, input { font: inherit; }
 .hero-info { min-width: 0; flex: 1; }
 .business-name {
   margin: 0;
+  font-family: var(--font-heading);
   font-size: clamp(1.4rem, 2.6vw, 2.1rem);
   line-height: 1.1;
   color: var(--primary);

@@ -16,6 +16,7 @@ THEMES = {
     'claro': {'label': 'Cálido artesanal', 'primary': '#5c7c5a', 'accent': '#8a6b4f'},
     'urbano': {'label': 'Urbano llamativo', 'primary': '#ffcc00', 'accent': '#ff3d1a'},
     'cafeteria': {'label': 'Minimalista café', 'primary': '#5b7c8f', 'accent': '#5b7c8f'},
+    'trattoria': {'label': 'Trattoria clásica', 'primary': '#a5312f', 'accent': '#3f6b45'},
 }
 
 
