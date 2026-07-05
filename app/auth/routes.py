@@ -195,7 +195,8 @@ def admin_panel():
 @login_required
 @owner_required
 def update_business_profile():
-    current_user.is_closed_temporarily = 'is_closed_temporarily' in request.form
+    # is_closed_temporarily is controlled from the Dashboard toggle, not this form -
+    # leaving it out of this handler on purpose so saving other settings can't silently reopen the store.
     current_user.closed_message = request.form.get('closed_message', '').strip() or None
     theme = request.form.get('theme', '').strip()
     if theme in THEMES:

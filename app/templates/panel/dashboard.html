@@ -14,9 +14,12 @@
             <p class="muted" style="margin:4px 0 0;">Los clientes pueden ver el menú y hacer pedidos normalmente.</p>
           {% endif %}
         </div>
-        <form method="post" action="{{ url_for('catalog.toggle_closed') }}">
+        <form method="post" action="{{ url_for('catalog.toggle_closed') }}" style="margin:0;padding:0;background:none;border:none;">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit">{{ 'Reabrir tienda' if owner.is_closed_temporarily else 'Cerrar temporalmente' }}</button>
+          <label class="toggle-switch" title="{{ 'Reabrir tienda' if owner.is_closed_temporarily else 'Cerrar temporalmente' }}">
+            <input type="checkbox" {{ 'checked' if not owner.is_closed_temporarily }} onchange="this.form.submit()">
+            <span class="toggle-track"></span>
+          </label>
         </form>
       </div>
     {% endif %}
