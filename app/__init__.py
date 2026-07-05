@@ -3,6 +3,8 @@ from flask import Flask
 from config import Config
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_login import LoginManager
 from flask_wtf import CSRFProtect
 from flask_migrate import Migrate, stamp
@@ -14,6 +16,9 @@ from app.admin import MyAdminIndexView, UserModelView
 login_manager = LoginManager()
 csrf = CSRFProtect()
 migrate = Migrate()
+# In-memory storage is fine for the single Gunicorn worker this app is designed to run with -
+# no Redis or other paid/extra service needed just to rate-limit login and order creation.
+limiter = Limiter(key_func=get_remote_address)
 
 def create_app():
     app = Flask(__name__)
@@ -23,6 +28,7 @@ def create_app():
     login_manager.login_view = 'auth.login'  # Redirigir a la vista de login
     csrf.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
 
     # Los modelos deben importarse antes de create_all() para que sus tablas
     # queden registradas en los metadatos de SQLAlchemy.
@@ -53,6 +59,13 @@ def create_app():
 
     from app.catalog import catalog as catalog_blueprint
     app.register_blueprint(catalog_blueprint)
+
+    @app.after_request
+    def set_security_headers(response):
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        return response
 
     _start_backup_scheduler(app)
 

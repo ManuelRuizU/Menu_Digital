@@ -2,16 +2,16 @@ import json
 import math
 import re
 
-from flask import jsonify, render_template, request, url_for
+from flask import current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
 from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, Product, User
-from app import csrf, db
+from app import csrf, db, limiter
 
 
 def get_owner():
-    return User.query.filter_by(is_admin=True).first()
+    return User.query.filter_by(is_owner=True).first()
 
 
 def has_delivery_configured():
@@ -137,6 +137,7 @@ def shipping_cost_api():
 
 @main.route('/api/orders', methods=['POST'])
 @csrf.exempt
+@limiter.limit('20 per minute')
 def create_order():
     data = request.get_json(silent=True) or {}
     items = data.get('items', [])
@@ -238,6 +239,7 @@ def create_order():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        current_app.logger.exception('Failed to save order for %s (%s)', customer_name, phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
 
     return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.', 'orderId': order.id})

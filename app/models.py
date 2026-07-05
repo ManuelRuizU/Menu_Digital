@@ -37,10 +37,10 @@ class User(UserMixin, db.Model):
     backup_email_host = db.Column(db.String(120), nullable=True)
     backup_email_port = db.Column(db.Integer, nullable=True)
     backup_email_address = db.Column(db.String(120), nullable=True)
-    backup_email_password = db.Column(db.String(255), nullable=True)
+    backup_email_password_encrypted = db.Column(db.String(255), nullable=True)
     backup_email_to = db.Column(db.String(120), nullable=True)
     backup_last_sent_at = db.Column(db.DateTime, nullable=True)
-    reset_token = db.Column(db.String(64), nullable=True)
+    reset_token_hash = db.Column(db.String(64), nullable=True)
     reset_token_expires_at = db.Column(db.DateTime, nullable=True)
 
     def set_password(self, password):
@@ -48,6 +48,18 @@ class User(UserMixin, db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    @property
+    def backup_email_password(self):
+        """The SMTP app password, transparently encrypted at rest (app/crypto.py) -
+        unlike the login password, this one has to be reversible to actually send email."""
+        from app.crypto import decrypt_secret
+        return decrypt_secret(self.backup_email_password_encrypted)
+
+    @backup_email_password.setter
+    def backup_email_password(self, value):
+        from app.crypto import encrypt_secret
+        self.backup_email_password_encrypted = encrypt_secret(value)
 
     def __repr__(self):
         return f'<User {self.username}>'

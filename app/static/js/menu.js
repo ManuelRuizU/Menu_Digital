@@ -144,6 +144,15 @@ function formatPrice(value) {
   return `$${Number(value).toLocaleString('es-CL')}`
 }
 
+// Product/category names come from the admin panel, not from the customer, but they still
+// end up inside innerHTML on the public menu - escape them so an admin/staff account can't
+// (accidentally or otherwise) inject markup that runs in every visitor's browser.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[char])
+}
+
 function getDeliveryMode() {
   return document.querySelector('input[name="delivery-mode"]:checked')?.value || 'retira'
 }
@@ -258,21 +267,22 @@ function productCardHtml(product) {
   const badge = soldOut
     ? '<span class="sold-out-badge">Agotado</span>'
     : (product.featured ? '<span class="featured-badge">⭐ Recomendado</span>' : '')
+  const safeName = escapeHtml(product.name)
   return `
     <article class="product-card${soldOut ? ' sold-out' : ''}">
       ${product.imageUrl
-        ? `<div class="product-photo-wrap"><img src="${product.imageUrl}" alt="${product.name}" class="product-photo">${badge}</div>`
+        ? `<div class="product-photo-wrap"><img src="${product.imageUrl}" alt="${safeName}" class="product-photo">${badge}</div>`
         : ''}
       <div>
         ${!product.imageUrl ? badge : ''}
-        <strong>${product.name}</strong>
+        <strong>${safeName}</strong>
         <div class="price">${formatPrice(product.price)}</div>
       </div>
       <div class="card-actions">
         <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">ⓘ</button>
         ${soldOut
           ? '<button type="button" class="sold-out-btn" disabled>Agotado</button>'
-          : `<button type="button" data-add="${product.id}" aria-label="Agregar ${product.name}">+</button>`}
+          : `<button type="button" data-add="${product.id}" aria-label="Agregar ${safeName}">+</button>`}
       </div>
     </article>
   `
@@ -281,9 +291,9 @@ function productCardHtml(product) {
 function renderNav(categories) {
   elements.navLinks.innerHTML = categories.map((category) => `
     <div class="nav-category">
-      <button type="button" class="nav-category-link" data-target="cat-${category.id}">${category.name}</button>
+      <button type="button" class="nav-category-link" data-target="cat-${category.id}">${escapeHtml(category.name)}</button>
       ${category.subcategories.filter((sub) => sub.name).map((sub) => `
-        <button type="button" class="nav-subcategory-link" data-target="sub-${category.id}-${sub.id}">${sub.name}</button>
+        <button type="button" class="nav-subcategory-link" data-target="sub-${category.id}-${sub.id}">${escapeHtml(sub.name)}</button>
       `).join('')}
     </div>
   `).join('')
@@ -301,10 +311,10 @@ function renderProductGrid(filterTerm = '') {
   const categories = groupProducts(filtered)
   elements.productsGrid.innerHTML = categories.map((category) => `
     <section class="menu-section" id="cat-${category.id}">
-      <h2 class="menu-section-title">${category.name}</h2>
+      <h2 class="menu-section-title">${escapeHtml(category.name)}</h2>
       ${category.subcategories.map((sub) => `
         <div class="menu-subsection" id="sub-${category.id}-${sub.id || 'none'}">
-          ${sub.name ? `<h3 class="menu-subsection-title">${sub.name}</h3>` : ''}
+          ${sub.name ? `<h3 class="menu-subsection-title">${escapeHtml(sub.name)}</h3>` : ''}
           <div class="products-grid">${sub.products.map(productCardHtml).join('')}</div>
         </div>
       `).join('')}
@@ -348,9 +358,9 @@ function renderUpsellSuggestions() {
     <div class="upsell-list">
       ${suggestions.map((product) => `
         <div class="upsell-item">
-          <span>${product.name}</span>
+          <span>${escapeHtml(product.name)}</span>
           <span class="upsell-price">${formatPrice(product.price)}</span>
-          <button type="button" data-add="${product.id}" aria-label="Agregar ${product.name}">+</button>
+          <button type="button" data-add="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}">+</button>
         </div>
       `).join('')}
     </div>
@@ -365,7 +375,7 @@ function renderCart() {
     elements.cartItems.innerHTML = cart.map((item) => `
       <article class="cart-item">
         <div>
-          <strong>${item.name}</strong>
+          <strong>${escapeHtml(item.name)}</strong>
           <small>${item.quantity} × ${formatPrice(item.price)}</small>
         </div>
         <button type="button" data-remove="${item.id}">Quitar</button>

@@ -2,9 +2,10 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from io import BytesIO
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from flask import current_app, flash, redirect, render_template, request, url_for, Response
 from flask_login import login_required
@@ -466,8 +467,17 @@ def dashboard():
 @login_required
 @admin_required
 def orders():
-    today = datetime.now(BUSINESS_TZ).date()
-    todays_orders = [order for order in Order.query.all() if order.created_at_local.date() == today]
+    # created_at is stored in naive UTC - convert "today, in the business's own timezone"
+    # into the matching UTC range so this can filter in SQL instead of loading every
+    # historical order just to throw most of them away.
+    start_local = datetime.combine(datetime.now(BUSINESS_TZ).date(), time.min, tzinfo=BUSINESS_TZ)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    end_utc = end_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+
+    todays_orders = (Order.query
+                      .filter(Order.created_at >= start_utc, Order.created_at < end_utc)
+                      .all())
     todays_orders.sort(key=lambda order: order.requested_time or '99:99')
 
     confirmed_count = sum(1 for order in todays_orders if order.status == 'Confirmed')
@@ -663,7 +673,7 @@ def delete_courier(courier_id):
 
 @catalog.route('/manifest.webmanifest')
 def manifest():
-    owner = User.query.filter_by(is_admin=True).first()
+    owner = User.query.filter_by(is_owner=True).first()
     business_name = owner.business_name if owner and owner.business_name else 'Menú Digital'
     theme_color = owner.primary_color if owner and owner.primary_color else '#4ecdc4'
     manifest_data = {
@@ -685,7 +695,7 @@ def manifest():
 @catalog.route('/pwa-icon/<int:size>.png')
 def pwa_icon(size):
     size = 512 if size >= 512 else 192
-    owner = User.query.filter_by(is_admin=True).first()
+    owner = User.query.filter_by(is_owner=True).first()
     primary_color = owner.primary_color if owner and owner.primary_color else '#4ecdc4'
 
     icon = Image.new('RGB', (size, size), primary_color)

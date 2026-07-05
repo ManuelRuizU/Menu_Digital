@@ -1,12 +1,16 @@
-Flask>=2.0
-Flask-Login>=0.6
-Flask-Admin>=1.6
-Flask-SQLAlchemy>=3.0
-Flask-WTF>=1.2
-Flask-Migrate>=4.0
-Werkzeug>=2.0
-Shapely>=2.0
-gunicorn>=21.0
-Pillow>=10.0
-python-escpos>=3.0
-APScheduler>=3.10
+# Versiones fijas, probadas juntas durante todo el desarrollo de este proyecto -
+# evita que una instalación nueva en el futuro traiga versiones nunca probadas.
+Flask==3.1.3
+Flask-Login==0.6.3
+Flask-Admin==2.2.0
+Flask-SQLAlchemy==3.1.1
+Flask-WTF==1.3.0
+Flask-Migrate==4.1.0
+Flask-Limiter==4.1.1
+Werkzeug==3.1.8
+Shapely==2.1.2
+gunicorn==26.0.0
+Pillow==12.3.0
+python-escpos==3.1
+APScheduler==3.11.3
+cryptography==49.0.0

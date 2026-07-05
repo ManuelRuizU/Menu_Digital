@@ -33,3 +33,8 @@ class Config:
     PRODUCT_ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
     MAX_CONTENT_LENGTH = 12 * 1024 * 1024  # 12 MB - raw phone photos come in large; the server compresses them on save
 
+    # Secure by default (cookie only sent over HTTPS) - both documented deployment paths
+    # (VPS+certbot, PythonAnywhere) always serve over HTTPS. Set DISABLE_SECURE_COOKIES=1
+    # only for local testing over plain http://127.0.0.1.
+    SESSION_COOKIE_SECURE = os.environ.get('DISABLE_SECURE_COOKIES') != '1'
+

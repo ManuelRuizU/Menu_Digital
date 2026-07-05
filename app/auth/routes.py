@@ -1,4 +1,5 @@
 # app/auth/routes.py
+import hashlib
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -8,7 +9,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.models import User
-from app import db
+from app import db, limiter
 from app.decorators import admin_required, owner_required
 from app.auth import auth
 from app.uploads import save_image
@@ -42,6 +43,7 @@ def _save_logo(user, file_storage):
 
 
 @auth.route('/login', methods=['GET', 'POST'])
+@limiter.limit('10 per minute')
 def login():
     if request.method == 'POST':
         email = request.form['email']
@@ -56,6 +58,7 @@ def login():
 
 
 @auth.route('/forgot-password', methods=['GET', 'POST'])
+@limiter.limit('5 per hour')
 def forgot_password():
     if request.method == 'POST':
         email = request.form.get('email', '').strip()
@@ -64,10 +67,11 @@ def forgot_password():
 
         if user and owner and owner.backup_email_host:
             from app.backup import send_password_reset_email
-            user.reset_token = secrets.token_urlsafe(32)
+            raw_token = secrets.token_urlsafe(32)
+            user.reset_token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
             user.reset_token_expires_at = datetime.utcnow() + timedelta(hours=1)
             db.session.commit()
-            reset_url = url_for('auth.reset_password', token=user.reset_token, _external=True)
+            reset_url = url_for('auth.reset_password', token=raw_token, _external=True)
             send_password_reset_email(owner, user, reset_url)
 
         # Same message whether or not the email exists / email is configured,
@@ -80,7 +84,8 @@ def forgot_password():
 
 @auth.route('/reset-password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
-    user = User.query.filter_by(reset_token=token).first()
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    user = User.query.filter_by(reset_token_hash=token_hash).first()
     if not user or not user.reset_token_expires_at or user.reset_token_expires_at < datetime.utcnow():
         flash('Este link ya no es válido. Solicita uno nuevo.')
         return redirect(url_for('auth.forgot_password'))
@@ -92,7 +97,7 @@ def reset_password(token):
             return render_template('registration/reset_password.html')
 
         user.set_password(password)
-        user.reset_token = None
+        user.reset_token_hash = None
         user.reset_token_expires_at = None
         db.session.commit()
         flash('Contraseña actualizada, ya puedes iniciar sesión.')
