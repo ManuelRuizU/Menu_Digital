@@ -6,7 +6,7 @@ from flask import current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
-from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, User
+from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, THEMES, User
 from app import csrf, db, limiter
 
 
@@ -69,15 +69,18 @@ def compute_shipping_cost(lat, lng):
 def index():
     owner = get_owner()
     logo_url = url_for('static', filename='uploads/logos/' + owner.logo_filename) if owner and owner.logo_filename else None
+    theme = owner.theme if owner and owner.theme in THEMES else 'oscuro'
+    theme_defaults = THEMES[theme]
     return render_template(
         'index.html',
         is_closed=(owner.is_closed_temporarily if owner else False),
         closed_message=(owner.closed_message if owner else None),
+        theme=theme,
         business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
         business_address=(owner.address if owner else None),
         logo_url=logo_url,
-        primary_color=(owner.primary_color if owner and owner.primary_color else '#4ecdc4'),
-        accent_color=(owner.accent_color if owner and owner.accent_color else '#ff6b6b'),
+        primary_color=(owner.primary_color if owner and owner.primary_color else theme_defaults['primary']),
+        accent_color=(owner.accent_color if owner and owner.accent_color else theme_defaults['accent']),
         accepts_cash=(owner.accepts_cash if owner else True),
         accepts_transfer=(owner.accepts_transfer if owner else True),
         accepts_card=(owner.accepts_card if owner else True),

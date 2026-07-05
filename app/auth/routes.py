@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, render_template, redirect, url_for, fl
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.models import User
+from app.models import THEMES, User
 from app import db, limiter
 from app.decorators import admin_required, owner_required
 from app.auth import auth
@@ -174,7 +174,7 @@ def logout():
 @login_required
 @owner_required
 def admin_panel():
-    return render_template('panel/index.html')
+    return render_template('panel/index.html', themes=THEMES)
 
 
 @auth.route('/admin/business-profile', methods=['POST'])
@@ -183,6 +183,9 @@ def admin_panel():
 def update_business_profile():
     current_user.is_closed_temporarily = 'is_closed_temporarily' in request.form
     current_user.closed_message = request.form.get('closed_message', '').strip() or None
+    theme = request.form.get('theme', '').strip()
+    if theme in THEMES:
+        current_user.theme = theme
     current_user.whatsapp_number = request.form.get('whatsapp_number', '').strip()
     current_user.business_name = request.form.get('business_name', '').strip()
     current_user.address = request.form.get('address', '').strip()

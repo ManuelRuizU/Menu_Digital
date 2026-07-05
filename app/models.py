@@ -9,6 +9,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 BUSINESS_TZ = ZoneInfo('America/Santiago')
 
+# Visual themes for the public menu (app/static/css/menu.css) - the colors here are
+# just the suggested defaults shown in the color pickers; the owner can still override them.
+THEMES = {
+    'oscuro': {'label': 'Oscuro moderno', 'primary': '#4ecdc4', 'accent': '#ff6b6b'},
+    'claro': {'label': 'Minimalista claro', 'primary': '#5c7c5a', 'accent': '#8a6b4f'},
+}
+
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -44,6 +51,7 @@ class User(UserMixin, db.Model):
     reset_token_expires_at = db.Column(db.DateTime, nullable=True)
     is_closed_temporarily = db.Column(db.Boolean, nullable=False, default=False)
     closed_message = db.Column(db.Text, nullable=True)
+    theme = db.Column(db.String(20), nullable=False, default='oscuro')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

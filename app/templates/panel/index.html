@@ -39,11 +39,24 @@
       <label for="logo">Logo del negocio</label>
       <input type="file" id="logo" name="logo" accept="image/png,image/jpeg,image/webp">
 
+      <label for="theme">Estilo visual del menú</label>
+      <select id="theme" name="theme">
+        {% for key, info in themes.items() %}
+          <option value="{{ key }}" {{ 'selected' if current_user.theme == key }}>{{ info.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted">
+        Elige el estilo que mejor calce con tu negocio - no todos los menús tienen por qué verse iguales.
+        Al cambiar de estilo, los colores de abajo se sugieren de nuevo, pero puedes ajustarlos igual.
+      </p>
+
       <label for="primary_color">Color principal</label>
-      <input type="color" id="primary_color" name="primary_color" value="{{ current_user.primary_color or '#4ecdc4' }}">
+      <input type="color" id="primary_color" name="primary_color"
+             value="{{ current_user.primary_color or themes[current_user.theme].primary }}">
 
       <label for="accent_color">Color de acento</label>
-      <input type="color" id="accent_color" name="accent_color" value="{{ current_user.accent_color or '#ff6b6b' }}">
+      <input type="color" id="accent_color" name="accent_color"
+             value="{{ current_user.accent_color or themes[current_user.theme].accent }}">
       <p class="muted">Estos colores se usan en los botones y detalles del menú que ven tus clientes.</p>
 
       <label for="whatsapp_number">Número de WhatsApp</label>
@@ -189,6 +202,22 @@
             });
           });
         }
+      })();
+    </script>
+
+    <script>
+      (function () {
+        const THEME_COLORS = {{ themes|tojson }};
+        const themeSelect = document.getElementById('theme');
+        const primaryInput = document.getElementById('primary_color');
+        const accentInput = document.getElementById('accent_color');
+
+        themeSelect.addEventListener('change', () => {
+          const colors = THEME_COLORS[themeSelect.value];
+          if (!colors) return;
+          primaryInput.value = colors.primary;
+          accentInput.value = colors.accent;
+        });
       })();
     </script>
 {% endblock %}
