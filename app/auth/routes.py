@@ -42,6 +42,19 @@ def _save_logo(user, file_storage):
     return True
 
 
+def _login_branding():
+    """Logo/name/color for the pre-login screens (login, forgot/reset password) -
+    not the full menu theme, since these pages are for the owner/staff, not customers."""
+    owner = User.query.filter_by(is_owner=True).first()
+    logo_url = (url_for('static', filename='uploads/logos/' + owner.logo_filename)
+                if owner and owner.logo_filename else None)
+    return {
+        'business_name': (owner.business_name if owner and owner.business_name else None),
+        'logo_url': logo_url,
+        'primary_color': (owner.primary_color if owner and owner.primary_color else '#667eea'),
+    }
+
+
 @auth.route('/login', methods=['GET', 'POST'])
 @limiter.limit('10 per minute')
 def login():
@@ -55,15 +68,7 @@ def login():
         else:
             flash('Invalid email or password')
 
-    owner = User.query.filter_by(is_owner=True).first()
-    logo_url = (url_for('static', filename='uploads/logos/' + owner.logo_filename)
-                if owner and owner.logo_filename else None)
-    return render_template(
-        'registration/login.html',
-        business_name=(owner.business_name if owner and owner.business_name else None),
-        logo_url=logo_url,
-        primary_color=(owner.primary_color if owner and owner.primary_color else '#667eea'),
-    )
+    return render_template('registration/login.html', **_login_branding())
 
 
 @auth.route('/forgot-password', methods=['GET', 'POST'])
@@ -88,7 +93,7 @@ def forgot_password():
         flash('Si el correo existe y tenemos un correo de respaldo configurado, te enviamos un link para recuperar tu contraseña.')
         return redirect(url_for('auth.login'))
 
-    return render_template('registration/forgot_password.html')
+    return render_template('registration/forgot_password.html', **_login_branding())
 
 
 @auth.route('/reset-password/<token>', methods=['GET', 'POST'])
@@ -103,7 +108,7 @@ def reset_password(token):
         password = request.form.get('password', '')
         if len(password) < 8:
             flash('La contraseña debe tener al menos 8 caracteres.')
-            return render_template('registration/reset_password.html')
+            return render_template('registration/reset_password.html', **_login_branding())
 
         user.set_password(password)
         user.reset_token_hash = None
@@ -112,7 +117,7 @@ def reset_password(token):
         flash('Contraseña actualizada, ya puedes iniciar sesión.')
         return redirect(url_for('auth.login'))
 
-    return render_template('registration/reset_password.html')
+    return render_template('registration/reset_password.html', **_login_branding())
 
 
 @auth.route('/register', methods=['GET', 'POST'])
