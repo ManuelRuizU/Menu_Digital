@@ -34,7 +34,7 @@
         h1 {
             font-size: 28px;
             font-weight: 700;
-            color: #1a1a1a;
+            color: {{ primary_color }};
             margin-bottom: 10px;
             text-align: center;
         }
@@ -70,14 +70,23 @@
 
         input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: {{ primary_color }};
+            box-shadow: 0 0 0 3px {{ primary_color }}1a;
+        }
+
+        .business-logo {
+            display: block;
+            width: 72px;
+            height: 72px;
+            object-fit: cover;
+            border-radius: 16px;
+            margin: 0 auto 16px;
         }
 
         button {
             width: 100%;
             padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: {{ primary_color }};
             color: white;
             border: none;
             border-radius: 6px;
@@ -90,7 +99,7 @@
 
         button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 6px 20px {{ primary_color }}66;
         }
 
         button:active {
@@ -123,20 +132,23 @@
         }
 
         .register-link a {
-            color: #667eea;
+            color: {{ primary_color }};
             text-decoration: none;
             font-weight: 600;
-            transition: color 0.3s ease;
+            transition: opacity 0.3s ease;
         }
 
         .register-link a:hover {
-            color: #764ba2;
+            opacity: 0.8;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <h1>Bienvenido</h1>
+        {% if logo_url %}
+            <img src="{{ logo_url }}" alt="{{ business_name }}" class="business-logo">
+        {% endif %}
+        <h1>{{ business_name or 'Bienvenido' }}</h1>
         <p class="subtitle">Inicia sesión en tu cuenta</p>
 
         {% with messages = get_flashed_messages() %}

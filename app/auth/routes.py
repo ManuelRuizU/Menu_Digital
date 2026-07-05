@@ -54,7 +54,16 @@ def login():
             return redirect(url_for('catalog.dashboard' if user.is_admin else 'main.index'))
         else:
             flash('Invalid email or password')
-    return render_template('registration/login.html')
+
+    owner = User.query.filter_by(is_owner=True).first()
+    logo_url = (url_for('static', filename='uploads/logos/' + owner.logo_filename)
+                if owner and owner.logo_filename else None)
+    return render_template(
+        'registration/login.html',
+        business_name=(owner.business_name if owner and owner.business_name else None),
+        logo_url=logo_url,
+        primary_color=(owner.primary_color if owner and owner.primary_color else '#667eea'),
+    )
 
 
 @auth.route('/forgot-password', methods=['GET', 'POST'])
