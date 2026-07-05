@@ -13,8 +13,9 @@ BUSINESS_TZ = ZoneInfo('America/Santiago')
 # just the suggested defaults shown in the color pickers; the owner can still override them.
 THEMES = {
     'oscuro': {'label': 'Oscuro moderno', 'primary': '#4ecdc4', 'accent': '#ff6b6b'},
-    'claro': {'label': 'Minimalista claro', 'primary': '#5c7c5a', 'accent': '#8a6b4f'},
+    'claro': {'label': 'Cálido artesanal', 'primary': '#5c7c5a', 'accent': '#8a6b4f'},
     'urbano': {'label': 'Urbano llamativo', 'primary': '#ffcc00', 'accent': '#ff3d1a'},
+    'cafeteria': {'label': 'Minimalista café', 'primary': '#5b7c8f', 'accent': '#5b7c8f'},
 }
 
 

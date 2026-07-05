@@ -65,6 +65,43 @@ body[data-theme="urbano"] {
   --body-weight: 600;
 }
 
+body[data-theme="cafeteria"] {
+  color-scheme: light;
+  --bg-start: #fafaf8;
+  --bg-end: #f3f3f0;
+  --surface: #ffffff;
+  --surface-2: #f2f2ef;
+  --text: #2e2e2c;
+  --text-strong: #161615;
+  --muted: #8a8a84;
+  --primary: #5b7c8f;
+  --primary-rgb: 91,124,143;
+  --accent: #5b7c8f;
+  --accent-rgb: 91,124,143;
+  --border: rgba(20,20,15,0.08);
+  --tint-1: rgba(20,20,15,0.03);
+  --tint-2: rgba(20,20,15,0.05);
+  --tint-3: rgba(20,20,15,0.08);
+  --shadow: 0 6px 24px rgba(20,20,15,0.06);
+  --shadow-soft: 0 6px 18px rgba(20,20,15,0.05);
+  --body-weight: 300;
+}
+
+/* Airier, more spaced-out feel to match "minimalista" - a single accent (no two-tone
+   gradients, since --primary equals --accent here) and lighter borders/shadows. */
+body[data-theme="cafeteria"] .hero,
+body[data-theme="cafeteria"] .panel {
+  padding: 32px 34px;
+}
+body[data-theme="cafeteria"] .product-card {
+  padding: 20px;
+  gap: 16px;
+}
+body[data-theme="cafeteria"] .section-header h2,
+body[data-theme="cafeteria"] .business-name {
+  font-weight: 500;
+}
+
 /* Bolder, sharper-edged "poster" feel - straighter corners, punchier headings,
    flat hard shadows instead of soft blurred ones. */
 body[data-theme="urbano"] .hero,
