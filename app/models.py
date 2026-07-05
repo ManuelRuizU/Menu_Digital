@@ -98,9 +98,36 @@ class Product(db.Model):
     subcategory_id = db.Column(db.Integer, db.ForeignKey('subcategory.id'), nullable=True)
     category = db.relationship('Category')
     orders = db.relationship('OrderItem', backref='product', lazy=True)
+    option_groups = db.relationship('ProductOptionGroup', backref='product', lazy=True,
+                                     cascade='all, delete-orphan', order_by='ProductOptionGroup.id')
 
     def __repr__(self):
         return f'<Product {self.name}>'
+
+
+class ProductOptionGroup(db.Model):
+    """A named set of choices for a product - e.g. "Tamaño" (required, pick one) or
+    "Extras" (optional, pick several). Optional per product - most products have none."""
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    required = db.Column(db.Boolean, nullable=False, default=False)
+    multi_select = db.Column(db.Boolean, nullable=False, default=False)
+    options = db.relationship('ProductOption', backref='group', lazy=True,
+                               cascade='all, delete-orphan', order_by='ProductOption.id')
+
+    def __repr__(self):
+        return f'<ProductOptionGroup {self.name}>'
+
+
+class ProductOption(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('product_option_group.id'), nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    price_delta = db.Column(db.Float, nullable=False, default=0)
+
+    def __repr__(self):
+        return f'<ProductOption {self.name}>'
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -146,10 +173,24 @@ class OrderItem(db.Model):
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    price = db.Column(db.Float, nullable=False)
+    price = db.Column(db.Float, nullable=False)  # per-unit price, already including any selected options
+    selected_options = db.relationship('OrderItemOption', backref='order_item', lazy=True,
+                                        cascade='all, delete-orphan')
 
     def __repr__(self):
         return f'<OrderItem {self.id}>'
+
+
+class OrderItemOption(db.Model):
+    """Snapshot of a chosen option at order time (name + price) - independent of
+    ProductOption, which the owner could edit or delete later without altering history."""
+    id = db.Column(db.Integer, primary_key=True)
+    order_item_id = db.Column(db.Integer, db.ForeignKey('order_item.id'), nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    price_delta = db.Column(db.Float, nullable=False, default=0)
+
+    def __repr__(self):
+        return f'<OrderItemOption {self.name}>'
 
 
 class DeliveryRadiusTier(db.Model):

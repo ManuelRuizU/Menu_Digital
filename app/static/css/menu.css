@@ -319,6 +319,12 @@ body.nav-open { overflow: hidden; }
 .modal-photo { width: 100%; height: 180px; object-fit: cover; border-radius: 16px; margin-bottom: 14px; }
 .modal h3 { margin: 4px 0 10px; }
 .modal .price { font-size: 1.2rem; color: var(--primary); font-weight: 700; margin: 14px 0; }
+.modal-option-group { margin-bottom: 14px; }
+.modal-option-group-title { font-weight: 700; margin-bottom: 6px; }
+.required-tag { font-size: 0.7rem; font-weight: 600; color: var(--accent); text-transform: uppercase; }
+.modal-option { display: block; padding: 6px 0; color: var(--text); cursor: pointer; }
+.modal-option input { margin-right: 8px; }
+.cart-item-options { display: block; color: var(--muted); font-size: 0.8rem; }
 
 body.modal-open { overflow: hidden; }
 

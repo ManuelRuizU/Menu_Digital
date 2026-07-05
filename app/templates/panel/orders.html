@@ -39,7 +39,12 @@
         <ul class="order-items">
           {% for item in order.order_items %}
             <li class="subitem">
-              <span>{{ item.quantity }}× {{ item.product.name if item.product else 'Producto eliminado' }} — ${{ '%.0f'|format(item.price * item.quantity) }}</span>
+              <span>
+                {{ item.quantity }}× {{ item.product.name if item.product else 'Producto eliminado' }} — ${{ '%.0f'|format(item.price * item.quantity) }}
+                {% if item.selected_options %}
+                  <br><small class="muted">{{ item.selected_options|map(attribute='name')|join(', ') }}</small>
+                {% endif %}
+              </span>
               <form method="post" action="{{ url_for('catalog.remove_order_item', order_id=order.id, item_id=item.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="next" value="{{ request.path }}">

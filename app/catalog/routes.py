@@ -17,7 +17,8 @@ from sqlalchemy import func
 from app import db
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
-from app.models import BUSINESS_TZ, Category, Courier, DeliveryRadiusTier, DeliveryZone, Order, OrderItem, Product, Subcategory, User
+from app.models import (BUSINESS_TZ, Category, Courier, DeliveryRadiusTier, DeliveryZone, Order, OrderItem,
+                         Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
@@ -51,7 +52,10 @@ def _build_courier_message(order):
     lines.append('Productos:')
     for item in order.order_items:
         product_name = item.product.name if item.product else 'Producto eliminado'
-        lines.append(f'• {item.quantity}x {product_name}')
+        options_text = ''
+        if item.selected_options:
+            options_text = ' (' + ', '.join(option.name for option in item.selected_options) + ')'
+        lines.append(f'• {item.quantity}x {product_name}{options_text}')
 
     if order.notes:
         lines.append('')
@@ -112,6 +116,8 @@ def _print_order_ticket(order, owner):
         for item in order.order_items:
             product_name = item.product.name if item.product else 'Producto eliminado'
             printer.text(f'{item.quantity}x {product_name}\n')
+            for option in item.selected_options:
+                printer.text(f'   + {option.name}\n')
         if order.notes:
             printer.text(f'Nota: {order.notes}\n')
         printer.text('-' * width_chars + '\n')
@@ -360,6 +366,66 @@ def toggle_product_featured(product_id):
     db.session.commit()
     flash('Producto marcado como recomendado' if product.is_featured else 'Producto ya no es recomendado')
     return redirect(url_for('catalog.products'))
+
+
+@catalog.route('/products/<int:product_id>/option-groups/new', methods=['POST'])
+@login_required
+@admin_required
+def create_option_group(product_id):
+    product = Product.query.get_or_404(product_id)
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash('Ponle un nombre al grupo de variantes (ej. "Tamaño", "Extras").')
+        return redirect(url_for('catalog.edit_product', product_id=product.id))
+
+    db.session.add(ProductOptionGroup(
+        product_id=product.id,
+        name=name,
+        required='required' in request.form,
+        multi_select='multi_select' in request.form,
+    ))
+    db.session.commit()
+    flash('Grupo de variantes agregado')
+    return redirect(url_for('catalog.edit_product', product_id=product.id))
+
+
+@catalog.route('/products/<int:product_id>/option-groups/<int:group_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_option_group(product_id, group_id):
+    group = ProductOptionGroup.query.filter_by(id=group_id, product_id=product_id).first_or_404()
+    db.session.delete(group)
+    db.session.commit()
+    flash('Grupo de variantes eliminado')
+    return redirect(url_for('catalog.edit_product', product_id=product_id))
+
+
+@catalog.route('/products/<int:product_id>/option-groups/<int:group_id>/options/new', methods=['POST'])
+@login_required
+@admin_required
+def create_option(product_id, group_id):
+    group = ProductOptionGroup.query.filter_by(id=group_id, product_id=product_id).first_or_404()
+    name = request.form.get('name', '').strip()
+    price_delta = request.form.get('price_delta', type=float)
+    if not name or price_delta is None:
+        flash('Completa el nombre y el precio adicional de la opción (puede ser 0).')
+        return redirect(url_for('catalog.edit_product', product_id=product_id))
+
+    db.session.add(ProductOption(group_id=group.id, name=name, price_delta=price_delta))
+    db.session.commit()
+    flash('Opción agregada')
+    return redirect(url_for('catalog.edit_product', product_id=product_id))
+
+
+@catalog.route('/products/<int:product_id>/option-groups/<int:group_id>/options/<int:option_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_option(product_id, group_id, option_id):
+    option = ProductOption.query.filter_by(id=option_id, group_id=group_id).first_or_404()
+    db.session.delete(option)
+    db.session.commit()
+    flash('Opción eliminada')
+    return redirect(url_for('catalog.edit_product', product_id=product_id))
 
 
 @catalog.route('/delivery')

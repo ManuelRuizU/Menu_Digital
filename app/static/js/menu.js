@@ -1,6 +1,21 @@
 const CART_KEY = 'menu-digital-cart'
 const CUSTOMER_KEY = 'menu-digital-customer'
-const STATE = { products: [], cart: JSON.parse(localStorage.getItem(CART_KEY) || '[]'), selectedLocation: null, shippingCost: 0, deliveryCovered: true }
+
+function loadSavedCart() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CART_KEY) || '[]')
+    // Carts saved before variants existed have no cartKey/selectedOptions - backfill them.
+    return saved.map((item) => ({
+      selectedOptions: [],
+      ...item,
+      cartKey: item.cartKey || String(item.id),
+    }))
+  } catch {
+    return []
+  }
+}
+
+const STATE = { products: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true }
 
 function loadSavedCustomer() {
   try {
@@ -60,6 +75,7 @@ const elements = {
   productModalDescription: document.getElementById('product-modal-description'),
   productModalPrice: document.getElementById('product-modal-price'),
   productModalAdd: document.getElementById('product-modal-add'),
+  productModalOptions: document.getElementById('product-modal-options'),
   deliveryModeOptions: document.getElementById('delivery-mode-options'),
   minOrderHint: document.getElementById('min-order-hint'),
   upsellSuggestions: document.getElementById('upsell-suggestions'),
@@ -90,18 +106,61 @@ function closeNav() {
   document.body.classList.remove('nav-open')
 }
 
+let currentModalProduct = null
+
+function optionInputName(group) {
+  return `modal-option-group-${group.id}`
+}
+
+function renderModalOptions(product) {
+  if (!hasOptionGroups(product)) {
+    elements.productModalOptions.innerHTML = ''
+    return
+  }
+  elements.productModalOptions.innerHTML = product.optionGroups.map((group) => `
+    <div class="modal-option-group">
+      <p class="modal-option-group-title">
+        ${escapeHtml(group.name)} ${group.required ? '<span class="required-tag">obligatorio</span>' : ''}
+      </p>
+      ${group.options.map((option) => `
+        <label class="modal-option">
+          <input type="${group.multiSelect ? 'checkbox' : 'radio'}" name="${optionInputName(group)}"
+                 value="${option.id}" data-price-delta="${option.priceDelta}">
+          ${escapeHtml(option.name)} ${option.priceDelta ? `(+${formatPrice(option.priceDelta)})` : ''}
+        </label>
+      `).join('')}
+    </div>
+  `).join('')
+}
+
+function getModalSelectedOptions() {
+  if (!currentModalProduct) return []
+  const inputs = elements.productModalOptions.querySelectorAll('input:checked')
+  return Array.from(inputs).map((input) => ({
+    id: Number(input.value),
+    priceDelta: Number(input.dataset.priceDelta) || 0,
+    name: input.closest('.modal-option').textContent.trim().replace(/\s*\(\+.*\)$/, ''),
+  }))
+}
+
+function updateModalPrice() {
+  if (!currentModalProduct) return
+  const extra = getModalSelectedOptions().reduce((sum, o) => sum + o.priceDelta, 0)
+  elements.productModalPrice.textContent = formatPrice(currentModalProduct.price + extra)
+}
+
 function openProductModal(productId) {
   const product = STATE.products.find((item) => item.id === Number(productId))
   if (!product) return
+  currentModalProduct = product
   elements.productModalName.textContent = product.name
   elements.productModalDescription.textContent = product.description || ''
-  elements.productModalPrice.textContent = formatPrice(product.price)
+  renderModalOptions(product)
+  updateModalPrice()
   if (product.soldOut) {
-    elements.productModalAdd.removeAttribute('data-add')
     elements.productModalAdd.disabled = true
     elements.productModalAdd.textContent = 'Agotado'
   } else {
-    elements.productModalAdd.dataset.add = product.id
     elements.productModalAdd.disabled = false
     elements.productModalAdd.textContent = 'Agregar'
   }
@@ -114,6 +173,20 @@ function openProductModal(productId) {
   elements.productModal.classList.add('open')
   elements.productModalBackdrop.classList.add('open')
   document.body.classList.add('modal-open')
+}
+
+function handleModalAddClick() {
+  if (!currentModalProduct || currentModalProduct.soldOut) return
+  for (const group of currentModalProduct.optionGroups || []) {
+    const chosen = elements.productModalOptions.querySelectorAll(`input[name="${optionInputName(group)}"]:checked`)
+    if (group.required && chosen.length === 0) {
+      alert(`Elige una opción para "${group.name}".`)
+      return
+    }
+  }
+  addToCart(currentModalProduct.id, getModalSelectedOptions())
+  openCart()
+  closeProductModal()
 }
 
 function closeProductModal() {
@@ -282,10 +355,16 @@ function productCardHtml(product) {
         <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">ⓘ</button>
         ${soldOut
           ? '<button type="button" class="sold-out-btn" disabled>Agotado</button>'
-          : `<button type="button" data-add="${product.id}" aria-label="Agregar ${safeName}">+</button>`}
+          : hasOptionGroups(product)
+            ? `<button type="button" data-details="${product.id}" aria-label="Elegir ${safeName}">+</button>`
+            : `<button type="button" data-add="${product.id}" aria-label="Agregar ${safeName}">+</button>`}
       </div>
     </article>
   `
+}
+
+function hasOptionGroups(product) {
+  return Array.isArray(product.optionGroups) && product.optionGroups.length > 0
 }
 
 function renderNav(categories) {
@@ -360,7 +439,9 @@ function renderUpsellSuggestions() {
         <div class="upsell-item">
           <span>${escapeHtml(product.name)}</span>
           <span class="upsell-price">${formatPrice(product.price)}</span>
-          <button type="button" data-add="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}">+</button>
+          ${hasOptionGroups(product)
+            ? `<button type="button" data-details="${product.id}" aria-label="Elegir ${escapeHtml(product.name)}">+</button>`
+            : `<button type="button" data-add="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}">+</button>`}
         </div>
       `).join('')}
     </div>
@@ -376,15 +457,18 @@ function renderCart() {
       <article class="cart-item">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
+          ${item.selectedOptions && item.selectedOptions.length
+            ? `<small class="cart-item-options">${item.selectedOptions.map((o) => escapeHtml(o.name)).join(', ')}</small>`
+            : ''}
           <small>${formatPrice(item.price)} c/u</small>
         </div>
         <div class="cart-item-controls">
           <div>
-            <button type="button" class="qty-btn" data-decrement="${item.id}" aria-label="Restar ${escapeHtml(item.name)}">−</button>
+            <button type="button" class="qty-btn" data-decrement="${item.cartKey}" aria-label="Restar ${escapeHtml(item.name)}">−</button>
             <span class="qty-value">${item.quantity}</span>
-            <button type="button" class="qty-btn" data-increment="${item.id}" aria-label="Sumar ${escapeHtml(item.name)}">+</button>
+            <button type="button" class="qty-btn" data-increment="${item.cartKey}" aria-label="Sumar ${escapeHtml(item.name)}">+</button>
           </div>
-          <button type="button" class="remove-btn" data-remove="${item.id}" aria-label="Quitar ${escapeHtml(item.name)}">Quitar</button>
+          <button type="button" class="remove-btn" data-remove="${item.cartKey}" aria-label="Quitar ${escapeHtml(item.name)}">Quitar</button>
         </div>
       </article>
     `).join('')
@@ -540,36 +624,46 @@ function renderSuggestions(results) {
   }).join('')
 }
 
-function addToCart(productId) {
+function addToCart(productId, selectedOptions = []) {
   const product = STATE.products.find((item) => item.id === Number(productId))
   if (!product) return
-  const existing = STATE.cart.find((item) => item.id === product.id)
-  if (existing) existing.quantity += 1
-  else STATE.cart.push({ ...product, quantity: 1 })
+  const sortedOptions = [...selectedOptions].sort((a, b) => a.id - b.id)
+  const cartKey = `${product.id}:${sortedOptions.map((o) => o.id).join(',')}`
+  const unitPrice = product.price + sortedOptions.reduce((sum, o) => sum + o.priceDelta, 0)
+
+  const existing = STATE.cart.find((item) => item.cartKey === cartKey)
+  if (existing) {
+    existing.quantity += 1
+  } else {
+    STATE.cart.push({
+      cartKey, id: product.id, name: product.name, price: unitPrice, quantity: 1,
+      selectedOptions: sortedOptions.map((o) => ({ id: o.id, name: o.name })),
+    })
+  }
   saveCart()
   renderCart()
 }
 
-function removeFromCart(productId) {
-  STATE.cart = STATE.cart.filter((item) => item.id !== Number(productId))
+function removeFromCart(cartKey) {
+  STATE.cart = STATE.cart.filter((item) => item.cartKey !== cartKey)
   saveCart()
   renderCart()
 }
 
-function incrementCartItem(productId) {
-  const item = STATE.cart.find((cartItem) => cartItem.id === Number(productId))
+function incrementCartItem(cartKey) {
+  const item = STATE.cart.find((cartItem) => cartItem.cartKey === cartKey)
   if (!item) return
   item.quantity += 1
   saveCart()
   renderCart()
 }
 
-function decrementCartItem(productId) {
-  const item = STATE.cart.find((cartItem) => cartItem.id === Number(productId))
+function decrementCartItem(cartKey) {
+  const item = STATE.cart.find((cartItem) => cartItem.cartKey === cartKey)
   if (!item) return
   item.quantity -= 1
   if (item.quantity <= 0) {
-    STATE.cart = STATE.cart.filter((cartItem) => cartItem.id !== Number(productId))
+    STATE.cart = STATE.cart.filter((cartItem) => cartItem.cartKey !== cartKey)
   }
   saveCart()
   renderCart()
@@ -602,7 +696,10 @@ function buildWhatsAppText() {
   if (notes) lines.push(`Notas: ${notes}`)
   lines.push('', 'Productos:')
   STATE.cart.forEach((item) => {
-    lines.push(`• ${item.quantity}× ${item.name} - ${formatPrice(item.price * item.quantity)}`)
+    const optionsText = item.selectedOptions && item.selectedOptions.length
+      ? ` (${item.selectedOptions.map((o) => o.name).join(', ')})`
+      : ''
+    lines.push(`• ${item.quantity}× ${item.name}${optionsText} - ${formatPrice(item.price * item.quantity)}`)
   })
   lines.push('', `Subtotal: ${formatPrice(STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}`)
   if (deliveryMode === 'envio') lines.push(`Envío: ${formatPrice(shipping)}`)
@@ -619,7 +716,11 @@ async function saveOrder() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        items: STATE.cart.map((item) => ({ id: item.id, quantity: item.quantity })),
+        items: STATE.cart.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          options: (item.selectedOptions || []).map((o) => o.id),
+        })),
         customerName: elements.name.value.trim() || 'Cliente',
         phone: elements.phone.value.trim(),
         address: elements.address.value.trim(),
@@ -711,6 +812,8 @@ window.addEventListener('load', () => {
 
   elements.productModalClose.addEventListener('click', closeProductModal)
   elements.productModalBackdrop.addEventListener('click', closeProductModal)
+  elements.productModalAdd.addEventListener('click', handleModalAddClick)
+  elements.productModalOptions.addEventListener('change', updateModalPrice)
 
   document.body.addEventListener('click', (event) => {
     const navLink = event.target.closest('[data-target]')

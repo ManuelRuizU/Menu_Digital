@@ -53,6 +53,63 @@
       <button type="submit">Guardar producto</button>
     </form>
 
+    {% if product %}
+      <h2>Variantes y extras</h2>
+      <p class="muted">
+        Opcional. Úsalo para productos donde el cliente elige algo (ej. "Tamaño": Individual/Familiar,
+        o "Extras": Queso extra, Tocino). Si el producto no necesita nada de esto, no agregues ningún grupo.
+      </p>
+
+      {% for group in product.option_groups %}
+        <div class="card" style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>{{ group.name }}</strong>
+            <form method="post" action="{{ url_for('catalog.delete_option_group', product_id=product.id, group_id=group.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit">Eliminar grupo</button>
+            </form>
+          </div>
+          <p class="muted">
+            {{ 'Obligatorio' if group.required else 'Opcional' }} ·
+            {{ 'Puede elegir varias opciones' if group.multi_select else 'Elige solo una opción' }}
+          </p>
+
+          <ul>
+            {% for option in group.options %}
+              <li style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <span>{{ option.name }} {% if option.price_delta %}(+${{ '%.0f'|format(option.price_delta) }}){% endif %}</span>
+                <form method="post" action="{{ url_for('catalog.delete_option', product_id=product.id, group_id=group.id, option_id=option.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit">Quitar</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+
+          <form method="post" action="{{ url_for('catalog.create_option', product_id=product.id, group_id=group.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input name="name" placeholder="Nombre de la opción (ej. Familiar)" required>
+            <input name="price_delta" type="number" step="1" placeholder="Precio adicional (0 si no cambia)" required>
+            <button type="submit">Agregar opción</button>
+          </form>
+        </div>
+      {% endfor %}
+
+      <details>
+        <summary>Agregar nuevo grupo de variantes</summary>
+        <form method="post" action="{{ url_for('catalog.create_option_group', product_id=product.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label for="group_name">Nombre del grupo</label>
+          <input id="group_name" name="name" placeholder="Ej. Tamaño, Extras, Sin ingrediente" required>
+          <label><input type="checkbox" name="required"> El cliente debe elegir algo de este grupo</label>
+          <label><input type="checkbox" name="multi_select"> El cliente puede elegir más de una opción</label>
+          <button type="submit">Crear grupo</button>
+        </form>
+      </details>
+    {% else %}
+      <p class="muted">Guarda el producto primero para poder agregarle variantes y extras.</p>
+    {% endif %}
+
     <script>
       (function () {
         const categorySelect = document.getElementById('category_id');

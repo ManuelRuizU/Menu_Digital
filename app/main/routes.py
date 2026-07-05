@@ -6,7 +6,7 @@ from flask import current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
-from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, Product, User
+from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, User
 from app import csrf, db, limiter
 
 
@@ -110,6 +110,17 @@ def products_api():
             'featured': product.is_featured,
             'imageUrl': (url_for('static', filename='uploads/products/' + product.image_filename)
                          if product.image_filename else None),
+            'optionGroups': [
+                {
+                    'id': group.id,
+                    'name': group.name,
+                    'required': group.required,
+                    'multiSelect': group.multi_select,
+                    'options': [{'id': option.id, 'name': option.name, 'priceDelta': option.price_delta}
+                                for option in group.options],
+                }
+                for group in product.option_groups
+            ],
         }
         for product in products
     ]
@@ -135,6 +146,38 @@ def shipping_cost_api():
 
     cost, covered = compute_shipping_cost(lat, lng)
     return jsonify({'covered': covered, 'shippingCost': cost if covered else None})
+
+
+def _resolve_selected_options(product, selected_option_ids):
+    """Validate the option ids a customer picked for one product against that
+    product's own option groups (required / single-vs-multi-select).
+
+    Returns (selected_options, error_message) - never trust the ids the client sent.
+    """
+    if not isinstance(selected_option_ids, list):
+        return [], 'Selección de variantes inválida.'
+    try:
+        selected_option_ids = {int(option_id) for option_id in selected_option_ids}
+    except (TypeError, ValueError):
+        return [], 'Selección de variantes inválida.'
+
+    valid_option_ids = {option.id for group in product.option_groups for option in group.options}
+    if not selected_option_ids.issubset(valid_option_ids):
+        return [], 'Una de las variantes elegidas ya no existe.'
+
+    selected_options = ProductOption.query.filter(ProductOption.id.in_(selected_option_ids)).all() if selected_option_ids else []
+    selected_by_group = {}
+    for option in selected_options:
+        selected_by_group.setdefault(option.group_id, []).append(option)
+
+    for group in product.option_groups:
+        chosen = selected_by_group.get(group.id, [])
+        if group.required and not chosen:
+            return [], f'Elige una opción para "{group.name}".'
+        if not group.multi_select and len(chosen) > 1:
+            return [], f'Solo puedes elegir una opción para "{group.name}".'
+
+    return selected_options, None
 
 
 @main.route('/api/orders', methods=['POST'])
@@ -208,8 +251,14 @@ def create_order():
             return jsonify({'ok': False, 'message': 'Uno de los productos ya no está disponible.'}), 400
         if product.stock_quantity is not None and product.stock_quantity < quantity:
             return jsonify({'ok': False, 'message': f'Solo quedan {product.stock_quantity} unidades de {product.name}.'}), 400
-        order_lines.append((product, quantity))
-        subtotal += product.price * quantity
+
+        selected_options, error = _resolve_selected_options(product, item.get('options', []))
+        if error:
+            return jsonify({'ok': False, 'message': error}), 400
+        unit_price = product.price + sum(option.price_delta for option in selected_options)
+
+        order_lines.append((product, quantity, selected_options, unit_price))
+        subtotal += unit_price * quantity
 
     if delivery_mode == 'envio' and owner and owner.min_delivery_order and subtotal < owner.min_delivery_order:
         return jsonify({
@@ -235,8 +284,12 @@ def create_order():
         )
         db.session.add(order)
         db.session.flush()
-        for product, quantity in order_lines:
-            db.session.add(OrderItem(order_id=order.id, product_id=product.id, quantity=quantity, price=product.price))
+        for product, quantity, selected_options, unit_price in order_lines:
+            order_item = OrderItem(order_id=order.id, product_id=product.id, quantity=quantity, price=unit_price)
+            db.session.add(order_item)
+            db.session.flush()
+            for option in selected_options:
+                db.session.add(OrderItemOption(order_item_id=order_item.id, name=option.name, price_delta=option.price_delta))
             if product.stock_quantity is not None:
                 product.stock_quantity = max(product.stock_quantity - quantity, 0)
                 if product.stock_quantity == 0:
