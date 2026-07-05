@@ -71,6 +71,8 @@ def index():
     logo_url = url_for('static', filename='uploads/logos/' + owner.logo_filename) if owner and owner.logo_filename else None
     return render_template(
         'index.html',
+        is_closed=(owner.is_closed_temporarily if owner else False),
+        closed_message=(owner.closed_message if owner else None),
         business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
         business_address=(owner.address if owner else None),
         logo_url=logo_url,
@@ -155,6 +157,9 @@ def create_order():
         return jsonify({'ok': False, 'message': 'Faltan datos del pedido.'}), 400
 
     owner = get_owner()
+    if owner and owner.is_closed_temporarily:
+        return jsonify({'ok': False, 'message': 'Este negocio está cerrado temporalmente y no puede recibir pedidos.'}), 400
+
     enabled_methods = {
         'efectivo': owner.accepts_cash if owner else True,
         'transferencia': owner.accepts_transfer if owner else True,

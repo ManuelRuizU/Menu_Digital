@@ -10,6 +10,17 @@
     <form method="post" action="{{ url_for('auth.update_business_profile') }}" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
+      <label>
+        <input type="checkbox" name="is_closed_temporarily" {{ 'checked' if current_user.is_closed_temporarily }}>
+        Cerrar temporalmente mi tienda (vacaciones, imprevistos, etc.)
+      </label>
+      <label for="closed_message">Mensaje para tus clientes mientras esté cerrada (opcional)</label>
+      <textarea id="closed_message" name="closed_message" rows="2"
+                placeholder="Ej: Estamos de vacaciones, volvemos el 15 de enero.">{{ current_user.closed_message or '' }}</textarea>
+      <p class="muted">
+        Mientras esté marcada, tus clientes verán este mensaje en vez del menú y no podrán hacer pedidos.
+      </p>
+
       {% if current_user.logo_filename %}
         <img src="{{ url_for('static', filename='uploads/logos/' + current_user.logo_filename) }}"
              alt="Logo actual" style="max-width:120px;max-height:120px;border-radius:12px;">

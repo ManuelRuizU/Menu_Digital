@@ -181,6 +181,8 @@ def admin_panel():
 @login_required
 @owner_required
 def update_business_profile():
+    current_user.is_closed_temporarily = 'is_closed_temporarily' in request.form
+    current_user.closed_message = request.form.get('closed_message', '').strip() or None
     current_user.whatsapp_number = request.form.get('whatsapp_number', '').strip()
     current_user.business_name = request.form.get('business_name', '').strip()
     current_user.address = request.form.get('address', '').strip()

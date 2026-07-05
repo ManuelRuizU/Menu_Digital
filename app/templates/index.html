@@ -9,6 +9,20 @@
 {% endblock %}
 
 {% block content %}
+{% if is_closed %}
+<div class="closed-shell">
+  {% if logo_url %}
+    <img src="{{ logo_url }}" alt="{{ business_name }}" class="business-logo">
+  {% endif %}
+  <h1 class="business-name">{{ business_name }}</h1>
+  <p class="closed-badge">🔴 Cerrado temporalmente</p>
+  {% if closed_message %}
+    <p class="closed-message">{{ closed_message }}</p>
+  {% else %}
+    <p class="closed-message">No estamos recibiendo pedidos en este momento. ¡Vuelve pronto!</p>
+  {% endif %}
+</div>
+{% else %}
 <div class="page-shell">
   <header class="hero">
     <button type="button" id="nav-toggle" class="hamburger-btn" aria-label="Ver categorías">☰</button>
@@ -173,4 +187,12 @@
     <button type="button" id="product-modal-add" class="button button-primary">Agregar</button>
   </div>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not is_closed %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{{ url_for('static', filename='js/menu.js') }}"></script>
+{% endif %}
 {% endblock %}

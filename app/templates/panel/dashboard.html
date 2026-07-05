@@ -3,6 +3,24 @@
 {% block content %}
     <h1>Dashboard</h1>
 
+    {% if owner %}
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;{{ 'border-color:#ff6b6b;' if owner.is_closed_temporarily }}">
+        <div>
+          {% if owner.is_closed_temporarily %}
+            <strong>🔴 Tu tienda está cerrada temporalmente</strong>
+            <p class="muted" style="margin:4px 0 0;">Tus clientes ven un mensaje y no pueden hacer pedidos.</p>
+          {% else %}
+            <strong>🟢 Tu tienda está abierta</strong>
+            <p class="muted" style="margin:4px 0 0;">Los clientes pueden ver el menú y hacer pedidos normalmente.</p>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('catalog.toggle_closed') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit">{{ 'Reabrir tienda' if owner.is_closed_temporarily else 'Cerrar temporalmente' }}</button>
+        </form>
+      </div>
+    {% endif %}
+
     <div class="card-row" style="gap:12px;">
       <div class="card" style="flex:1;text-align:center;">
         <div class="muted">Pedidos recibidos</div>

@@ -42,6 +42,8 @@ class User(UserMixin, db.Model):
     backup_last_sent_at = db.Column(db.DateTime, nullable=True)
     reset_token_hash = db.Column(db.String(64), nullable=True)
     reset_token_expires_at = db.Column(db.DateTime, nullable=True)
+    is_closed_temporarily = db.Column(db.Boolean, nullable=False, default=False)
+    closed_message = db.Column(db.Text, nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

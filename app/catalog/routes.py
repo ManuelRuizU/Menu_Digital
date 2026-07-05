@@ -451,6 +451,7 @@ def dashboard():
         .all()
     )
     order_counts = dict(db.session.query(Order.phone, func.count(Order.id)).group_by(Order.phone).all())
+    owner = User.query.filter_by(is_owner=True).first()
 
     return render_template(
         'panel/dashboard.html',
@@ -460,7 +461,20 @@ def dashboard():
         customers=customers,
         order_counts=order_counts,
         PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS,
+        owner=owner,
     )
+
+
+@catalog.route('/toggle-closed', methods=['POST'])
+@login_required
+@admin_required
+def toggle_closed():
+    owner = User.query.filter_by(is_owner=True).first()
+    if owner:
+        owner.is_closed_temporarily = not owner.is_closed_temporarily
+        db.session.commit()
+        flash('Tienda cerrada temporalmente.' if owner.is_closed_temporarily else 'Tienda abierta de nuevo.')
+    return redirect(url_for('catalog.dashboard'))
 
 
 @catalog.route('/orders')
