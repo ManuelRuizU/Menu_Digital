@@ -20,9 +20,11 @@ migrate = Migrate()
 # no Redis or other paid/extra service needed just to rate-limit login and order creation.
 limiter = Limiter(key_func=get_remote_address)
 
-def create_app():
+def create_app(test_config=None):
     app = Flask(__name__)
     app.config.from_object(Config)
+    if test_config:
+        app.config.update(test_config)
     db.init_app(app)
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'  # Redirigir a la vista de login
@@ -67,7 +69,8 @@ def create_app():
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         return response
 
-    _start_backup_scheduler(app)
+    if not app.config.get('TESTING'):
+        _start_backup_scheduler(app)
 
     return app
 

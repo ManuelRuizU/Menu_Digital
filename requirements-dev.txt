@@ -1,0 +1,3 @@
+# Solo para desarrollo/pruebas - no se necesita en el servidor de producción.
+-r requirements.txt
+pytest==8.4.2
