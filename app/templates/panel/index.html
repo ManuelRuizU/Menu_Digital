@@ -29,6 +29,10 @@
       <label for="business_name">Nombre del negocio</label>
       <input id="business_name" name="business_name" placeholder="Sushi Lou" value="{{ current_user.business_name or '' }}">
 
+      <label for="slogan">Eslogan (opcional)</label>
+      <input id="slogan" name="slogan" maxlength="200" placeholder="Ej: Las mejores pizzas de Bellavista" value="{{ current_user.slogan or '' }}">
+      <p class="muted">Aparece debajo del nombre de tu negocio en el menú.</p>
+
       <label for="address">Dirección</label>
       <input id="address" name="address" placeholder="Av. Siempre Viva 123" value="{{ current_user.address or '' }}">
       <p class="muted">Busca tu dirección y ajusta el marcador en el mapa: este será el punto de origen para calcular el reparto.</p>

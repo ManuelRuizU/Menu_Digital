@@ -180,12 +180,14 @@ button, input { font: inherit; }
 .closed-shell .business-logo { width: 96px; height: 96px; border-radius: 20px; object-fit: cover; margin-bottom: 16px; }
 .closed-badge { display: inline-block; margin-top: 14px; background: rgba(var(--accent-rgb),0.16); color: var(--accent); border-radius: 999px; padding: 8px 18px; font-weight: 700; }
 .closed-message { margin-top: 18px; color: var(--muted); line-height: 1.5; white-space: pre-line; }
-.hero { border: 1px solid var(--border-accent); background: var(--surface); box-shadow: var(--shadow-soft); border-radius: 28px; padding: 28px 30px; margin-bottom: 24px; display: flex; align-items: flex-start; gap: 16px; flex-wrap: nowrap; }
-.hamburger-btn, .business-logo { margin-top: 2px; }
-.business-logo { width: 56px; height: 56px; border-radius: 16px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; }
-.business-address { margin-top: 10px; color: var(--muted); font-size: 0.9rem; }
-.business-hours { display: inline-flex; margin-top: 10px; background: rgba(var(--primary-rgb),0.16); color: var(--primary); border-radius: 999px; padding: 6px 14px; font-size: 0.85rem; font-weight: 700; }
-.hero-info { min-width: 0; flex: 1; }
+.hero { position: relative; border: 1px solid var(--border-accent); background: var(--surface); box-shadow: var(--shadow-soft); border-radius: 28px; padding: 28px 30px; margin-bottom: 24px; display: flex; justify-content: center; }
+.hero .hamburger-btn { position: absolute; top: 24px; left: 24px; margin-top: 0; }
+.hero-info { min-width: 0; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; max-width: 480px; }
+.business-logo { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; margin-bottom: 4px; }
+.business-slogan { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.business-address { margin-top: 4px; color: var(--muted); font-size: 0.9rem; text-decoration: none; }
+.business-address:hover { color: var(--primary); text-decoration: underline; }
+.business-hours { display: inline-flex; margin-top: 4px; background: rgba(var(--primary-rgb),0.16); color: var(--primary); border-radius: 999px; padding: 6px 14px; font-size: 0.85rem; font-weight: 700; }
 .business-name {
   margin: 0;
   font-family: var(--font-heading);
@@ -438,7 +440,8 @@ body.nav-open { overflow: hidden; }
 
 @media (max-width: 640px) {
   .page-shell { padding: 18px 14px; }
-  .hero { padding: 18px; gap: 12px; }
+  .hero { padding: 18px; }
+  .hero .hamburger-btn { top: 14px; left: 14px; }
   .products-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .product-card { padding: 12px; gap: 8px; }
   .product-photo { height: 100px; }

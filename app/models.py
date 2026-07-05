@@ -29,6 +29,7 @@ class User(UserMixin, db.Model):
     is_owner = db.Column(db.Boolean, nullable=False, default=False)
     whatsapp_number = db.Column(db.String(20), nullable=True)
     business_name = db.Column(db.String(120), nullable=True)
+    slogan = db.Column(db.String(200), nullable=True)
     address = db.Column(db.String(255), nullable=True)
     logo_filename = db.Column(db.String(255), nullable=True)
     latitude = db.Column(db.Float, nullable=True)

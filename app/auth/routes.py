@@ -202,6 +202,7 @@ def update_business_profile():
         current_user.theme = theme
     current_user.whatsapp_number = request.form.get('whatsapp_number', '').strip()
     current_user.business_name = request.form.get('business_name', '').strip()
+    current_user.slogan = request.form.get('slogan', '').strip() or None
     current_user.address = request.form.get('address', '').strip()
 
     latitude = request.form.get('latitude', type=float)

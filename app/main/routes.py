@@ -77,7 +77,10 @@ def index():
         closed_message=(owner.closed_message if owner else None),
         theme=theme,
         business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
+        slogan=(owner.slogan if owner else None),
         business_address=(owner.address if owner else None),
+        maps_url=(f'https://www.google.com/maps/search/?api=1&query={owner.latitude},{owner.longitude}'
+                   if owner and owner.latitude is not None and owner.longitude is not None else None),
         logo_url=logo_url,
         primary_color=(owner.primary_color if owner and owner.primary_color else theme_defaults['primary']),
         accent_color=(owner.accent_color if owner and owner.accent_color else theme_defaults['accent']),

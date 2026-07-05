@@ -28,13 +28,20 @@
 <div class="page-shell">
   <header class="hero">
     <button type="button" id="nav-toggle" class="hamburger-btn" aria-label="Ver categorías">☰</button>
-    {% if logo_url %}
-      <img src="{{ logo_url }}" alt="{{ business_name }}" class="business-logo">
-    {% endif %}
     <div class="hero-info">
+      {% if logo_url %}
+        <img src="{{ logo_url }}" alt="{{ business_name }}" class="business-logo">
+      {% endif %}
       <h1 class="business-name">{{ business_name }}</h1>
+      {% if slogan %}
+        <p class="business-slogan">{{ slogan }}</p>
+      {% endif %}
       {% if business_address %}
-        <p class="business-address">{{ business_address }}</p>
+        {% if maps_url %}
+          <a href="{{ maps_url }}" target="_blank" rel="noopener" class="business-address">📍 {{ business_address }}</a>
+        {% else %}
+          <p class="business-address">{{ business_address }}</p>
+        {% endif %}
       {% endif %}
       {% if opens_at and closes_at %}
         <p class="business-hours">🕒 Atendemos de {{ opens_at }} a {{ closes_at }}</p>
