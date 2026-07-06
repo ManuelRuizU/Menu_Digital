@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}<title>Privacidad - {{ business_name }}</title>{% endblock %}
+
+{% block head %}
+<style>
+  html[data-theme] { --primary: {{ primary_color }}; --accent: {{ accent_color }}; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-shell" style="max-width:720px;">
+  <div class="panel" style="line-height:1.7;">
+    <h1 style="margin-top:0;">Privacidad y qué guardamos</h1>
+    <p class="hint">
+      Este es un resumen simple y honesto de qué hace este sitio con tu información al pedir en
+      <strong>{{ business_name }}</strong>. No reemplaza una asesoría legal formal, pero refleja exactamente
+      cómo funciona el sistema.
+    </p>
+
+    <h3>Mientras navegas el menú</h3>
+    <p>
+      No usamos cookies de rastreo ni de publicidad. No usamos Google Analytics, Facebook Pixel ni
+      herramientas similares. Nadie te sigue de un sitio a otro desde acá.
+    </p>
+
+    <h3>Cuando armas tu pedido</h3>
+    <p>
+      El carrito de compras se guarda únicamente en tu propio navegador (no en un servidor), para que no
+      se pierda si recargas la página. Si prefieres borrarlo, basta con borrar los datos de este sitio desde
+      la configuración de tu navegador.
+    </p>
+
+    <h3>Cuando confirmas el pedido</h3>
+    <p>
+      Se envían a este negocio los datos necesarios para atenderte: tu nombre, teléfono, dirección (si
+      pediste despacho), los productos elegidos y la forma de pago. Esta información se guarda para que
+      el negocio pueda gestionar tu pedido y, si vuelves a pedir, tu navegador recuerda tus datos para que
+      no tengas que volver a escribirlos.
+    </p>
+    <p>
+      El pedido se coordina y se cierra por WhatsApp, directamente con el negocio - esa conversación queda
+      en WhatsApp, sujeta a los términos y la política de privacidad de WhatsApp/Meta, no de este sitio.
+    </p>
+
+    <h3>Qué no hacemos</h3>
+    <p>
+      No vendemos ni compartimos tu información con terceros para fines de publicidad o marketing. No
+      existen cookies de seguimiento para clientes - la única cookie de este sistema es una de sesión, y
+      solo se usa cuando el dueño o su personal inician sesión en el panel de administración, nunca al
+      navegar el menú como cliente.
+    </p>
+
+    <h3>Contacto</h3>
+    <p>
+      Si tienes preguntas sobre tus datos o quieres que se eliminen, puedes escribirle directamente a este
+      negocio{% if whatsapp_number %} por <a href="https://wa.me/{{ whatsapp_number }}" target="_blank" rel="noopener">WhatsApp</a>{% endif %}.
+    </p>
+
+    <p style="margin-top:28px;"><a href="{{ url_for('main.index') }}">&larr; Volver al menú</a></p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}{% endblock %}

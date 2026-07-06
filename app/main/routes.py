@@ -126,6 +126,21 @@ def index():
     )
 
 
+@main.route('/privacidad')
+def privacy():
+    owner = get_owner()
+    theme = owner.theme if owner and owner.theme in THEMES else 'oscuro'
+    theme_defaults = THEMES[theme]
+    return render_template(
+        'privacy.html',
+        theme=theme,
+        business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
+        primary_color=(owner.primary_color if owner and owner.primary_color else theme_defaults['primary']),
+        accent_color=(owner.accent_color if owner and owner.accent_color else theme_defaults['accent']),
+        whatsapp_number=(owner.whatsapp_number if owner else None),
+    )
+
+
 @main.route('/api/products')
 def products_api():
     products = (Product.query.filter_by(is_active=True)
