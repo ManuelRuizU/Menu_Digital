@@ -123,6 +123,8 @@ def index():
         min_delivery_order=(owner.min_delivery_order if owner else None),
         opens_at=(hours_today.opens_at if hours_today else None),
         closes_at=(hours_today.closes_at if hours_today else None),
+        creator_name=current_app.config.get('CREATOR_NAME'),
+        creator_whatsapp=current_app.config.get('CREATOR_WHATSAPP'),
     )
 
 

@@ -185,6 +185,17 @@
     <a href="{{ url_for('main.privacy') }}" class="business-address" style="font-size:0.82rem;">Privacidad y qué guardamos</a>
   </p>
 
+  {% if creator_name %}
+    <p style="text-align:center;margin:6px 0 0;">
+      {% if creator_whatsapp %}
+        <a href="https://wa.me/{{ creator_whatsapp }}?text={{ 'Hola! Vi este menú digital y me gustaría tener uno para mi negocio.'|urlencode }}"
+           target="_blank" rel="noopener" class="business-address" style="font-size:0.78rem;">Hecho con ❤ por {{ creator_name }}</a>
+      {% else %}
+        <span class="hint" style="font-size:0.78rem;">Hecho con ❤ por {{ creator_name }}</span>
+      {% endif %}
+    </p>
+  {% endif %}
+
   <button type="button" id="cart-fab" class="cart-fab">
     <span>🛒 <span id="cart-fab-count">0</span> productos</span>
     <span id="cart-fab-total">$0</span>
