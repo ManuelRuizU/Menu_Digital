@@ -214,6 +214,38 @@ function closeCart() {
   document.body.classList.remove('cart-open')
 }
 
+function initCartSwipeToClose() {
+  const panel = elements.cartPanel
+  const isMobileLayout = () => window.matchMedia('(max-width: 940px)').matches
+  let startY = 0
+  let currentY = 0
+  let dragging = false
+
+  panel.addEventListener('touchstart', (event) => {
+    // Only from the top of the sheet - a scrolled-down product list shouldn't hijack the drag.
+    if (!isMobileLayout() || !panel.classList.contains('open') || panel.scrollTop > 0) return
+    startY = event.touches[0].clientY
+    currentY = startY
+    dragging = true
+    panel.style.transition = 'none'
+  }, { passive: true })
+
+  panel.addEventListener('touchmove', (event) => {
+    if (!dragging) return
+    currentY = event.touches[0].clientY
+    const delta = currentY - startY
+    if (delta > 0) panel.style.transform = `translateY(${delta}px)`
+  }, { passive: true })
+
+  panel.addEventListener('touchend', () => {
+    if (!dragging) return
+    dragging = false
+    panel.style.transition = ''
+    panel.style.transform = ''
+    if (currentY - startY > 80) closeCart()
+  })
+}
+
 let map, marker, suggestions = []
 
 function saveCart() {
@@ -890,6 +922,7 @@ window.addEventListener('load', () => {
   elements.cartFab.addEventListener('click', openCart)
   elements.cartClose.addEventListener('click', closeCart)
   elements.cartBackdrop.addEventListener('click', closeCart)
+  initCartSwipeToClose()
 
   elements.navToggle.addEventListener('click', openNav)
   elements.navClose.addEventListener('click', closeNav)
