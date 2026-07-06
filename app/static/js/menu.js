@@ -79,6 +79,13 @@ const elements = {
   deliveryModeOptions: document.getElementById('delivery-mode-options'),
   minOrderHint: document.getElementById('min-order-hint'),
   upsellSuggestions: document.getElementById('upsell-suggestions'),
+  confirmModal: document.getElementById('confirm-modal'),
+  confirmModalBackdrop: document.getElementById('confirm-modal-backdrop'),
+  confirmModalClose: document.getElementById('confirm-modal-close'),
+  confirmSummary: document.getElementById('confirm-summary'),
+  confirmError: document.getElementById('confirm-error'),
+  confirmModalSend: document.getElementById('confirm-modal-send'),
+  confirmModalEdit: document.getElementById('confirm-modal-edit'),
 }
 
 const MIN_DELIVERY_ORDER = elements.deliveryModeOptions
@@ -708,11 +715,95 @@ function buildWhatsAppText() {
   return encodeURIComponent(lines.join('\n'))
 }
 
+function buildConfirmSummaryHtml() {
+  const name = elements.name.value.trim() || 'Cliente'
+  const phone = elements.phone.value.trim() || 'Sin teléfono'
+  const deliveryMode = getDeliveryMode()
+  const paymentMethod = getPaymentMethod()
+  const address = elements.address.value.trim()
+  const notes = elements.notes.value.trim()
+  const shipping = deliveryMode === 'envio' && STATE.selectedLocation && STATE.deliveryCovered ? STATE.shippingCost : 0
+  const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const total = getOrderTotal()
+
+  const itemsHtml = STATE.cart.map((item) => {
+    const optionsText = item.selectedOptions && item.selectedOptions.length
+      ? ` <small>(${item.selectedOptions.map((o) => escapeHtml(o.name)).join(', ')})</small>`
+      : ''
+    return `<div class="confirm-row"><span>${item.quantity}× ${escapeHtml(item.name)}${optionsText}</span><span>${formatPrice(item.price * item.quantity)}</span></div>`
+  }).join('')
+
+  let paymentLine = PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod
+  if (paymentMethod === 'efectivo' && Number(elements.cashAmount.value) > 0) {
+    const cash = Number(elements.cashAmount.value)
+    paymentLine += cash >= total ? ` - paga con ${formatPrice(cash)} (vuelto ${formatPrice(cash - total)})` : ` - paga con ${formatPrice(cash)}`
+  }
+
+  return `
+    <p class="confirm-section-title">Tus datos</p>
+    <div class="confirm-row"><span>Nombre</span><span>${escapeHtml(name)}</span></div>
+    <div class="confirm-row"><span>Teléfono</span><span>${escapeHtml(phone)}</span></div>
+    <div class="confirm-row"><span>Entrega</span><span>${deliveryMode === 'envio' ? 'Despacho' : 'Retiro'}</span></div>
+    ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Dirección</span><span>${escapeHtml(address || 'No definida')}</span></div>` : ''}
+    <div class="confirm-row"><span>Horario sugerido</span><span>${escapeHtml(getRequestedTime() || 'No indicada')}</span></div>
+    ${notes ? `<div class="confirm-row"><span>Notas</span><span>${escapeHtml(notes)}</span></div>` : ''}
+    <p class="confirm-section-title">Productos</p>
+    ${itemsHtml}
+    <p class="confirm-section-title">Pago</p>
+    <div class="confirm-row"><span>Forma de pago</span><span>${escapeHtml(paymentLine)}</span></div>
+    <div class="confirm-row"><span>Subtotal</span><span>${formatPrice(subtotal)}</span></div>
+    ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Envío</span><span>${formatPrice(shipping)}</span></div>` : ''}
+    <div class="confirm-row confirm-total"><span>Total</span><span>${formatPrice(total)}</span></div>
+  `
+}
+
+function openConfirmModal() {
+  elements.confirmSummary.innerHTML = buildConfirmSummaryHtml()
+  elements.confirmError.style.display = 'none'
+  elements.confirmModalSend.disabled = false
+  elements.confirmModalSend.textContent = 'Confirmar y enviar por WhatsApp'
+  elements.confirmModal.classList.add('open')
+  elements.confirmModalBackdrop.classList.add('open')
+  document.body.classList.add('modal-open')
+}
+
+function closeConfirmModal() {
+  elements.confirmModal.classList.remove('open')
+  elements.confirmModalBackdrop.classList.remove('open')
+  document.body.classList.remove('modal-open')
+}
+
+async function handleConfirmSend() {
+  elements.confirmModalSend.disabled = true
+  elements.confirmModalSend.textContent = 'Enviando...'
+  elements.confirmError.style.display = 'none'
+
+  saveCustomer()
+  const result = await saveOrder()
+  if (!result.ok) {
+    elements.confirmError.textContent = result.message
+    elements.confirmError.style.display = 'block'
+    elements.confirmModalSend.disabled = false
+    elements.confirmModalSend.textContent = 'Confirmar y enviar por WhatsApp'
+    return
+  }
+
+  try {
+    const response = await fetch('/api/whatsapp-number')
+    const data = await response.json()
+    const whatsappNumber = data.whatsappNumber || '56900000000'
+    window.open(`https://wa.me/${whatsappNumber}?text=${buildWhatsAppText()}`, '_blank')
+  } catch (error) {
+    window.open(`https://wa.me/56900000000?text=${buildWhatsAppText()}`, '_blank')
+  }
+  closeConfirmModal()
+}
+
 async function saveOrder() {
   const deliveryMode = getDeliveryMode()
 
   try {
-    await fetch('/api/orders', {
+    const response = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -733,8 +824,13 @@ async function saveOrder() {
         lng: STATE.selectedLocation ? STATE.selectedLocation.lng : null,
       }),
     })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data.ok === false) {
+      return { ok: false, message: data.message || 'No se pudo guardar el pedido.' }
+    }
+    return { ok: true }
   } catch (error) {
-    console.warn('No se pudo guardar el pedido en el servidor, se continúa con WhatsApp.', error)
+    return { ok: false, message: 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.' }
   }
 }
 
@@ -768,18 +864,7 @@ async function handleCheckout() {
     alert(`Antes de enviar, completa: ${missing.join(', ')}.`)
     return
   }
-  saveCustomer()
-  await saveOrder()
-  try {
-    const response = await fetch('/api/whatsapp-number')
-    const data = await response.json()
-    const whatsappNumber = data.whatsappNumber || '56900000000'
-    const text = buildWhatsAppText()
-    window.open(`https://wa.me/${whatsappNumber}?text=${text}`, '_blank')
-  } catch (error) {
-    const text = buildWhatsAppText()
-    window.open(`https://wa.me/56900000000?text=${text}`, '_blank')
-  }
+  openConfirmModal()
 }
 
 window.addEventListener('load', () => {
@@ -814,6 +899,11 @@ window.addEventListener('load', () => {
   elements.productModalBackdrop.addEventListener('click', closeProductModal)
   elements.productModalAdd.addEventListener('click', handleModalAddClick)
   elements.productModalOptions.addEventListener('change', updateModalPrice)
+
+  elements.confirmModalClose.addEventListener('click', closeConfirmModal)
+  elements.confirmModalBackdrop.addEventListener('click', closeConfirmModal)
+  elements.confirmModalEdit.addEventListener('click', closeConfirmModal)
+  elements.confirmModalSend.addEventListener('click', handleConfirmSend)
 
   document.body.addEventListener('click', (event) => {
     const navLink = event.target.closest('[data-target]')

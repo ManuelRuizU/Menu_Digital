@@ -196,6 +196,17 @@
     <div class="price" id="product-modal-price"></div>
     <button type="button" id="product-modal-add" class="button button-primary">Agregar</button>
   </div>
+
+  <div id="confirm-modal-backdrop" class="modal-backdrop"></div>
+  <div id="confirm-modal" class="modal confirm-modal">
+    <button type="button" id="confirm-modal-close" class="cart-close" aria-label="Cerrar">✕</button>
+    <h3>Revisa tu pedido</h3>
+    <p class="hint">Esto es lo que le llegará al negocio por WhatsApp. Si algo está mal, ciérralo y corrígelo antes de enviar.</p>
+    <div id="confirm-summary" class="confirm-summary"></div>
+    <p id="confirm-error" class="confirm-error" style="display:none;"></p>
+    <button type="button" id="confirm-modal-send" class="button button-primary">Confirmar y enviar por WhatsApp</button>
+    <button type="button" id="confirm-modal-edit" class="button">Seguir editando</button>
+  </div>
 </div>
 {% endif %}
 {% endblock %}
