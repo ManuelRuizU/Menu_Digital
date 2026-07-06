@@ -3,9 +3,13 @@
 {% block content %}
     <div class="card-row">
       <h1>Historial de pedidos</h1>
-      <a href="{{ url_for('catalog.orders') }}"><button type="button">Volver a hoy</button></a>
+      <div class="inline-actions">
+        <a href="{{ url_for('catalog.export_orders_csv') }}"><button type="button" class="secondary">⬇️ Descargar CSV</button></a>
+        <a href="{{ url_for('catalog.orders') }}"><button type="button">Volver a hoy</button></a>
+      </div>
     </div>
     <p class="muted">Todos los pedidos recibidos, del más reciente al más antiguo.</p>
+    <p class="muted">El CSV se abre en Excel, Google Sheets o se puede importar a otro sistema que ya uses.</p>
     <p><strong>{{ orders|length }}</strong> pedidos en total · <strong>{{ confirmed_count }}</strong> confirmados</p>
 
     {% for order in orders %}

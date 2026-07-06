@@ -1,9 +1,10 @@
 # app/catalog/routes.py
+import csv
 import json
 import os
 import re
 from datetime import datetime, time, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -614,6 +615,67 @@ def order_history():
     all_orders = Order.query.order_by(Order.id.desc()).all()
     confirmed_count = sum(1 for order in all_orders if order.status == 'Confirmed')
     return render_template('panel/order_history.html', orders=all_orders, confirmed_count=confirmed_count)
+
+
+@catalog.route('/orders/export.csv')
+@login_required
+@admin_required
+def export_orders_csv():
+    """Universal, tool-agnostic export - the bridge to Excel, Loyverse, or whatever the
+    owner already uses, instead of building a one-off integration with any single tool."""
+    start = request.args.get('start')
+    end = request.args.get('end')
+
+    query = Order.query.order_by(Order.id)
+    if start:
+        start_local = datetime.combine(datetime.strptime(start, '%Y-%m-%d').date(), time.min, tzinfo=BUSINESS_TZ)
+        query = query.filter(Order.created_at >= start_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None))
+    if end:
+        end_local = datetime.combine(datetime.strptime(end, '%Y-%m-%d').date(), time.min, tzinfo=BUSINESS_TZ) + timedelta(days=1)
+        query = query.filter(Order.created_at < end_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None))
+
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        'ID', 'Fecha', 'Hora pedido', 'Hora sugerida', 'Cliente', 'Teléfono', 'Tipo de entrega',
+        'Dirección', 'Productos', 'Forma de pago', 'Monto con que paga', 'Subtotal', 'Envío',
+        'Total', 'Estado', 'Notas',
+    ])
+    for order in query.all():
+        item_lines = []
+        for item in order.order_items:
+            product_name = item.product.name if item.product else 'Producto eliminado'
+            options = ', '.join(o.name for o in item.selected_options) if item.selected_options else ''
+            label = f'{item.quantity}x {product_name}'
+            if options:
+                label += f' ({options})'
+            item_lines.append(label)
+
+        writer.writerow([
+            order.id,
+            order.created_at_local.strftime('%Y-%m-%d'),
+            order.created_at_local.strftime('%H:%M'),
+            order.requested_time or '',
+            order.customer_name,
+            order.phone,
+            'Despacho' if order.delivery_mode == 'envio' else 'Retiro',
+            order.address or '',
+            ' | '.join(item_lines),
+            PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method or ''),
+            order.cash_amount or '',
+            order.total_price - order.shipping_cost,
+            order.shipping_cost,
+            order.total_price,
+            'Confirmado' if order.status == 'Confirmed' else 'Pendiente',
+            order.notes or '',
+        ])
+
+    filename = f'pedidos_{start or "todos"}_{end or "hoy"}.csv' if (start or end) else 'pedidos.csv'
+    return Response(
+        '﻿' + buffer.getvalue(),  # BOM so Excel opens the accented characters correctly
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
 
 
 def _redirect_back_to_orders():
