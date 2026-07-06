@@ -41,8 +41,6 @@ class User(UserMixin, db.Model):
     accepts_card = db.Column(db.Boolean, nullable=False, default=True)
     bank_details = db.Column(db.Text, nullable=True)
     min_delivery_order = db.Column(db.Float, nullable=True)
-    opens_at = db.Column(db.String(5), nullable=True)
-    closes_at = db.Column(db.String(5), nullable=True)
     printer_ip = db.Column(db.String(45), nullable=True)
     printer_width_mm = db.Column(db.Integer, nullable=True)
     backup_email_host = db.Column(db.String(120), nullable=True)
@@ -232,3 +230,26 @@ class Courier(db.Model):
 
     def __repr__(self):
         return f'<Courier {self.name}>'
+
+
+DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+
+class BusinessHours(db.Model):
+    """One row per day of the week (0=Monday...6=Sunday, matching date.weekday()).
+    Both opens_at/closes_at null means closed that whole day."""
+    id = db.Column(db.Integer, primary_key=True)
+    day_of_week = db.Column(db.Integer, nullable=False, unique=True)
+    opens_at = db.Column(db.String(5), nullable=True)
+    closes_at = db.Column(db.String(5), nullable=True)
+
+    @property
+    def day_name(self):
+        return DAY_NAMES[self.day_of_week]
+
+    @property
+    def is_closed(self):
+        return not self.opens_at or not self.closes_at
+
+    def __repr__(self):
+        return f'<BusinessHours {self.day_name}>'

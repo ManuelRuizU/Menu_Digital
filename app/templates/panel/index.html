@@ -82,13 +82,6 @@
       <input type="number" step="1" min="0" id="min_delivery_order" name="min_delivery_order" placeholder="5000" value="{{ current_user.min_delivery_order|int if current_user.min_delivery_order else '' }}">
       <p class="muted">Déjalo vacío si no quieres exigir un mínimo. Solo aplica al despacho, no al retiro.</p>
 
-      <label for="opens_at">Horario de atención - Abre a las</label>
-      <input type="time" id="opens_at" name="opens_at" value="{{ current_user.opens_at or '' }}">
-
-      <label for="closes_at">Horario de atención - Cierra a las</label>
-      <input type="time" id="closes_at" name="closes_at" value="{{ current_user.closes_at or '' }}">
-      <p class="muted">Opcional. Si lo defines, tus clientes solo podrán elegir un horario sugerido dentro de este rango - no importa a qué hora entren al menú, solo a qué hora piden que llegue el pedido. Deja ambos vacíos si atiendes sin horario fijo.</p>
-
       <label for="printer_ip">IP de la impresora térmica (opcional)</label>
       <input id="printer_ip" name="printer_ip" placeholder="192.168.1.50" value="{{ current_user.printer_ip or '' }}">
 
@@ -130,6 +123,43 @@
 
       <button type="submit">Guardar</button>
     </form>
+
+    <h2>Horario de atención</h2>
+    <p class="muted">
+      Opcional, y por día - así puedes tener un horario distinto viernes/sábado, o marcar el domingo como
+      cerrado. Si defines horario, tus clientes solo podrán pedir un horario de entrega dentro del rango
+      del día correspondiente, y el menú se cierra solo (como con "cerrar temporalmente") los días que
+      marques como cerrado. Deja todos los días vacíos si atiendes sin horario fijo.
+    </p>
+    <form method="post" action="{{ url_for('auth.update_business_hours') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for hours in business_hours %}
+        <div class="card-row" style="gap:10px;flex-wrap:wrap;">
+          <strong style="width:90px;">{{ hours.day_name }}</strong>
+          <label class="checkbox-row" style="width:auto;">
+            <input type="checkbox" name="closed_{{ hours.day_of_week }}" class="day-closed-toggle"
+                   data-day="{{ hours.day_of_week }}" {{ 'checked' if hours.is_closed }}>
+            Cerrado
+          </label>
+          <input type="time" name="opens_{{ hours.day_of_week }}" id="opens_{{ hours.day_of_week }}"
+                 value="{{ hours.opens_at or '' }}" style="width:auto;" {{ 'disabled' if hours.is_closed }}>
+          <span class="muted">a</span>
+          <input type="time" name="closes_{{ hours.day_of_week }}" id="closes_{{ hours.day_of_week }}"
+                 value="{{ hours.closes_at or '' }}" style="width:auto;" {{ 'disabled' if hours.is_closed }}>
+        </div>
+      {% endfor %}
+      <button type="submit">Guardar horario</button>
+    </form>
+
+    <script>
+      document.querySelectorAll('.day-closed-toggle').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          const day = checkbox.dataset.day;
+          document.getElementById(`opens_${day}`).disabled = checkbox.checked;
+          document.getElementById(`closes_${day}`).disabled = checkbox.checked;
+        });
+      });
+    </script>
 
     {% if current_user.backup_email_host %}
       <form method="post" action="{{ url_for('auth.send_backup_now') }}">

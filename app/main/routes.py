@@ -1,12 +1,14 @@
 import json
 import math
 import re
+from datetime import datetime
 
 from flask import current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
-from app.models import DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, THEMES, User
+from app.models import (BUSINESS_TZ, BusinessHours, DAY_NAMES, DeliveryRadiusTier, DeliveryZone, Order,
+                         OrderItem, OrderItemOption, Product, ProductOption, THEMES, User)
 from app import csrf, db, limiter
 
 
@@ -17,6 +19,21 @@ def get_owner():
 def has_delivery_configured():
     return db.session.query(DeliveryRadiusTier.query.exists()).scalar() or \
         db.session.query(DeliveryZone.query.exists()).scalar()
+
+
+def resolve_hours_for_day(day_index):
+    """The BusinessHours row for the given weekday (0=Monday...6=Sunday), or None if no
+    day has ever been configured at all - a fresh install has no schedule, so nothing
+    should be restricted. Split out from get_hours_for_today() so tests can pass an
+    explicit day instead of depending on whatever day they happen to run on."""
+    any_configured = db.session.query(BusinessHours.query.filter(BusinessHours.opens_at.isnot(None)).exists()).scalar()
+    if not any_configured:
+        return None
+    return BusinessHours.query.filter_by(day_of_week=day_index).first()
+
+
+def get_hours_for_today():
+    return resolve_hours_for_day(datetime.now(BUSINESS_TZ).weekday())
 
 
 def is_within_business_hours(time_str, opens_at, closes_at):
@@ -71,10 +88,22 @@ def index():
     logo_url = url_for('static', filename='uploads/logos/' + owner.logo_filename) if owner and owner.logo_filename else None
     theme = owner.theme if owner and owner.theme in THEMES else 'oscuro'
     theme_defaults = THEMES[theme]
+
+    hours_today = get_hours_for_today()
+    closed_by_schedule = hours_today is not None and hours_today.is_closed
+    is_closed_temporarily = owner.is_closed_temporarily if owner else False
+
+    if is_closed_temporarily:
+        closed_message = owner.closed_message
+    elif closed_by_schedule:
+        closed_message = f'Hoy {DAY_NAMES[hours_today.day_of_week]} no atendemos. ¡Vuelve otro día!'
+    else:
+        closed_message = None
+
     return render_template(
         'index.html',
-        is_closed=(owner.is_closed_temporarily if owner else False),
-        closed_message=(owner.closed_message if owner else None),
+        is_closed=(is_closed_temporarily or closed_by_schedule),
+        closed_message=closed_message,
         theme=theme,
         business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
         slogan=(owner.slogan if owner else None),
@@ -92,8 +121,8 @@ def index():
         business_lat=(owner.latitude if owner and owner.latitude is not None else -33.4489),
         business_lng=(owner.longitude if owner and owner.longitude is not None else -70.6693),
         min_delivery_order=(owner.min_delivery_order if owner else None),
-        opens_at=(owner.opens_at if owner else None),
-        closes_at=(owner.closes_at if owner else None),
+        opens_at=(hours_today.opens_at if hours_today else None),
+        closes_at=(hours_today.closes_at if hours_today else None),
     )
 
 
@@ -209,6 +238,10 @@ def create_order():
     if owner and owner.is_closed_temporarily:
         return jsonify({'ok': False, 'message': 'Este negocio está cerrado temporalmente y no puede recibir pedidos.'}), 400
 
+    hours_today = get_hours_for_today()
+    if hours_today is not None and hours_today.is_closed:
+        return jsonify({'ok': False, 'message': f'Hoy {hours_today.day_name} no atendemos.'}), 400
+
     enabled_methods = {
         'efectivo': owner.accepts_cash if owner else True,
         'transferencia': owner.accepts_transfer if owner else True,
@@ -217,10 +250,10 @@ def create_order():
     if payment_method not in enabled_methods or not enabled_methods[payment_method]:
         return jsonify({'ok': False, 'message': 'Ese método de pago no está disponible.'}), 400
 
-    if requested_time and owner and not is_within_business_hours(requested_time, owner.opens_at, owner.closes_at):
+    if hours_today is not None and requested_time and not is_within_business_hours(requested_time, hours_today.opens_at, hours_today.closes_at):
         return jsonify({
             'ok': False,
-            'message': f'Solo recibimos pedidos entre las {owner.opens_at} y las {owner.closes_at}.',
+            'message': f'Hoy solo recibimos pedidos entre las {hours_today.opens_at} y las {hours_today.closes_at}.',
         }), 400
 
     cash_amount = None

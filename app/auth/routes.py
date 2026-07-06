@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, render_template, redirect, url_for, fl
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.models import THEMES, User
+from app.models import THEMES, BusinessHours, User
 from app import db, limiter
 from app.decorators import admin_required, owner_required
 from app.auth import auth
@@ -184,11 +184,24 @@ def logout():
     return redirect(url_for('auth.login'))
 
 
+def _ensure_business_hours_rows():
+    """A fresh install has no business_hours rows at all (migrations only backfill
+    existing installs) - create the 7 (all "closed"/unset) so there's something to edit."""
+    existing_days = {bh.day_of_week for bh in BusinessHours.query.all()}
+    for day in range(7):
+        if day not in existing_days:
+            db.session.add(BusinessHours(day_of_week=day))
+    if len(existing_days) < 7:
+        db.session.commit()
+
+
 @auth.route('/admin')
 @login_required
 @owner_required
 def admin_panel():
-    return render_template('panel/index.html', themes=THEMES)
+    _ensure_business_hours_rows()
+    business_hours = BusinessHours.query.order_by(BusinessHours.day_of_week).all()
+    return render_template('panel/index.html', themes=THEMES, business_hours=business_hours)
 
 
 @auth.route('/admin/business-profile', methods=['POST'])
@@ -226,8 +239,6 @@ def update_business_profile():
         current_user.accepts_cash = True
     current_user.bank_details = request.form.get('bank_details', '').strip() or None
     current_user.min_delivery_order = request.form.get('min_delivery_order', type=float)
-    current_user.opens_at = _parse_time(request.form.get('opens_at', '').strip())
-    current_user.closes_at = _parse_time(request.form.get('closes_at', '').strip())
     current_user.printer_ip = request.form.get('printer_ip', '').strip() or None
     current_user.printer_width_mm = request.form.get('printer_width_mm', type=int) or 80
     current_user.backup_email_host = request.form.get('backup_email_host', '').strip() or None
@@ -246,6 +257,31 @@ def update_business_profile():
 
     db.session.commit()
     flash('Perfil del negocio actualizado')
+    return redirect(url_for('auth.admin_panel'))
+
+
+@auth.route('/admin/business-hours', methods=['POST'])
+@login_required
+@owner_required
+def update_business_hours():
+    _ensure_business_hours_rows()
+    for hours in BusinessHours.query.all():
+        day = hours.day_of_week
+        if f'closed_{day}' in request.form:
+            hours.opens_at = None
+            hours.closes_at = None
+            continue
+        opens_at = _parse_time(request.form.get(f'opens_{day}', '').strip())
+        closes_at = _parse_time(request.form.get(f'closes_{day}', '').strip())
+        if opens_at and closes_at:
+            hours.opens_at = opens_at
+            hours.closes_at = closes_at
+        else:
+            hours.opens_at = None
+            hours.closes_at = None
+
+    db.session.commit()
+    flash('Horario de atención actualizado')
     return redirect(url_for('auth.admin_panel'))
 
 

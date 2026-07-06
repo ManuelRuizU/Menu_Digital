@@ -1,5 +1,5 @@
-from app.main.routes import compute_shipping_cost, get_owner, is_within_business_hours
-from app.models import DeliveryRadiusTier, DeliveryZone, User
+from app.main.routes import compute_shipping_cost, get_owner, is_within_business_hours, resolve_hours_for_day
+from app.models import BusinessHours, DeliveryRadiusTier, DeliveryZone, User
 
 
 # --- is_within_business_hours ---
@@ -109,3 +109,54 @@ def test_shipping_cost_zone_takes_precedence_over_radius(db):
     cost, covered = compute_shipping_cost(-37.8, -72.7)
     assert covered is True
     assert cost == 999
+
+
+# --- resolve_hours_for_day (per-day-of-week schedule) ---
+
+def _set_weekly_schedule(db):
+    """Lunes a jueves 12:00-23:00, viernes-sábado 12:00-00:00, domingo cerrado."""
+    for day in range(4):  # Monday(0)..Thursday(3)
+        db.session.add(BusinessHours(day_of_week=day, opens_at='12:00', closes_at='23:00'))
+    for day in (4, 5):  # Friday, Saturday
+        db.session.add(BusinessHours(day_of_week=day, opens_at='12:00', closes_at='00:00'))
+    db.session.add(BusinessHours(day_of_week=6, opens_at=None, closes_at=None))  # Sunday - closed
+    db.session.commit()
+
+
+def test_no_schedule_configured_returns_none(db):
+    assert resolve_hours_for_day(0) is None
+
+
+def test_weekday_schedule_resolves_correctly(db):
+    _set_weekly_schedule(db)
+
+    monday = resolve_hours_for_day(0)
+    assert monday.opens_at == '12:00' and monday.closes_at == '23:00'
+    assert monday.is_closed is False
+
+    friday = resolve_hours_for_day(4)
+    assert friday.closes_at == '00:00'
+
+    sunday = resolve_hours_for_day(6)
+    assert sunday.is_closed is True
+
+
+def test_time_within_and_outside_days_own_hours(db):
+    _set_weekly_schedule(db)
+
+    monday = resolve_hours_for_day(0)
+    assert is_within_business_hours('13:00', monday.opens_at, monday.closes_at) is True
+    assert is_within_business_hours('23:30', monday.opens_at, monday.closes_at) is False
+
+    friday = resolve_hours_for_day(4)
+    # Crosses midnight - 23:30 and 00:00 are both still "Friday night".
+    assert is_within_business_hours('23:30', friday.opens_at, friday.closes_at) is True
+    assert is_within_business_hours('10:00', friday.opens_at, friday.closes_at) is False
+
+
+def test_one_day_marked_closed_does_not_affect_others(db):
+    _set_weekly_schedule(db)
+    # Configuring any day at all means unconfigured/closed days are real "closed", not
+    # "nothing configured" - this is the whole point of resolve_hours_for_day's None check.
+    assert resolve_hours_for_day(6).is_closed is True
+    assert resolve_hours_for_day(1).is_closed is False
