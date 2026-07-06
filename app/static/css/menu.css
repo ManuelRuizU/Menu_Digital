@@ -149,7 +149,7 @@ html[data-theme="urbano"] .cart-item,
 html[data-theme="urbano"] .upsell-item,
 html[data-theme="urbano"] .accordion-section,
 html[data-theme="urbano"] .modal,
-html[data-theme="urbano"] .card-actions button[data-add],
+html[data-theme="urbano"] .card-actions .add-btn,
 html[data-theme="urbano"] .details-btn,
 html[data-theme="urbano"] .button {
   border-radius: 6px;
@@ -165,7 +165,7 @@ html[data-theme="urbano"] .menu-section-title {
   font-weight: 800;
   letter-spacing: 0.02em;
 }
-html[data-theme="urbano"] .card-actions button[data-add],
+html[data-theme="urbano"] .card-actions .add-btn,
 html[data-theme="urbano"] .button-primary {
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -195,6 +195,34 @@ button, input { font: inherit; }
   line-height: 1.1;
   color: var(--primary);
 }
+.featured-banner { position: relative; overflow: hidden; border-radius: 24px; box-shadow: var(--shadow-soft); margin-bottom: 22px; }
+.featured-banner[hidden] { display: none; }
+.featured-banner-track { display: flex; transition: transform 0.4s ease; }
+.featured-slide {
+  flex: 0 0 100%;
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border: none;
+  background: linear-gradient(120deg, rgba(var(--primary-rgb),0.18), rgba(var(--accent-rgb),0.18)), var(--surface);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.featured-slide-photo { width: 96px; height: 96px; object-fit: cover; border-radius: 16px; }
+.featured-slide-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.featured-slide-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); }
+.featured-slide-info strong { font-size: 1.15rem; color: var(--text-strong); }
+.featured-slide-price { font-size: 1.05rem; font-weight: 700; color: var(--primary); }
+.original-price { color: var(--muted); font-weight: 400; margin-right: 6px; }
+.featured-banner-dots { display: flex; justify-content: center; gap: 8px; padding: 10px 0; background: var(--surface); }
+.featured-banner-dots:empty { display: none; padding: 0; }
+.featured-dot { width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: var(--border-accent); cursor: pointer; }
+.featured-dot.active { background: var(--primary); }
+
 .layout { display: grid; grid-template-columns: minmax(0, 2fr) 1fr; gap: 22px; }
 .panel { background: var(--surface); border: 1px solid var(--border-accent); box-shadow: var(--shadow-soft); border-radius: 28px; padding: 22px; }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
@@ -210,8 +238,8 @@ button, input { font: inherit; }
 .product-card strong { display: block; font-size: 1rem; color: var(--text-strong); }
 .product-card .price { font-size: 1.1rem; color: var(--primary); font-weight: 700; }
 .card-actions { margin-top: auto; display: flex; gap: 8px; }
-.card-actions button[data-add] { flex: 1; border: none; border-radius: 14px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; padding: 12px 14px; font-size: 1.4rem; font-weight: 700; line-height: 1; cursor: pointer; transition: transform 0.2s ease, opacity 0.2s ease; }
-.card-actions button[data-add]:hover { transform: translateY(-1px); opacity: 0.95; }
+.card-actions .add-btn { flex: 1; border: none; border-radius: 14px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; padding: 12px 14px; font-size: 1.4rem; font-weight: 700; line-height: 1; cursor: pointer; transition: transform 0.2s ease, opacity 0.2s ease; }
+.card-actions .add-btn:hover { transform: translateY(-1px); opacity: 0.95; }
 .details-btn { flex-shrink: 0; width: 44px; border: 1px solid var(--border); border-radius: 14px; background: var(--tint-1); color: var(--muted); font-size: 1.1rem; cursor: pointer; }
 .details-btn:hover { color: var(--text-strong); border-color: var(--tint-3); }
 .product-card.sold-out { opacity: 0.6; }
@@ -238,8 +266,20 @@ button, input { font: inherit; }
 .cart-item-controls .qty-value { min-width: 18px; text-align: center; color: var(--text-strong); font-weight: 600; }
 .cart-item-controls > div { display: flex; align-items: center; gap: 6px; }
 .cart-item-controls .remove-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
+.coupon-box { margin-top: 16px; }
+.coupon-inputs { display: flex; gap: 8px; }
+.coupon-inputs input { flex: 1; border-radius: 14px; border: 1px solid var(--border); background: var(--tint-1); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
+.coupon-inputs input::placeholder { color: var(--muted); text-transform: none; }
+.coupon-inputs button { flex-shrink: 0; border: none; border-radius: 14px; background: var(--tint-2); color: var(--text-strong); padding: 10px 16px; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+.coupon-message { margin: 6px 0 0; font-size: 0.82rem; }
+.coupon-message:empty { display: none; }
+.coupon-message.coupon-message-ok { color: var(--primary); }
+.coupon-message.coupon-message-error { color: var(--accent); }
+.coupon-message.coupon-message-info { color: var(--muted); }
 .summary { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; display: grid; gap: 10px; }
 .summary-row { display: flex; justify-content: space-between; color: var(--muted); }
+.summary-row[hidden] { display: none; }
+.summary-row.discount-row { color: var(--primary); }
 .summary-row.total { font-size: 1.1rem; color: var(--text-strong); font-weight: 700; }
 .accordion { display: grid; gap: 10px; margin-top: 18px; }
 .accordion-section { border: 1px solid var(--border); border-radius: 18px; background: var(--tint-1); overflow: hidden; }
@@ -447,6 +487,11 @@ body.nav-open { overflow: hidden; }
   .product-photo { height: 100px; }
   .product-card strong { font-size: 0.9rem; }
   .product-card .price { font-size: 0.95rem; }
+
+  .featured-slide { grid-template-columns: 72px 1fr; gap: 12px; padding: 14px; }
+  .featured-slide-photo { width: 72px; height: 72px; }
+  .featured-slide-info strong { font-size: 1rem; }
+  .featured-slide-price { font-size: 0.95rem; }
 }
 
 .modal-backdrop {

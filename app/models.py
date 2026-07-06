@@ -99,6 +99,7 @@ class Product(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
     price = db.Column(db.Float, nullable=False)
+    original_price = db.Column(db.Float, nullable=True)
     image_filename = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sold_out = db.Column(db.Boolean, nullable=False, default=False)
@@ -149,6 +150,9 @@ class Order(db.Model):
     shipping_cost = db.Column(db.Float, nullable=False, default=0)
     order_items = db.relationship('OrderItem', backref='order', lazy=True)
     total_price = db.Column(db.Float, nullable=False)
+    coupon_id = db.Column(db.Integer, db.ForeignKey('coupon.id'), nullable=True)
+    discount_amount = db.Column(db.Float, nullable=False, default=0)
+    coupon = db.relationship('Coupon')
     status = db.Column(db.String(20), nullable=False, default='Pending')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
@@ -201,6 +205,54 @@ class OrderItemOption(db.Model):
 
     def __repr__(self):
         return f'<OrderItemOption {self.name}>'
+
+
+coupon_product = db.Table(
+    'coupon_product',
+    db.Column('coupon_id', db.Integer, db.ForeignKey('coupon.id'), primary_key=True),
+    db.Column('product_id', db.Integer, db.ForeignKey('product.id'), primary_key=True),
+)
+
+
+class Coupon(db.Model):
+    """A promo code the customer types in the cart (e.g. "PRIMERACOMPRA" or "DIADELSUSHI10").
+
+    scope='order' discounts the whole purchase (products + shipping); scope='products'
+    discounts only the line total of the specific products attached below. All limits
+    (max_total_uses, max_uses_per_customer, valid_from/valid_until) are independent and
+    optional - a coupon can use any combination, or none at all."""
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(30), unique=True, nullable=False)
+    discount_percent = db.Column(db.Float, nullable=False)
+    scope = db.Column(db.String(10), nullable=False, default='order')
+    products = db.relationship('Product', secondary=coupon_product, lazy='joined')
+    max_total_uses = db.Column(db.Integer, nullable=True)
+    max_uses_per_customer = db.Column(db.Integer, nullable=True)
+    valid_from = db.Column(db.Date, nullable=True)
+    valid_until = db.Column(db.Date, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    redemptions = db.relationship('CouponRedemption', backref='coupon', lazy=True, cascade='all, delete-orphan')
+
+    @property
+    def total_uses(self):
+        return len(self.redemptions)
+
+    def __repr__(self):
+        return f'<Coupon {self.code}>'
+
+
+class CouponRedemption(db.Model):
+    """One row per time a coupon was actually applied to an order - the source of truth for
+    both usage limits above, instead of a simple counter that could drift out of sync."""
+    id = db.Column(db.Integer, primary_key=True)
+    coupon_id = db.Column(db.Integer, db.ForeignKey('coupon.id'), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
+    phone_digits = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<CouponRedemption coupon_id={self.coupon_id} order_id={self.order_id}>'
 
 
 class DeliveryRadiusTier(db.Model):

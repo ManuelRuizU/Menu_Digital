@@ -15,7 +15,7 @@ function loadSavedCart() {
   }
 }
 
-const STATE = { products: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true }
+const STATE = { products: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null }
 
 function loadSavedCustomer() {
   try {
@@ -35,12 +35,20 @@ function saveCustomer() {
 }
 
 const elements = {
+  featuredBanner: document.getElementById('featured-banner'),
+  featuredBannerTrack: document.getElementById('featured-banner-track'),
+  featuredBannerDots: document.getElementById('featured-banner-dots'),
   productsGrid: document.getElementById('products-grid'),
   productSearch: document.getElementById('product-search'),
   cartItems: document.getElementById('cart-items'),
   productCount: document.getElementById('product-count'),
   subtotal: document.getElementById('subtotal'),
   shipping: document.getElementById('shipping'),
+  discountRow: document.getElementById('discount-row'),
+  discount: document.getElementById('discount'),
+  couponCode: document.getElementById('coupon-code'),
+  couponApplyBtn: document.getElementById('coupon-apply-btn'),
+  couponMessage: document.getElementById('coupon-message'),
   total: document.getElementById('total'),
   address: document.getElementById('address'),
   name: document.getElementById('customer-name'),
@@ -153,7 +161,11 @@ function getModalSelectedOptions() {
 function updateModalPrice() {
   if (!currentModalProduct) return
   const extra = getModalSelectedOptions().reduce((sum, o) => sum + o.priceDelta, 0)
-  elements.productModalPrice.textContent = formatPrice(currentModalProduct.price + extra)
+  // The struck-through "before" price only makes sense with no extras added yet - once the
+  // customer picks a paid option, showing a plain total is clearer than mixing both.
+  elements.productModalPrice.innerHTML = extra === 0
+    ? priceHtml(currentModalProduct)
+    : formatPrice(currentModalProduct.price + extra)
 }
 
 function openProductModal(productId) {
@@ -250,10 +262,71 @@ let map, marker, suggestions = []
 
 function saveCart() {
   localStorage.setItem(CART_KEY, JSON.stringify(STATE.cart))
+  clearAppliedCoupon()
+}
+
+function clearAppliedCoupon(message) {
+  if (!STATE.appliedCoupon) return
+  STATE.appliedCoupon = null
+  if (elements.couponMessage) {
+    elements.couponMessage.textContent = message || 'Tu carrito cambió, vuelve a aplicar el cupón.'
+    elements.couponMessage.className = 'coupon-message coupon-message-info'
+  }
+}
+
+async function applyCoupon() {
+  const code = elements.couponCode.value.trim()
+  if (!code) return
+  elements.couponApplyBtn.disabled = true
+  elements.couponApplyBtn.textContent = 'Aplicando...'
+  elements.couponMessage.textContent = ''
+
+  const deliveryMode = getDeliveryMode()
+  try {
+    const response = await fetch('/api/apply-coupon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        phone: elements.phone.value.trim(),
+        deliveryMode,
+        items: STATE.cart.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          options: (item.selectedOptions || []).map((o) => o.id),
+        })),
+        lat: deliveryMode === 'envio' && STATE.selectedLocation ? STATE.selectedLocation.lat : null,
+        lng: deliveryMode === 'envio' && STATE.selectedLocation ? STATE.selectedLocation.lng : null,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data.ok) {
+      STATE.appliedCoupon = null
+      elements.couponMessage.textContent = data.message || 'No se pudo aplicar el cupón.'
+      elements.couponMessage.className = 'coupon-message coupon-message-error'
+    } else {
+      STATE.appliedCoupon = { code: data.code, discountPercent: data.discountPercent, scope: data.scope, discountAmount: data.discountAmount }
+      elements.couponMessage.textContent = `Cupón ${data.code} aplicado: -${formatPrice(data.discountAmount)}`
+      elements.couponMessage.className = 'coupon-message coupon-message-ok'
+    }
+  } catch (error) {
+    STATE.appliedCoupon = null
+    elements.couponMessage.textContent = 'No se pudo conectar con el servidor. Intenta de nuevo.'
+    elements.couponMessage.className = 'coupon-message coupon-message-error'
+  }
+
+  elements.couponApplyBtn.disabled = false
+  elements.couponApplyBtn.textContent = 'Aplicar'
+  updateSummary()
 }
 
 function formatPrice(value) {
   return `$${Number(value).toLocaleString('es-CL')}`
+}
+
+function priceHtml(product) {
+  if (!product.originalPrice || product.originalPrice <= product.price) return formatPrice(product.price)
+  return `<s class="original-price">${formatPrice(product.originalPrice)}</s> ${formatPrice(product.price)}`
 }
 
 // Product/category names come from the admin panel, not from the customer, but they still
@@ -298,7 +371,8 @@ function getOrderTotal() {
   const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
-  return subtotal + shipping
+  const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
+  return Math.max(0, subtotal + shipping - discount)
 }
 
 function getQuickCashAmounts(total) {
@@ -388,15 +462,15 @@ function productCardHtml(product) {
       <div>
         ${!product.imageUrl ? badge : ''}
         <strong>${safeName}</strong>
-        <div class="price">${formatPrice(product.price)}</div>
+        <div class="price">${priceHtml(product)}</div>
       </div>
       <div class="card-actions">
         <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">ⓘ</button>
         ${soldOut
           ? '<button type="button" class="sold-out-btn" disabled>Agotado</button>'
           : hasOptionGroups(product)
-            ? `<button type="button" data-details="${product.id}" aria-label="Elegir ${safeName}">+</button>`
-            : `<button type="button" data-add="${product.id}" aria-label="Agregar ${safeName}">+</button>`}
+            ? `<button type="button" class="add-btn" data-details="${product.id}" aria-label="Elegir ${safeName}">+</button>`
+            : `<button type="button" class="add-btn" data-add="${product.id}" aria-label="Agregar ${safeName}">+</button>`}
       </div>
     </article>
   `
@@ -442,6 +516,7 @@ function renderProductGrid(filterTerm = '') {
 
 function renderProducts() {
   elements.productCount.textContent = STATE.products.length
+  renderFeaturedBanner()
   if (!STATE.products.length) {
     elements.productsGrid.innerHTML = '<p class="hint">No hay productos disponibles.</p>'
     elements.navLinks.innerHTML = ''
@@ -450,6 +525,59 @@ function renderProducts() {
 
   renderNav(groupProducts(STATE.products))
   renderProductGrid(elements.productSearch.value)
+}
+
+let featuredBannerTimer = null
+let featuredBannerIndex = 0
+let featuredBannerSlideCount = 0
+
+function goToFeaturedSlide(index) {
+  featuredBannerIndex = index
+  elements.featuredBannerTrack.style.transform = `translateX(-${index * 100}%)`
+  elements.featuredBannerDots.querySelectorAll('.featured-dot').forEach((dot, dotIndex) => {
+    dot.classList.toggle('active', dotIndex === index)
+  })
+}
+
+function startFeaturedBannerAutoplay() {
+  clearInterval(featuredBannerTimer)
+  featuredBannerTimer = featuredBannerSlideCount > 1
+    ? setInterval(() => goToFeaturedSlide((featuredBannerIndex + 1) % featuredBannerSlideCount), 5000)
+    : null
+}
+
+function renderFeaturedBanner() {
+  if (!elements.featuredBanner) return
+  const slides = STATE.products.filter((product) => product.featured && !product.soldOut)
+
+  clearInterval(featuredBannerTimer)
+  featuredBannerSlideCount = slides.length
+
+  if (!slides.length) {
+    elements.featuredBanner.hidden = true
+    elements.featuredBannerTrack.innerHTML = ''
+    elements.featuredBannerDots.innerHTML = ''
+    return
+  }
+
+  elements.featuredBanner.hidden = false
+  elements.featuredBannerTrack.innerHTML = slides.map((product) => `
+    <button type="button" class="featured-slide" data-details="${product.id}">
+      ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${escapeHtml(product.name)}" class="featured-slide-photo">` : ''}
+      <div class="featured-slide-info">
+        <span class="featured-slide-label">⭐ Recomendado</span>
+        <strong>${escapeHtml(product.name)}</strong>
+        <div class="featured-slide-price">${priceHtml(product)}</div>
+      </div>
+    </button>
+  `).join('')
+
+  elements.featuredBannerDots.innerHTML = slides.length > 1
+    ? slides.map((_, index) => `<button type="button" class="featured-dot" data-slide="${index}" aria-label="Ir a la promoción ${index + 1}"></button>`).join('')
+    : ''
+
+  goToFeaturedSlide(0)
+  startFeaturedBannerAutoplay()
 }
 
 function getUpsellSuggestions(limit = 2) {
@@ -477,7 +605,7 @@ function renderUpsellSuggestions() {
       ${suggestions.map((product) => `
         <div class="upsell-item">
           <span>${escapeHtml(product.name)}</span>
-          <span class="upsell-price">${formatPrice(product.price)}</span>
+          <span class="upsell-price">${priceHtml(product)}</span>
           ${hasOptionGroups(product)
             ? `<button type="button" data-details="${product.id}" aria-label="Elegir ${escapeHtml(product.name)}">+</button>`
             : `<button type="button" data-add="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}">+</button>`}
@@ -521,10 +649,13 @@ function updateSummary() {
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const outOfCoverage = wantsDelivery && !STATE.deliveryCovered
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
-  const total = subtotal + shipping
+  const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
+  const total = Math.max(0, subtotal + shipping - discount)
 
   elements.subtotal.textContent = formatPrice(subtotal)
   elements.shipping.textContent = outOfCoverage ? 'Sin cobertura' : formatPrice(shipping)
+  if (elements.discountRow) elements.discountRow.hidden = !discount
+  if (elements.discount) elements.discount.textContent = `-${formatPrice(discount)}`
   elements.total.textContent = outOfCoverage ? '—' : formatPrice(total)
 
   const itemCount = STATE.cart.reduce((sum, item) => sum + item.quantity, 0)
@@ -562,6 +693,7 @@ async function setLocation(lat, lng, label, precise = true) {
   const { covered, shippingCost } = await fetchShippingCost(lat, lng)
   STATE.shippingCost = shippingCost
   STATE.deliveryCovered = covered
+  clearAppliedCoupon()
   const baseMessage = covered
     ? `Dirección confirmada: ${label}`
     : `${label} está fuera de nuestra zona de reparto. Elige "Retiro" o prueba otra dirección.`
@@ -742,6 +874,7 @@ function buildWhatsAppText() {
   })
   lines.push('', `Subtotal: ${formatPrice(STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}`)
   if (deliveryMode === 'envio') lines.push(`Envío: ${formatPrice(shipping)}`)
+  if (STATE.appliedCoupon) lines.push(`Descuento (${STATE.appliedCoupon.code}): -${formatPrice(STATE.appliedCoupon.discountAmount)}`)
   lines.push(`Total: ${formatPrice(total)}`)
   lines.push('', 'Gracias!')
   return encodeURIComponent(lines.join('\n'))
@@ -785,6 +918,7 @@ function buildConfirmSummaryHtml() {
     <div class="confirm-row"><span>Forma de pago</span><span>${escapeHtml(paymentLine)}</span></div>
     <div class="confirm-row"><span>Subtotal</span><span>${formatPrice(subtotal)}</span></div>
     ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Envío</span><span>${formatPrice(shipping)}</span></div>` : ''}
+    ${STATE.appliedCoupon ? `<div class="confirm-row"><span>Descuento (${escapeHtml(STATE.appliedCoupon.code)})</span><span>-${formatPrice(STATE.appliedCoupon.discountAmount)}</span></div>` : ''}
     <div class="confirm-row confirm-total"><span>Total</span><span>${formatPrice(total)}</span></div>
   `
 }
@@ -854,6 +988,7 @@ async function saveOrder() {
         requestedTime: getRequestedTime(),
         lat: STATE.selectedLocation ? STATE.selectedLocation.lat : null,
         lng: STATE.selectedLocation ? STATE.selectedLocation.lng : null,
+        couponCode: STATE.appliedCoupon ? STATE.appliedCoupon.code : null,
       }),
     })
     const data = await response.json().catch(() => ({}))
@@ -908,9 +1043,12 @@ window.addEventListener('load', () => {
   document.querySelectorAll('input[name="delivery-mode"]').forEach((input) => {
     input.addEventListener('change', () => {
       toggleDeliveryFields()
+      clearAppliedCoupon()
       updateSummary()
     })
   })
+
+  elements.couponApplyBtn.addEventListener('click', applyCoupon)
 
   document.querySelectorAll('input[name="payment-method"]').forEach((input) => {
     input.addEventListener('change', togglePaymentFields)
@@ -923,6 +1061,15 @@ window.addEventListener('load', () => {
   elements.cartClose.addEventListener('click', closeCart)
   elements.cartBackdrop.addEventListener('click', closeCart)
   initCartSwipeToClose()
+
+  if (elements.featuredBannerDots) {
+    elements.featuredBannerDots.addEventListener('click', (event) => {
+      const dot = event.target.closest('[data-slide]')
+      if (!dot) return
+      goToFeaturedSlide(Number(dot.getAttribute('data-slide')))
+      startFeaturedBannerAutoplay()
+    })
+  }
 
   elements.navToggle.addEventListener('click', openNav)
   elements.navClose.addEventListener('click', closeNav)

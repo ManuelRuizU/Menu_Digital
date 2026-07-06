@@ -19,7 +19,7 @@ from sqlalchemy import func
 from app import db
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
-from app.models import (BUSINESS_TZ, Category, Courier, DeliveryRadiusTier, DeliveryZone, Order, OrderItem,
+from app.models import (BUSINESS_TZ, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order, OrderItem,
                          Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
 
@@ -275,6 +275,7 @@ def _save_product(product):
     name = request.form.get('name', '').strip()
     description = request.form.get('description', '').strip()
     price = request.form.get('price', type=float)
+    original_price = request.form.get('original_price', type=float)
     category_id = request.form.get('category_id', type=int)
     subcategory_id = request.form.get('subcategory_id', type=int) or None
 
@@ -291,6 +292,9 @@ def _save_product(product):
     product.name = name
     product.description = description
     product.price = price
+    # Only keep it when it actually represents a discount (higher than the current price) -
+    # otherwise there's nothing to show struck-through on the public menu.
+    product.original_price = original_price if original_price and original_price > price else None
     product.category_id = category.id
     product.subcategory_id = subcategory.id if subcategory else None
     product.stock_quantity = request.form.get('stock_quantity', type=int)
@@ -502,6 +506,120 @@ def delete_delivery_zone(zone_id):
     db.session.commit()
     flash('Área de reparto eliminada')
     return redirect(url_for('catalog.delivery'))
+
+
+@catalog.route('/coupons')
+@login_required
+@owner_required
+def coupons():
+    all_coupons = Coupon.query.order_by(Coupon.created_at.desc()).all()
+    return render_template('panel/coupons.html', coupons=all_coupons)
+
+
+def _coupon_form_context(coupon=None):
+    return {
+        'coupon': coupon,
+        'products': Product.query.order_by(Product.name).all(),
+        'selected_product_ids': {product.id for product in coupon.products} if coupon else set(),
+    }
+
+
+def _parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except ValueError:
+        return None
+
+
+@catalog.route('/coupons/new', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def create_coupon():
+    if request.method == 'POST':
+        return _save_coupon(Coupon())
+    return render_template('panel/coupon_form.html', **_coupon_form_context())
+
+
+@catalog.route('/coupons/<int:coupon_id>/edit', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def edit_coupon(coupon_id):
+    coupon = Coupon.query.get_or_404(coupon_id)
+    if request.method == 'POST':
+        return _save_coupon(coupon)
+    return render_template('panel/coupon_form.html', **_coupon_form_context(coupon))
+
+
+def _save_coupon(coupon):
+    code = request.form.get('code', '').strip().upper()
+    discount_percent = request.form.get('discount_percent', type=float)
+    scope = request.form.get('scope')
+    max_total_uses = request.form.get('max_total_uses', type=int)
+    max_uses_per_customer = request.form.get('max_uses_per_customer', type=int)
+    valid_from = _parse_date(request.form.get('valid_from'))
+    valid_until = _parse_date(request.form.get('valid_until'))
+    product_ids = request.form.getlist('product_ids', type=int)
+
+    def _redisplay():
+        return render_template('panel/coupon_form.html', **_coupon_form_context(coupon if coupon.id else None))
+
+    if not code or discount_percent is None or not (0 < discount_percent <= 100) or scope not in ('order', 'products'):
+        flash('Completa el código, un % de descuento válido (1-100) y a qué aplica el cupón.')
+        return _redisplay()
+
+    if scope == 'products' and not product_ids:
+        flash('Elige al menos un producto para un cupón de tipo "productos específicos".')
+        return _redisplay()
+
+    duplicate = Coupon.query.filter(db.func.upper(Coupon.code) == code, Coupon.id != coupon.id).first()
+    if duplicate:
+        flash('Ya existe un cupón con ese código.')
+        return _redisplay()
+
+    if valid_from and valid_until and valid_from > valid_until:
+        flash('La fecha "desde" no puede ser posterior a la fecha "hasta".')
+        return _redisplay()
+
+    is_new = coupon.id is None
+    coupon.code = code
+    coupon.discount_percent = discount_percent
+    coupon.scope = scope
+    coupon.max_total_uses = max_total_uses
+    coupon.max_uses_per_customer = max_uses_per_customer
+    coupon.valid_from = valid_from
+    coupon.valid_until = valid_until
+    coupon.products = Product.query.filter(Product.id.in_(product_ids)).all() if scope == 'products' else []
+    if is_new:
+        coupon.is_active = True
+
+    db.session.add(coupon)
+    db.session.commit()
+    flash('Cupón guardado')
+    return redirect(url_for('catalog.coupons'))
+
+
+@catalog.route('/coupons/<int:coupon_id>/toggle-active', methods=['POST'])
+@login_required
+@owner_required
+def toggle_coupon_active(coupon_id):
+    coupon = Coupon.query.get_or_404(coupon_id)
+    coupon.is_active = not coupon.is_active
+    db.session.commit()
+    flash('Cupón activado' if coupon.is_active else 'Cupón desactivado')
+    return redirect(url_for('catalog.coupons'))
+
+
+@catalog.route('/coupons/<int:coupon_id>/delete', methods=['POST'])
+@login_required
+@owner_required
+def delete_coupon(coupon_id):
+    coupon = Coupon.query.get_or_404(coupon_id)
+    db.session.delete(coupon)
+    db.session.commit()
+    flash('Cupón eliminado')
+    return redirect(url_for('catalog.coupons'))
 
 
 @catalog.route('/dashboard')

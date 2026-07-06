@@ -1,0 +1,49 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Cupones{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Cupones</h1>
+      <a href="{{ url_for('catalog.create_coupon') }}"><button type="button">Nuevo cupón</button></a>
+    </div>
+
+    {% for coupon in coupons %}
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <strong>{{ coupon.code }}</strong>
+            <span class="muted">
+              — {{ coupon.discount_percent|int }}% de descuento
+              {% if coupon.scope == 'products' %}
+                en {{ coupon.products|map(attribute='name')|join(', ') }}
+              {% else %}
+                en el total de la compra
+              {% endif %}
+              {% if not coupon.is_active %}· inactivo{% endif %}
+            </span>
+          </div>
+        </div>
+        <p class="muted">
+          Usos: {{ coupon.total_uses }}{% if coupon.max_total_uses %} / {{ coupon.max_total_uses }}{% else %} (sin tope){% endif %}
+          · Por cliente: {{ coupon.max_uses_per_customer or 'sin tope' }}
+          {% if coupon.valid_from or coupon.valid_until %}
+            · Vigencia: {{ coupon.valid_from.strftime('%d-%m-%Y') if coupon.valid_from else 'sin inicio' }}
+            a {{ coupon.valid_until.strftime('%d-%m-%Y') if coupon.valid_until else 'sin fin' }}
+          {% endif %}
+        </p>
+        <div class="inline-actions">
+          <a href="{{ url_for('catalog.edit_coupon', coupon_id=coupon.id) }}"><button type="button">Editar</button></a>
+          <form method="post" action="{{ url_for('catalog.toggle_coupon_active', coupon_id=coupon.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">{{ 'Desactivar' if coupon.is_active else 'Activar' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.delete_coupon', coupon_id=coupon.id) }}"
+                onsubmit="return confirm('¿Eliminar este cupón?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger">Eliminar</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Aún no tienes cupones. Crea el primero arriba.</p>
+    {% endfor %}
+{% endblock %}

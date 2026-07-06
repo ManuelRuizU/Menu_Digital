@@ -61,6 +61,11 @@
     <div id="nav-links"></div>
   </aside>
 
+  <div id="featured-banner" class="featured-banner" hidden>
+    <div id="featured-banner-track" class="featured-banner-track"></div>
+    <div id="featured-banner-dots" class="featured-banner-dots"></div>
+  </div>
+
   <main class="layout">
     <section class="panel product-panel">
       <div class="section-header">
@@ -89,9 +94,19 @@
         <p class="hint">Aún no hay productos en el carrito.</p>
       </div>
       <div id="upsell-suggestions" class="upsell-suggestions"></div>
+
+      <div class="coupon-box">
+        <div class="coupon-inputs">
+          <input id="coupon-code" type="text" placeholder="¿Tienes un cupón?" autocomplete="off">
+          <button type="button" id="coupon-apply-btn">Aplicar</button>
+        </div>
+        <p id="coupon-message" class="coupon-message"></p>
+      </div>
+
       <div class="summary">
         <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
         <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
+        <div id="discount-row" class="summary-row discount-row" hidden><span>Descuento</span><strong id="discount">$0</strong></div>
         <div class="summary-row total"><span>Total</span><strong id="total">$0</strong></div>
       </div>
 

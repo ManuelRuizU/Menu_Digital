@@ -1,0 +1,69 @@
+{% extends "panel/_layout.html" %}
+{% block title %}{{ 'Editar cupón' if coupon else 'Nuevo cupón' }}{% endblock %}
+{% block content %}
+    <h1>{{ 'Editar cupón' if coupon else 'Nuevo cupón' }}</h1>
+
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label for="code">Código</label>
+      <input id="code" name="code" required value="{{ coupon.code if coupon else '' }}"
+             placeholder="Ej. PRIMERACOMPRA" style="text-transform:uppercase;">
+
+      <label for="discount_percent">% de descuento</label>
+      <input id="discount_percent" name="discount_percent" type="number" step="1" min="1" max="100" required
+             value="{{ coupon.discount_percent|int if coupon else '' }}">
+
+      <label for="scope">Aplica a</label>
+      <select id="scope" name="scope" required>
+        <option value="order" {{ 'selected' if coupon and coupon.scope == 'order' else '' }}>Total de la compra (productos + reparto)</option>
+        <option value="products" {{ 'selected' if coupon and coupon.scope == 'products' else '' }}>Productos específicos</option>
+      </select>
+
+      <div id="products-field">
+        <label for="product_ids">Productos (para "productos específicos")</label>
+        <select id="product_ids" name="product_ids" multiple size="8">
+          {% for product in products %}
+            <option value="{{ product.id }}" {{ 'selected' if product.id in selected_product_ids else '' }}>{{ product.name }}</option>
+          {% endfor %}
+        </select>
+        <p class="muted">Mantén Ctrl (o Cmd en Mac) para elegir más de uno.</p>
+      </div>
+
+      <label for="max_total_uses">Usos totales disponibles (opcional)</label>
+      <input id="max_total_uses" name="max_total_uses" type="number" step="1" min="1"
+             value="{{ coupon.max_total_uses if coupon and coupon.max_total_uses is not none else '' }}"
+             placeholder="Déjalo vacío para no poner tope">
+
+      <label for="max_uses_per_customer">Usos máximos por cliente (opcional)</label>
+      <input id="max_uses_per_customer" name="max_uses_per_customer" type="number" step="1" min="1"
+             value="{{ coupon.max_uses_per_customer if coupon and coupon.max_uses_per_customer is not none else '' }}"
+             placeholder="Ej. 1, para que sea válido solo la primera compra de cada cliente">
+
+      <label for="valid_from">Válido desde (opcional)</label>
+      <input id="valid_from" name="valid_from" type="date"
+             value="{{ coupon.valid_from.isoformat() if coupon and coupon.valid_from else '' }}">
+
+      <label for="valid_until">Válido hasta (opcional)</label>
+      <input id="valid_until" name="valid_until" type="date"
+             value="{{ coupon.valid_until.isoformat() if coupon and coupon.valid_until else '' }}">
+      <p class="muted">
+        Deja ambas fechas vacías para un cupón sin vencimiento. Para un cupón de un solo día
+        (ej. "Día del sushi"), pon la misma fecha en "desde" y "hasta".
+      </p>
+
+      <button type="submit">Guardar cupón</button>
+    </form>
+
+    <script>
+      (function () {
+        const scopeSelect = document.getElementById('scope');
+        const productsField = document.getElementById('products-field');
+        function toggleProductsField() {
+          productsField.style.display = scopeSelect.value === 'products' ? 'block' : 'none';
+        }
+        scopeSelect.addEventListener('change', toggleProductsField);
+        toggleProductsField();
+      })();
+    </script>
+{% endblock %}

@@ -20,6 +20,16 @@
       <label for="price">Precio</label>
       <input id="price" name="price" type="number" step="1" min="0" required value="{{ product.price if product else '' }}">
 
+      <label for="original_price">Precio antes del descuento (opcional)</label>
+      <input id="original_price" name="original_price" type="number" step="1" min="0"
+             value="{{ product.original_price if product and product.original_price is not none else '' }}"
+             placeholder="Déjalo vacío si el producto no está en descuento">
+      <p class="muted">
+        Si lo llenas con un valor mayor al precio de arriba, en el menú público aparece tachado junto al
+        precio actual (ej. <s>$9.990</s> $7.990). Útil para el producto que marques como "recomendado" y
+        quieras destacar en el banner de arriba del menú.
+      </p>
+
       <label for="category_id">Categoría</label>
       <select id="category_id" name="category_id" required>
         <option value="">Selecciona una categoría</option>

@@ -7,8 +7,8 @@ from flask import current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
-from app.models import (BUSINESS_TZ, BusinessHours, DAY_NAMES, DeliveryRadiusTier, DeliveryZone, Order,
-                         OrderItem, OrderItemOption, Product, ProductOption, THEMES, User)
+from app.models import (BUSINESS_TZ, BusinessHours, Coupon, CouponRedemption, DAY_NAMES, DeliveryRadiusTier,
+                         DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, THEMES, User)
 from app import csrf, db, limiter
 
 
@@ -154,6 +154,7 @@ def products_api():
             'name': product.name,
             'description': product.description,
             'price': product.price,
+            'originalPrice': product.original_price,
             'categoryId': product.category_id,
             'category': product.category.name,
             'subcategoryId': product.subcategory_id,
@@ -232,6 +233,120 @@ def _resolve_selected_options(product, selected_option_ids):
     return selected_options, None
 
 
+def _resolve_cart_items(items):
+    """Validate and price each cart line against the current catalog - never trust the
+    client's prices. Returns (order_lines, subtotal, error_message); order_lines is a list
+    of (product, quantity, selected_options, unit_price)."""
+    order_lines = []
+    subtotal = 0
+    for item in items:
+        product_id = item.get('id')
+        quantity = item.get('quantity')
+        if not isinstance(quantity, int) or quantity < 1:
+            return None, None, 'Cantidad inválida en el pedido.'
+        product = Product.query.get(product_id)
+        if product is None or not product.is_active or product.sold_out:
+            return None, None, 'Uno de los productos ya no está disponible.'
+        if product.stock_quantity is not None and product.stock_quantity < quantity:
+            return None, None, f'Solo quedan {product.stock_quantity} unidades de {product.name}.'
+
+        selected_options, error = _resolve_selected_options(product, item.get('options', []))
+        if error:
+            return None, None, error
+        unit_price = product.price + sum(option.price_delta for option in selected_options)
+
+        order_lines.append((product, quantity, selected_options, unit_price))
+        subtotal += unit_price * quantity
+
+    return order_lines, subtotal, None
+
+
+def normalize_phone(phone):
+    return re.sub(r'\D', '', phone or '')
+
+
+def _resolve_coupon(code):
+    code = (code or '').strip()
+    if not code:
+        return None
+    return Coupon.query.filter(db.func.upper(Coupon.code) == code.upper()).first()
+
+
+def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
+    """Returns (discount_amount, error_message) - error_message is None on success.
+    Re-checks every limit against the database (redemption rows), never a client-sent number."""
+    if coupon is None or not coupon.is_active:
+        return 0, 'Ese cupón no existe o ya no está activo.'
+
+    today = datetime.now(BUSINESS_TZ).date()
+    if coupon.valid_from and today < coupon.valid_from:
+        return 0, 'Este cupón todavía no está vigente.'
+    if coupon.valid_until and today > coupon.valid_until:
+        return 0, 'Este cupón ya venció.'
+
+    if coupon.max_total_uses is not None:
+        total_used = CouponRedemption.query.filter_by(coupon_id=coupon.id).count()
+        if total_used >= coupon.max_total_uses:
+            return 0, 'Este cupón ya alcanzó su límite de usos.'
+
+    phone_digits = normalize_phone(phone)
+    if coupon.max_uses_per_customer is not None:
+        if not phone_digits:
+            return 0, 'Ingresa tu teléfono antes de aplicar el cupón.'
+        customer_used = CouponRedemption.query.filter_by(coupon_id=coupon.id, phone_digits=phone_digits).count()
+        if customer_used >= coupon.max_uses_per_customer:
+            return 0, 'Ya usaste este cupón antes.'
+
+    if coupon.scope == 'products':
+        coupon_product_ids = {product.id for product in coupon.products}
+        applicable = sum(unit_price * quantity for product, quantity, _options, unit_price in order_lines
+                          if product.id in coupon_product_ids)
+        if applicable <= 0:
+            return 0, 'Este cupón no aplica a los productos de tu carrito.'
+    else:
+        applicable = subtotal + shipping_cost
+
+    return round(applicable * coupon.discount_percent / 100), None
+
+
+@main.route('/api/apply-coupon', methods=['POST'])
+@csrf.exempt
+@limiter.limit('30 per minute')
+def apply_coupon_api():
+    data = request.get_json(silent=True) or {}
+    items = data.get('items', [])
+    phone = data.get('phone')
+    delivery_mode = data.get('deliveryMode') or 'retira'
+
+    order_lines, subtotal, error = _resolve_cart_items(items)
+    if error:
+        return jsonify({'ok': False, 'message': error}), 400
+
+    shipping_cost = 0
+    if delivery_mode == 'envio':
+        try:
+            lat = float(data.get('lat'))
+            lng = float(data.get('lng'))
+        except (TypeError, ValueError):
+            lat = lng = None
+        if lat is not None and lng is not None:
+            cost, covered = compute_shipping_cost(lat, lng)
+            shipping_cost = cost if covered else 0
+
+    coupon = _resolve_coupon(data.get('code'))
+    discount_amount, error = validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines)
+    if error:
+        return jsonify({'ok': False, 'message': error}), 400
+
+    return jsonify({
+        'ok': True,
+        'code': coupon.code,
+        'discountPercent': coupon.discount_percent,
+        'scope': coupon.scope,
+        'discountAmount': discount_amount,
+    })
+
+
 @main.route('/api/orders', methods=['POST'])
 @csrf.exempt
 @limiter.limit('20 per minute')
@@ -295,32 +410,24 @@ def create_order():
         if not covered:
             return jsonify({'ok': False, 'message': 'Esa dirección está fuera de la zona de reparto.'}), 400
 
-    order_lines = []
-    subtotal = 0
-    for item in items:
-        product_id = item.get('id')
-        quantity = item.get('quantity')
-        if not isinstance(quantity, int) or quantity < 1:
-            return jsonify({'ok': False, 'message': 'Cantidad inválida en el pedido.'}), 400
-        product = Product.query.get(product_id)
-        if product is None or not product.is_active or product.sold_out:
-            return jsonify({'ok': False, 'message': 'Uno de los productos ya no está disponible.'}), 400
-        if product.stock_quantity is not None and product.stock_quantity < quantity:
-            return jsonify({'ok': False, 'message': f'Solo quedan {product.stock_quantity} unidades de {product.name}.'}), 400
-
-        selected_options, error = _resolve_selected_options(product, item.get('options', []))
-        if error:
-            return jsonify({'ok': False, 'message': error}), 400
-        unit_price = product.price + sum(option.price_delta for option in selected_options)
-
-        order_lines.append((product, quantity, selected_options, unit_price))
-        subtotal += unit_price * quantity
+    order_lines, subtotal, error = _resolve_cart_items(items)
+    if error:
+        return jsonify({'ok': False, 'message': error}), 400
 
     if delivery_mode == 'envio' and owner and owner.min_delivery_order and subtotal < owner.min_delivery_order:
         return jsonify({
             'ok': False,
             'message': f'El pedido mínimo para despacho es ${owner.min_delivery_order:.0f}.',
         }), 400
+
+    coupon = None
+    discount_amount = 0
+    coupon_code = data.get('couponCode')
+    if coupon_code:
+        coupon = _resolve_coupon(coupon_code)
+        discount_amount, error = validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines)
+        if error:
+            return jsonify({'ok': False, 'message': error}), 400
 
     try:
         order = Order(
@@ -335,7 +442,9 @@ def create_order():
             latitude=lat,
             longitude=lng,
             shipping_cost=shipping_cost,
-            total_price=subtotal + shipping_cost,
+            total_price=subtotal + shipping_cost - discount_amount,
+            coupon_id=coupon.id if coupon else None,
+            discount_amount=discount_amount,
             status='Pending',
         )
         db.session.add(order)
@@ -350,10 +459,13 @@ def create_order():
                 product.stock_quantity = max(product.stock_quantity - quantity, 0)
                 if product.stock_quantity == 0:
                     product.sold_out = True
+        if coupon:
+            db.session.add(CouponRedemption(coupon_id=coupon.id, order_id=order.id, phone_digits=normalize_phone(phone)))
         db.session.commit()
     except Exception:
         db.session.rollback()
         current_app.logger.exception('Failed to save order for %s (%s)', customer_name, phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
 
-    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.', 'orderId': order.id})
+    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.', 'orderId': order.id,
+                     'discountAmount': discount_amount})
