@@ -60,8 +60,7 @@
       <a href="{{ url_for('catalog.categories') }}" class="{{ 'active' if request.endpoint and 'categor' in request.endpoint else '' }}">Categorías</a>
       <a href="{{ url_for('catalog.products') }}" class="{{ 'active' if request.endpoint and 'product' in request.endpoint else '' }}">Productos</a>
       {% if current_user.is_owner %}
-        <a href="{{ url_for('catalog.coupons') }}" class="{{ 'active' if request.endpoint and 'coupon' in request.endpoint else '' }}">Cupones</a>
-        <a href="{{ url_for('catalog.bundle_promos') }}" class="{{ 'active' if request.endpoint and 'bundle_promo' in request.endpoint else '' }}">2x1 / 3x2</a>
+        <a href="{{ url_for('catalog.promotions') }}" class="{{ 'active' if request.endpoint and (request.endpoint == 'catalog.promotions' or 'coupon' in request.endpoint or 'bundle_promo' in request.endpoint) else '' }}">Promociones</a>
         <a href="{{ url_for('catalog.delivery') }}" class="{{ 'active' if request.endpoint and 'delivery' in request.endpoint else '' }}">Zonas de reparto</a>
         <a href="{{ url_for('catalog.couriers') }}" class="{{ 'active' if request.endpoint and 'courier' in request.endpoint else '' }}">Repartidores</a>
       {% endif %}

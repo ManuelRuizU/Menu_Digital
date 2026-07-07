@@ -1,0 +1,64 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Promociones{% endblock %}
+{% block content %}
+    <h1>Promociones</h1>
+    <p class="muted">
+      Tres formas de ofrecer descuentos, cada una para un caso distinto: cupón (código que
+      escribe el cliente), 2x1/3x2 (automático, por cantidad) y regalo (automático, por monto).
+    </p>
+
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <strong>Cupones</strong>
+          <span class="muted">— {{ active_coupons }} activo{{ 's' if active_coupons != 1 else '' }}</span>
+        </div>
+        <a href="{{ url_for('catalog.coupons') }}"><button type="button">Administrar</button></a>
+      </div>
+      <p class="muted">
+        Código que el cliente escribe en el carrito (ej. "PRIMERACOMPRA"). % de descuento sobre
+        el total o sobre productos específicos, con topes de uso y fechas opcionales.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <strong>2x1 / 3x2</strong>
+          <span class="muted">— {{ active_bundle_promos }} activa{{ 's' if active_bundle_promos != 1 else '' }}</span>
+        </div>
+        <a href="{{ url_for('catalog.bundle_promos') }}"><button type="button">Administrar</button></a>
+      </div>
+      <p class="muted">
+        Se aplica solo, sin código - si el cliente lleva suficientes productos elegibles, el(los)
+        más barato(s) salen gratis.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-row">
+        <strong>Regalo por compra mínima</strong>
+      </div>
+      <p class="muted">
+        Cuando el total de la compra (productos + reparto) alcance el monto, se agrega
+        automáticamente ese producto gratis al pedido. Solo puede haber un regalo activo a la vez.
+      </p>
+      <form method="post" action="{{ url_for('catalog.update_gift_promo') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <label for="gift_threshold_amount">Monto mínimo (opcional)</label>
+        <input type="number" step="1" min="0" id="gift_threshold_amount" name="gift_threshold_amount" placeholder="10000"
+               value="{{ current_user.gift_threshold_amount|int if current_user.gift_threshold_amount else '' }}">
+
+        <label for="gift_product_id">Producto de regalo</label>
+        <select id="gift_product_id" name="gift_product_id">
+          <option value="">Sin regalo activo</option>
+          {% for product in products %}
+            <option value="{{ product.id }}" {{ 'selected' if current_user.gift_product_id == product.id else '' }}>{{ product.name }}</option>
+          {% endfor %}
+        </select>
+
+        <button type="submit">Guardar regalo</button>
+      </form>
+    </div>
+{% endblock %}

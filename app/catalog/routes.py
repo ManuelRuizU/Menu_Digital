@@ -9,7 +9,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from flask import current_app, flash, redirect, render_template, request, url_for, Response
-from flask_login import login_required
+from flask_login import current_user, login_required
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 from escpos.printer import Network
@@ -506,6 +506,28 @@ def delete_delivery_zone(zone_id):
     db.session.commit()
     flash('Área de reparto eliminada')
     return redirect(url_for('catalog.delivery'))
+
+
+@catalog.route('/promotions')
+@login_required
+@owner_required
+def promotions():
+    active_coupons = Coupon.query.filter_by(is_active=True).count()
+    active_bundle_promos = BundlePromo.query.filter_by(is_active=True).count()
+    products = Product.query.order_by(Product.name).all()
+    return render_template('panel/promotions.html', active_coupons=active_coupons,
+                            active_bundle_promos=active_bundle_promos, products=products)
+
+
+@catalog.route('/promotions/gift', methods=['POST'])
+@login_required
+@owner_required
+def update_gift_promo():
+    current_user.gift_threshold_amount = request.form.get('gift_threshold_amount', type=float)
+    current_user.gift_product_id = request.form.get('gift_product_id', type=int) or None
+    db.session.commit()
+    flash('Regalo por compra mínima actualizado')
+    return redirect(url_for('catalog.promotions'))
 
 
 @catalog.route('/coupons')

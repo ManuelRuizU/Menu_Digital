@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, render_template, redirect, url_for, fl
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.models import THEMES, BusinessHours, Product, User
+from app.models import THEMES, BusinessHours, User
 from app import db, limiter
 from app.decorators import admin_required, owner_required
 from app.auth import auth
@@ -201,8 +201,7 @@ def _ensure_business_hours_rows():
 def admin_panel():
     _ensure_business_hours_rows()
     business_hours = BusinessHours.query.order_by(BusinessHours.day_of_week).all()
-    products = Product.query.order_by(Product.name).all()
-    return render_template('panel/index.html', themes=THEMES, business_hours=business_hours, products=products)
+    return render_template('panel/index.html', themes=THEMES, business_hours=business_hours)
 
 
 @auth.route('/admin/business-profile', methods=['POST'])
@@ -240,8 +239,6 @@ def update_business_profile():
         current_user.accepts_cash = True
     current_user.bank_details = request.form.get('bank_details', '').strip() or None
     current_user.min_delivery_order = request.form.get('min_delivery_order', type=float)
-    current_user.gift_threshold_amount = request.form.get('gift_threshold_amount', type=float)
-    current_user.gift_product_id = request.form.get('gift_product_id', type=int) or None
     current_user.printer_ip = request.form.get('printer_ip', '').strip() or None
     current_user.printer_width_mm = request.form.get('printer_width_mm', type=int) or 80
     current_user.backup_email_host = request.form.get('backup_email_host', '').strip() or None

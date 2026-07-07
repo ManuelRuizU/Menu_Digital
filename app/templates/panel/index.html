@@ -82,22 +82,6 @@
       <input type="number" step="1" min="0" id="min_delivery_order" name="min_delivery_order" placeholder="5000" value="{{ current_user.min_delivery_order|int if current_user.min_delivery_order else '' }}">
       <p class="muted">Déjalo vacío si no quieres exigir un mínimo. Solo aplica al despacho, no al retiro.</p>
 
-      <label for="gift_threshold_amount">Regalo por compra mínima: monto (opcional)</label>
-      <input type="number" step="1" min="0" id="gift_threshold_amount" name="gift_threshold_amount" placeholder="10000"
-             value="{{ current_user.gift_threshold_amount|int if current_user.gift_threshold_amount else '' }}">
-
-      <label for="gift_product_id">Producto de regalo</label>
-      <select id="gift_product_id" name="gift_product_id">
-        <option value="">Sin regalo activo</option>
-        {% for product in products %}
-          <option value="{{ product.id }}" {{ 'selected' if current_user.gift_product_id == product.id else '' }}>{{ product.name }}</option>
-        {% endfor %}
-      </select>
-      <p class="muted">
-        Si defines ambos, cuando el total de la compra (productos + reparto) alcance el monto, se agrega
-        automáticamente ese producto gratis al pedido. Solo puede haber un regalo activo a la vez.
-      </p>
-
       <label for="printer_ip">IP de la impresora térmica (opcional)</label>
       <input id="printer_ip" name="printer_ip" placeholder="192.168.1.50" value="{{ current_user.printer_ip or '' }}">
 
