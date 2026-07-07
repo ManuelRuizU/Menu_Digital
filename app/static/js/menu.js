@@ -583,6 +583,47 @@ function startFeaturedBannerAutoplay() {
     : null
 }
 
+function initFeaturedBannerSwipe() {
+  const track = elements.featuredBannerTrack
+  let startX = 0
+  let currentX = 0
+  let dragging = false
+  let containerWidth = 0
+
+  track.addEventListener('touchstart', (event) => {
+    if (featuredBannerSlideCount < 2) return
+    startX = event.touches[0].clientX
+    currentX = startX
+    dragging = true
+    containerWidth = elements.featuredBanner.offsetWidth || 1
+    clearInterval(featuredBannerTimer)
+    track.style.transition = 'none'
+  }, { passive: true })
+
+  track.addEventListener('touchmove', (event) => {
+    if (!dragging) return
+    currentX = event.touches[0].clientX
+    const deltaPercent = ((currentX - startX) / containerWidth) * 100
+    track.style.transform = `translateX(calc(-${featuredBannerIndex * 100}% + ${deltaPercent}%))`
+  }, { passive: true })
+
+  track.addEventListener('touchend', () => {
+    if (!dragging) return
+    dragging = false
+    track.style.transition = ''
+    const deltaX = currentX - startX
+    const threshold = containerWidth * 0.15
+    if (deltaX < -threshold && featuredBannerIndex < featuredBannerSlideCount - 1) {
+      goToFeaturedSlide(featuredBannerIndex + 1)
+    } else if (deltaX > threshold && featuredBannerIndex > 0) {
+      goToFeaturedSlide(featuredBannerIndex - 1)
+    } else {
+      goToFeaturedSlide(featuredBannerIndex)
+    }
+    startFeaturedBannerAutoplay()
+  })
+}
+
 function formatDateDMY(isoDate) {
   const [year, month, day] = isoDate.split('-')
   return `${day}-${month}-${year}`
@@ -1181,6 +1222,7 @@ window.addEventListener('load', () => {
   elements.cartClose.addEventListener('click', closeCart)
   elements.cartBackdrop.addEventListener('click', closeCart)
   initCartSwipeToClose()
+  if (elements.featuredBannerTrack) initFeaturedBannerSwipe()
 
   if (elements.featuredBannerDots) {
     elements.featuredBannerDots.addEventListener('click', (event) => {
