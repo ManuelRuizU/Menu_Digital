@@ -293,3 +293,43 @@ Repite el bloque de Nginx (con su propio puerto) por cada cliente nuevo - el cer
 ### Cuándo subir de plan
 
 Cada cliente nuevo es una copia completa corriendo en paralelo (~116 MB de RAM medidos en esta app). Con un plan de 4 GB, el techo cómodo son unos 10-12 clientes antes de que convenga subir a un plan con más RAM/CPU - revisa el uso real con `free -h` y `htop` a medida que sumas clientes, y sube de plan antes de que el rendimiento se sienta, no después.
+
+---
+
+## Opción D: Railway (pagado, más barato que el plan pagado de PythonAnywhere)
+
+Railway parte en US$5/mes (incluye ese mismo monto de crédito de uso) contra los US$10/mes del plan Developer de PythonAnywhere - pero a diferencia de las opciones A y B, **la base de datos no es un archivo SQLite**, es un servicio PostgreSQL aparte. El código ya soporta esto (lee `DATABASE_URL` si existe, y si no, usa SQLite por defecto) - lo único que cambia es cómo se despliega.
+
+1. Crea una cuenta en [railway.com](https://railway.com) y un proyecto nuevo.
+
+2. **Agrega un servicio PostgreSQL** ("New" → "Database" → "PostgreSQL"). Railway genera solo la variable `DATABASE_URL` para ese servicio.
+
+3. **Agrega el servicio de la app** ("New" → "GitHub Repo" → elige `Menu_Digital`). Railway detecta que es Python y usa el `Procfile` de la raíz del proyecto:
+
+   ```
+   web: gunicorn -w 1 --timeout 60 -b 0.0.0.0:$PORT manage:app
+   ```
+
+   (`$PORT` lo asigna Railway solo - no se fija un puerto como en el VPS. `-w 1` sigue siendo importante por la misma razón que en la Opción B: el respaldo automático no debe duplicarse.)
+
+4. En la pestaña **Variables** del servicio de la app, agrega:
+   - `SECRET_KEY`: un valor largo y aleatorio.
+   - `DATABASE_URL`: usa la referencia a la variable del servicio Postgres (Railway te deja enlazarla directo, sin copiar el valor a mano - busca "Add a Reference" o similar en el editor de variables).
+
+5. **Inicializa la base de datos.** Desde la pestaña del servicio de la app, abre una consola/shell (Railway la ofrece integrada, o usa `railway run` con su CLI desde tu computador) y corre:
+
+   ```bash
+   flask db upgrade
+   ```
+
+6. Railway te da una URL tipo `menudigital-production.up.railway.app` automáticamente (HTTPS incluido). Si quieres dominio propio, se agrega desde la pestaña **Settings** del servicio.
+
+7. Entra a `https://tu-servicio.up.railway.app/register` y crea la cuenta del dueño.
+
+**Diferencia importante en el respaldo automático:** en SQLite, el respaldo por correo adjunta el archivo `.db` tal cual. En Postgres no hay un archivo que copiar, así que el respaldo se genera como un **JSON con todas las tablas** (mismo botón, mismo correo configurado en Perfil del negocio - la app detecta sola qué motor está usando). Para restaurar ese `.json` en caso de emergencia, existe `restore_backup.py`:
+
+```bash
+python restore_backup.py respaldo_2026-01-01.json
+```
+
+Esto borra y vuelve a cargar cada tabla que venga en el archivo - úsalo solo para recuperar un desastre, no como rutina.

@@ -1,20 +1,47 @@
 # app/backup.py
+import json
 import os
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 
 from flask import current_app
+from sqlalchemy import inspect, text
+
+from app.extensions import db
 
 
-def _database_path():
+def _dump_database_bytes():
+    """A full copy of the current database, in whatever form makes sense for its
+    engine - (bytes, file_extension), or (None, None) if nothing could be produced.
+
+    SQLite: a byte-for-byte copy of the .db file (simplest, and what this always did).
+    Any other engine (Postgres, MySQL, ...): a JSON export of every table's rows -
+    engine-independent and needs no external tool (pg_dump, mysqldump) that the
+    hosting provider's build image may or may not include.
+    """
     uri = current_app.config['SQLALCHEMY_DATABASE_URI']
-    if not uri.startswith('sqlite:///'):
-        return None
-    path = uri[len('sqlite:///'):]
-    if not os.path.isabs(path):
-        path = os.path.join(current_app.instance_path, path)
-    return path
+
+    if uri.startswith('sqlite:///'):
+        path = uri[len('sqlite:///'):]
+        if not os.path.isabs(path):
+            path = os.path.join(current_app.instance_path, path)
+        if not os.path.exists(path):
+            return None, None
+        with open(path, 'rb') as f:
+            return f.read(), 'db'
+
+    try:
+        inspector = inspect(db.engine)
+        dump = {}
+        with db.engine.connect() as conn:
+            for table_name in inspector.get_table_names():
+                rows = conn.execute(text(f'SELECT * FROM "{table_name}"')).mappings().all()
+                dump[table_name] = [dict(row) for row in rows]
+        return json.dumps(dump, default=str, ensure_ascii=False, indent=2).encode('utf-8'), 'json'
+    except Exception:
+        current_app.logger.exception('Failed to dump the database for backup')
+        return None, None
 
 
 def _send_email(owner, to_address, subject, body_text, attachment_bytes=None, attachment_filename=None):
@@ -58,15 +85,12 @@ def send_backup_email(owner):
     if not owner or not owner.backup_email_to:
         return False, 'Configura los datos de correo para el respaldo en Perfil del negocio.'
 
-    db_path = _database_path()
-    if not db_path or not os.path.exists(db_path):
-        return False, 'No se encontró el archivo de la base de datos.'
+    db_bytes, extension = _dump_database_bytes()
+    if not db_bytes:
+        return False, 'No se pudo generar el respaldo de la base de datos.'
 
     business_name = owner.business_name or 'Menu Digital'
     today = datetime.utcnow().strftime('%Y-%m-%d')
-
-    with open(db_path, 'rb') as f:
-        db_bytes = f.read()
 
     return _send_email(
         owner,
@@ -77,7 +101,7 @@ def send_backup_email(owner):
             'Guarda este correo - si algo le pasa al computador o al pendrive, este archivo permite recuperar todo.'
         ),
         attachment_bytes=db_bytes,
-        attachment_filename=f'respaldo_{today}.db',
+        attachment_filename=f'respaldo_{today}.{extension}',
     )
 
 
