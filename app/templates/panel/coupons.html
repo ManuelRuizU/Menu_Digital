@@ -19,6 +19,7 @@
                 en el total de la compra
               {% endif %}
               {% if not coupon.is_active %}· inactivo{% endif %}
+              {% if coupon.show_in_banner %}· en el banner{% endif %}
             </span>
           </div>
         </div>

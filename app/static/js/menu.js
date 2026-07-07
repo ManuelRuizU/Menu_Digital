@@ -15,7 +15,7 @@ function loadSavedCart() {
   }
 }
 
-const STATE = { products: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null }
+const STATE = { products: [], bannerCoupons: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null }
 
 function loadSavedCustomer() {
   try {
@@ -44,6 +44,8 @@ const elements = {
   productCount: document.getElementById('product-count'),
   subtotal: document.getElementById('subtotal'),
   shipping: document.getElementById('shipping'),
+  bundleDiscountRow: document.getElementById('bundle-discount-row'),
+  bundleDiscount: document.getElementById('bundle-discount'),
   discountRow: document.getElementById('discount-row'),
   discount: document.getElementById('discount'),
   couponCode: document.getElementById('coupon-code'),
@@ -94,11 +96,16 @@ const elements = {
   confirmError: document.getElementById('confirm-error'),
   confirmModalSend: document.getElementById('confirm-modal-send'),
   confirmModalEdit: document.getElementById('confirm-modal-edit'),
+  giftInfo: document.getElementById('gift-info'),
+  giftHint: document.getElementById('gift-hint'),
 }
 
 const MIN_DELIVERY_ORDER = elements.deliveryModeOptions
   ? Number(elements.deliveryModeOptions.dataset.minOrder) || null
   : null
+
+const GIFT_THRESHOLD = elements.giftInfo ? Number(elements.giftInfo.dataset.threshold) || null : null
+const GIFT_PRODUCT_NAME = elements.giftInfo ? elements.giftInfo.dataset.productName || null : null
 
 const OPENS_AT = elements.requestedTime.dataset.opensAt || null
 const CLOSES_AT = elements.requestedTime.dataset.closesAt || null
@@ -367,12 +374,36 @@ function togglePaymentFields() {
   updateChangeHint()
 }
 
+function computeBundleDiscount() {
+  let total = 0
+  STATE.bundlePromos.forEach((promo) => {
+    const unitPrices = []
+    STATE.cart.forEach((item) => {
+      if (promo.productIds.includes(item.id)) {
+        for (let i = 0; i < item.quantity; i++) unitPrices.push(item.price)
+      }
+    })
+    if (unitPrices.length < promo.buyQuantity) return
+
+    unitPrices.sort((a, b) => b - a)
+    const freeQuantity = promo.buyQuantity - promo.payQuantity
+    const numFullGroups = Math.floor(unitPrices.length / promo.buyQuantity)
+    for (let group = 0; group < numFullGroups; group++) {
+      const start = group * promo.buyQuantity
+      const chunk = unitPrices.slice(start, start + promo.buyQuantity)
+      if (freeQuantity > 0) total += chunk.slice(-freeQuantity).reduce((sum, price) => sum + price, 0)
+    }
+  })
+  return Math.round(total)
+}
+
 function getOrderTotal() {
   const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
+  const bundleDiscount = computeBundleDiscount()
   const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
-  return Math.max(0, subtotal + shipping - discount)
+  return Math.max(0, subtotal + shipping - bundleDiscount - discount)
 }
 
 function getQuickCashAmounts(total) {
@@ -448,12 +479,17 @@ function groupProducts(products) {
   return categories
 }
 
+function findBundlePromoForProduct(product) {
+  return STATE.bundlePromos.find((promo) => promo.productIds.includes(product.id))
+}
+
 function productCardHtml(product) {
   const soldOut = product.soldOut
   const badge = soldOut
     ? '<span class="sold-out-badge">Agotado</span>'
     : (product.featured ? '<span class="featured-badge">⭐ Recomendado</span>' : '')
   const safeName = escapeHtml(product.name)
+  const bundlePromo = !soldOut ? findBundlePromoForProduct(product) : null
   return `
     <article class="product-card${soldOut ? ' sold-out' : ''}">
       ${product.imageUrl
@@ -463,6 +499,7 @@ function productCardHtml(product) {
         ${!product.imageUrl ? badge : ''}
         <strong>${safeName}</strong>
         <div class="price">${priceHtml(product)}</div>
+        ${bundlePromo ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
       </div>
       <div class="card-actions">
         <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">ⓘ</button>
@@ -546,9 +583,58 @@ function startFeaturedBannerAutoplay() {
     : null
 }
 
+function formatDateDMY(isoDate) {
+  const [year, month, day] = isoDate.split('-')
+  return `${day}-${month}-${year}`
+}
+
+function productSlideHtml(product) {
+  return `
+    <button type="button" class="featured-slide" data-details="${product.id}">
+      ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${escapeHtml(product.name)}" class="featured-slide-photo">` : ''}
+      <div class="featured-slide-info">
+        <span class="featured-slide-label">⭐ Recomendado</span>
+        <strong>${escapeHtml(product.name)}</strong>
+        <div class="featured-slide-price">${priceHtml(product)}</div>
+      </div>
+    </button>
+  `
+}
+
+function couponSlideHtml(coupon) {
+  const validityText = coupon.validUntil ? `Válido hasta ${formatDateDMY(coupon.validUntil)}` : ''
+  const scopeText = coupon.scope === 'order' ? 'En toda tu compra' : 'En productos seleccionados'
+  const safeCode = escapeHtml(coupon.code)
+
+  if (coupon.bannerImageUrl) {
+    return `
+      <button type="button" class="featured-slide featured-slide-coupon" data-coupon-code="${safeCode}">
+        <img src="${coupon.bannerImageUrl}" alt="${safeCode}" class="featured-slide-photo">
+        <div class="featured-slide-info">
+          <span class="featured-slide-label">🏷️ Cupón</span>
+          <strong>${coupon.discountPercent}% OFF con ${safeCode}</strong>
+          ${validityText ? `<div class="featured-slide-price">${validityText}</div>` : ''}
+        </div>
+      </button>
+    `
+  }
+  return `
+    <button type="button" class="featured-slide featured-slide-coupon-auto" data-coupon-code="${safeCode}">
+      <div class="coupon-slide-badge">-${coupon.discountPercent}%</div>
+      <div class="featured-slide-info">
+        <span class="featured-slide-label">🏷️ Usa el código</span>
+        <strong>${safeCode}</strong>
+        <div class="featured-slide-price">${scopeText}${validityText ? ' · ' + validityText : ''}</div>
+      </div>
+    </button>
+  `
+}
+
 function renderFeaturedBanner() {
   if (!elements.featuredBanner) return
-  const slides = STATE.products.filter((product) => product.featured && !product.soldOut)
+  const couponSlides = STATE.bannerCoupons.map(couponSlideHtml)
+  const productSlides = STATE.products.filter((product) => product.featured && !product.soldOut).map(productSlideHtml)
+  const slides = [...couponSlides, ...productSlides]
 
   clearInterval(featuredBannerTimer)
   featuredBannerSlideCount = slides.length
@@ -561,16 +647,7 @@ function renderFeaturedBanner() {
   }
 
   elements.featuredBanner.hidden = false
-  elements.featuredBannerTrack.innerHTML = slides.map((product) => `
-    <button type="button" class="featured-slide" data-details="${product.id}">
-      ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${escapeHtml(product.name)}" class="featured-slide-photo">` : ''}
-      <div class="featured-slide-info">
-        <span class="featured-slide-label">⭐ Recomendado</span>
-        <strong>${escapeHtml(product.name)}</strong>
-        <div class="featured-slide-price">${priceHtml(product)}</div>
-      </div>
-    </button>
-  `).join('')
+  elements.featuredBannerTrack.innerHTML = slides.join('')
 
   elements.featuredBannerDots.innerHTML = slides.length > 1
     ? slides.map((_, index) => `<button type="button" class="featured-dot" data-slide="${index}" aria-label="Ir a la promoción ${index + 1}"></button>`).join('')
@@ -644,19 +721,42 @@ function renderCart() {
   updateSummary()
 }
 
+function giftIsReached(total) {
+  return Boolean(GIFT_THRESHOLD && GIFT_PRODUCT_NAME && STATE.cart.length && total >= GIFT_THRESHOLD)
+}
+
+function updateGiftHint(total) {
+  if (!elements.giftHint || !GIFT_THRESHOLD || !GIFT_PRODUCT_NAME) return
+  if (!STATE.cart.length) {
+    elements.giftHint.hidden = true
+    return
+  }
+  if (total >= GIFT_THRESHOLD) {
+    elements.giftHint.textContent = `🎁 ¡Llevas de regalo: ${GIFT_PRODUCT_NAME}!`
+    elements.giftHint.hidden = false
+  } else {
+    elements.giftHint.textContent = `Agrega ${formatPrice(GIFT_THRESHOLD - total)} más y llévate de regalo: ${GIFT_PRODUCT_NAME}`
+    elements.giftHint.hidden = false
+  }
+}
+
 function updateSummary() {
   const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const outOfCoverage = wantsDelivery && !STATE.deliveryCovered
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
+  const bundleDiscount = computeBundleDiscount()
   const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
-  const total = Math.max(0, subtotal + shipping - discount)
+  const total = Math.max(0, subtotal + shipping - bundleDiscount - discount)
 
   elements.subtotal.textContent = formatPrice(subtotal)
   elements.shipping.textContent = outOfCoverage ? 'Sin cobertura' : formatPrice(shipping)
+  if (elements.bundleDiscountRow) elements.bundleDiscountRow.hidden = !bundleDiscount
+  if (elements.bundleDiscount) elements.bundleDiscount.textContent = `-${formatPrice(bundleDiscount)}`
   if (elements.discountRow) elements.discountRow.hidden = !discount
   if (elements.discount) elements.discount.textContent = `-${formatPrice(discount)}`
   elements.total.textContent = outOfCoverage ? '—' : formatPrice(total)
+  updateGiftHint(total)
 
   const itemCount = STATE.cart.reduce((sum, item) => sum + item.quantity, 0)
   elements.cartFabCount.textContent = itemCount
@@ -711,6 +811,21 @@ async function loadProducts() {
     STATE.products = []
     elements.productsGrid.innerHTML = '<p class="hint">No se pudieron cargar los productos.</p>'
   }
+
+  try {
+    const resp = await fetch('/api/banner-coupons')
+    STATE.bannerCoupons = resp.ok ? await resp.json() : []
+  } catch (error) {
+    STATE.bannerCoupons = []
+  }
+
+  try {
+    const resp = await fetch('/api/bundle-promos')
+    STATE.bundlePromos = resp.ok ? await resp.json() : []
+  } catch (error) {
+    STATE.bundlePromos = []
+  }
+
   renderProducts()
 }
 
@@ -874,7 +989,10 @@ function buildWhatsAppText() {
   })
   lines.push('', `Subtotal: ${formatPrice(STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}`)
   if (deliveryMode === 'envio') lines.push(`Envío: ${formatPrice(shipping)}`)
+  const bundleDiscount = computeBundleDiscount()
+  if (bundleDiscount) lines.push(`2x1/3x2 aplicado: -${formatPrice(bundleDiscount)}`)
   if (STATE.appliedCoupon) lines.push(`Descuento (${STATE.appliedCoupon.code}): -${formatPrice(STATE.appliedCoupon.discountAmount)}`)
+  if (giftIsReached(total)) lines.push(`Regalo: ${GIFT_PRODUCT_NAME} (por compra sobre ${formatPrice(GIFT_THRESHOLD)})`)
   lines.push(`Total: ${formatPrice(total)}`)
   lines.push('', 'Gracias!')
   return encodeURIComponent(lines.join('\n'))
@@ -918,7 +1036,9 @@ function buildConfirmSummaryHtml() {
     <div class="confirm-row"><span>Forma de pago</span><span>${escapeHtml(paymentLine)}</span></div>
     <div class="confirm-row"><span>Subtotal</span><span>${formatPrice(subtotal)}</span></div>
     ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Envío</span><span>${formatPrice(shipping)}</span></div>` : ''}
+    ${computeBundleDiscount() ? `<div class="confirm-row"><span>2x1/3x2 aplicado</span><span>-${formatPrice(computeBundleDiscount())}</span></div>` : ''}
     ${STATE.appliedCoupon ? `<div class="confirm-row"><span>Descuento (${escapeHtml(STATE.appliedCoupon.code)})</span><span>-${formatPrice(STATE.appliedCoupon.discountAmount)}</span></div>` : ''}
+    ${giftIsReached(total) ? `<div class="confirm-row"><span>🎁 Regalo</span><span>${escapeHtml(GIFT_PRODUCT_NAME)}</span></div>` : ''}
     <div class="confirm-row confirm-total"><span>Total</span><span>${formatPrice(total)}</span></div>
   `
 }
@@ -1094,6 +1214,13 @@ window.addEventListener('load', () => {
     }
     const details = event.target.closest('[data-details]')
     if (details) openProductModal(details.getAttribute('data-details'))
+    const couponSlide = event.target.closest('[data-coupon-code]')
+    if (couponSlide) {
+      elements.couponCode.value = couponSlide.getAttribute('data-coupon-code')
+      openCart()
+      if (elements.phone.value.trim()) applyCoupon()
+      else elements.couponCode.focus()
+    }
     const add = event.target.closest('[data-add]')
     const remove = event.target.closest('[data-remove]')
     const increment = event.target.closest('[data-increment]')

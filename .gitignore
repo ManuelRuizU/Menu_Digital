@@ -12,6 +12,7 @@ app/static/uploads/*
 !app/static/uploads/.gitkeep
 !app/static/uploads/logos/.gitkeep
 !app/static/uploads/products/.gitkeep
+!app/static/uploads/coupons/.gitkeep
 
 # Sistema operativo / editores
 .DS_Store

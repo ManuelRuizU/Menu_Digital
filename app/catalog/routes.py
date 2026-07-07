@@ -19,8 +19,8 @@ from sqlalchemy import func
 from app import db
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
-from app.models import (BUSINESS_TZ, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order, OrderItem,
-                         Product, ProductOption, ProductOptionGroup, Subcategory, User)
+from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
+                         OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
@@ -561,6 +561,7 @@ def _save_coupon(coupon):
     valid_from = _parse_date(request.form.get('valid_from'))
     valid_until = _parse_date(request.form.get('valid_until'))
     product_ids = request.form.getlist('product_ids', type=int)
+    show_in_banner = request.form.get('show_in_banner') == 'on'
 
     def _redisplay():
         return render_template('panel/coupon_form.html', **_coupon_form_context(coupon if coupon.id else None))
@@ -591,10 +592,28 @@ def _save_coupon(coupon):
     coupon.valid_from = valid_from
     coupon.valid_until = valid_until
     coupon.products = Product.query.filter(Product.id.in_(product_ids)).all() if scope == 'products' else []
+    coupon.show_in_banner = show_in_banner
     if is_new:
         coupon.is_active = True
 
     db.session.add(coupon)
+    db.session.flush()  # assigns coupon.id for a stable image filename
+
+    image = request.files.get('banner_image')
+    if image and image.filename:
+        new_filename = save_image(
+            existing_filename=coupon.banner_image_filename,
+            file_storage=image,
+            upload_dir=current_app.config['COUPON_UPLOAD_DIR'],
+            filename_stub=f'coupon_{coupon.id}',
+            allowed_extensions=current_app.config['COUPON_ALLOWED_EXTENSIONS'],
+        )
+        if new_filename is None:
+            db.session.rollback()
+            flash('La imagen del banner debe ser una imagen (png, jpg, jpeg o webp).')
+            return render_template('panel/coupon_form.html', **_coupon_form_context(coupon if not is_new else None))
+        coupon.banner_image_filename = new_filename
+
     db.session.commit()
     flash('Cupón guardado')
     return redirect(url_for('catalog.coupons'))
@@ -620,6 +639,103 @@ def delete_coupon(coupon_id):
     db.session.commit()
     flash('Cupón eliminado')
     return redirect(url_for('catalog.coupons'))
+
+
+@catalog.route('/bundle-promos')
+@login_required
+@owner_required
+def bundle_promos():
+    all_promos = BundlePromo.query.order_by(BundlePromo.id.desc()).all()
+    return render_template('panel/bundle_promos.html', promos=all_promos)
+
+
+def _bundle_promo_form_context(promo=None):
+    return {
+        'promo': promo,
+        'products': Product.query.order_by(Product.name).all(),
+        'selected_product_ids': {product.id for product in promo.products} if promo else set(),
+    }
+
+
+@catalog.route('/bundle-promos/new', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def create_bundle_promo():
+    if request.method == 'POST':
+        return _save_bundle_promo(BundlePromo())
+    return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context())
+
+
+@catalog.route('/bundle-promos/<int:promo_id>/edit', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def edit_bundle_promo(promo_id):
+    promo = BundlePromo.query.get_or_404(promo_id)
+    if request.method == 'POST':
+        return _save_bundle_promo(promo)
+    return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context(promo))
+
+
+def _save_bundle_promo(promo):
+    label = request.form.get('label', '').strip()
+    buy_quantity = request.form.get('buy_quantity', type=int)
+    pay_quantity = request.form.get('pay_quantity', type=int)
+    valid_from = _parse_date(request.form.get('valid_from'))
+    valid_until = _parse_date(request.form.get('valid_until'))
+    product_ids = request.form.getlist('product_ids', type=int)
+
+    def _redisplay():
+        return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context(promo if promo.id else None))
+
+    if (not label or not buy_quantity or not pay_quantity
+            or buy_quantity < 2 or pay_quantity < 1 or pay_quantity >= buy_quantity):
+        flash('Completa un nombre, y una combinación válida (ej. "Lleva 2, paga 1" - paga siempre debe ser menor que lleva).')
+        return _redisplay()
+
+    if not product_ids:
+        flash('Elige al menos un producto para esta promoción.')
+        return _redisplay()
+
+    if valid_from and valid_until and valid_from > valid_until:
+        flash('La fecha "desde" no puede ser posterior a la fecha "hasta".')
+        return _redisplay()
+
+    is_new = promo.id is None
+    promo.label = label
+    promo.buy_quantity = buy_quantity
+    promo.pay_quantity = pay_quantity
+    promo.valid_from = valid_from
+    promo.valid_until = valid_until
+    promo.products = Product.query.filter(Product.id.in_(product_ids)).all()
+    if is_new:
+        promo.is_active = True
+
+    db.session.add(promo)
+    db.session.commit()
+    flash('Promoción guardada')
+    return redirect(url_for('catalog.bundle_promos'))
+
+
+@catalog.route('/bundle-promos/<int:promo_id>/toggle-active', methods=['POST'])
+@login_required
+@owner_required
+def toggle_bundle_promo_active(promo_id):
+    promo = BundlePromo.query.get_or_404(promo_id)
+    promo.is_active = not promo.is_active
+    db.session.commit()
+    flash('Promoción activada' if promo.is_active else 'Promoción desactivada')
+    return redirect(url_for('catalog.bundle_promos'))
+
+
+@catalog.route('/bundle-promos/<int:promo_id>/delete', methods=['POST'])
+@login_required
+@owner_required
+def delete_bundle_promo(promo_id):
+    promo = BundlePromo.query.get_or_404(promo_id)
+    db.session.delete(promo)
+    db.session.commit()
+    flash('Promoción eliminada')
+    return redirect(url_for('catalog.bundle_promos'))
 
 
 @catalog.route('/dashboard')

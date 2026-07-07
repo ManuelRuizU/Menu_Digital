@@ -3,7 +3,7 @@
 {% block content %}
     <h1>{{ 'Editar cupón' if coupon else 'Nuevo cupón' }}</h1>
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <label for="code">Código</label>
@@ -51,6 +51,22 @@
         Deja ambas fechas vacías para un cupón sin vencimiento. Para un cupón de un solo día
         (ej. "Día del sushi"), pon la misma fecha en "desde" y "hasta".
       </p>
+
+      <label class="checkbox-row"><input type="checkbox" id="show_in_banner" name="show_in_banner"
+             {{ 'checked' if coupon and coupon.show_in_banner else '' }}> Mostrar en el banner del menú público</label>
+
+      <div id="banner-image-field">
+        {% if coupon and coupon.banner_image_filename %}
+          <img src="{{ url_for('static', filename='uploads/coupons/' + coupon.banner_image_filename) }}"
+               alt="{{ coupon.code }}" style="max-width:200px;max-height:120px;border-radius:12px;display:block;margin-bottom:8px;">
+        {% endif %}
+        <label for="banner_image">Imagen del banner (opcional)</label>
+        <input type="file" id="banner_image" name="banner_image" accept="image/png,image/jpeg,image/webp">
+        <p class="muted">
+          Si no subes una imagen, se genera automáticamente una slide con el % de descuento y el código,
+          usando los colores del tema.
+        </p>
+      </div>
 
       <button type="submit">Guardar cupón</button>
     </form>

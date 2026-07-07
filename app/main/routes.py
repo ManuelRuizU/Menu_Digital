@@ -7,8 +7,9 @@ from flask import current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
-from app.models import (BUSINESS_TZ, BusinessHours, Coupon, CouponRedemption, DAY_NAMES, DeliveryRadiusTier,
-                         DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, THEMES, User)
+from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponRedemption, DAY_NAMES,
+                         DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
+                         ProductOption, THEMES, User)
 from app import csrf, db, limiter
 
 
@@ -82,9 +83,21 @@ def compute_shipping_cost(lat, lng):
     return tier.price, True
 
 
+def _gift_is_available(owner):
+    if not owner or not owner.gift_threshold_amount or not owner.gift_product_id:
+        return False
+    product = owner.gift_product
+    if not product or not product.is_active or product.sold_out:
+        return False
+    if product.stock_quantity is not None and product.stock_quantity < 1:
+        return False
+    return True
+
+
 @main.route('/')
 def index():
     owner = get_owner()
+    gift_available = _gift_is_available(owner)
     logo_url = url_for('static', filename='uploads/logos/' + owner.logo_filename) if owner and owner.logo_filename else None
     theme = owner.theme if owner and owner.theme in THEMES else 'oscuro'
     theme_defaults = THEMES[theme]
@@ -121,6 +134,8 @@ def index():
         business_lat=(owner.latitude if owner and owner.latitude is not None else -33.4489),
         business_lng=(owner.longitude if owner and owner.longitude is not None else -70.6693),
         min_delivery_order=(owner.min_delivery_order if owner else None),
+        gift_threshold_amount=(owner.gift_threshold_amount if gift_available else None),
+        gift_product_name=(owner.gift_product.name if gift_available else None),
         opens_at=(hours_today.opens_at if hours_today else None),
         closes_at=(hours_today.closes_at if hours_today else None),
         creator_name=current_app.config.get('CREATOR_NAME'),
@@ -185,6 +200,47 @@ def whatsapp_number_api():
     owner = get_owner()
     number = owner.whatsapp_number if owner and owner.whatsapp_number else ''
     return jsonify({'whatsappNumber': number})
+
+
+@main.route('/api/banner-coupons')
+def banner_coupons_api():
+    """Coupons the owner opted to show in the public menu's banner carousel - only the
+    checks that don't need a customer yet (active, dated, total uses left); the per-customer
+    limit and a final re-check still happen when the code is actually applied/redeemed."""
+    today = datetime.now(BUSINESS_TZ).date()
+    candidates = Coupon.query.filter_by(show_in_banner=True, is_active=True).all()
+    payload = []
+    for coupon in candidates:
+        if coupon.valid_from and today < coupon.valid_from:
+            continue
+        if coupon.valid_until and today > coupon.valid_until:
+            continue
+        if coupon.max_total_uses is not None and coupon.total_uses >= coupon.max_total_uses:
+            continue
+        payload.append({
+            'code': coupon.code,
+            'discountPercent': coupon.discount_percent,
+            'scope': coupon.scope,
+            'validUntil': coupon.valid_until.isoformat() if coupon.valid_until else None,
+            'bannerImageUrl': (url_for('static', filename='uploads/coupons/' + coupon.banner_image_filename)
+                                if coupon.banner_image_filename else None),
+        })
+    return jsonify(payload)
+
+
+@main.route('/api/bundle-promos')
+def bundle_promos_api():
+    payload = [
+        {
+            'id': promo.id,
+            'label': promo.label,
+            'buyQuantity': promo.buy_quantity,
+            'payQuantity': promo.pay_quantity,
+            'productIds': [product.id for product in promo.products],
+        }
+        for promo in _get_active_bundle_promos()
+    ]
+    return jsonify(payload)
 
 
 @main.route('/api/shipping-cost', methods=['POST'])
@@ -261,6 +317,40 @@ def _resolve_cart_items(items):
     return order_lines, subtotal, None
 
 
+def _get_active_bundle_promos():
+    today = datetime.now(BUSINESS_TZ).date()
+    promos = BundlePromo.query.filter_by(is_active=True).all()
+    return [p for p in promos
+            if (not p.valid_from or today >= p.valid_from) and (not p.valid_until or today <= p.valid_until)]
+
+
+def compute_bundle_discount(order_lines, promos):
+    """Automatic "2x1"/"3x2" promos - no code needed. For each promo, flatten the matching
+    products' units, sort by price descending, and group them into chunks of buy_quantity;
+    within each *complete* chunk the cheapest (buy_quantity - pay_quantity) units are free.
+    A leftover partial chunk (not enough units yet) gets no discount."""
+    total_discount = 0
+    for promo in promos:
+        product_ids = {product.id for product in promo.products}
+        unit_prices = []
+        for product, quantity, _options, unit_price in order_lines:
+            if product.id in product_ids:
+                unit_prices.extend([unit_price] * quantity)
+        if len(unit_prices) < promo.buy_quantity:
+            continue
+
+        unit_prices.sort(reverse=True)
+        free_quantity = promo.buy_quantity - promo.pay_quantity
+        num_full_groups = len(unit_prices) // promo.buy_quantity
+        for group_index in range(num_full_groups):
+            start = group_index * promo.buy_quantity
+            group = unit_prices[start:start + promo.buy_quantity]
+            if free_quantity > 0:
+                total_discount += sum(group[-free_quantity:])
+
+    return round(total_discount)
+
+
 def normalize_phone(phone):
     return re.sub(r'\D', '', phone or '')
 
@@ -333,8 +423,10 @@ def apply_coupon_api():
             cost, covered = compute_shipping_cost(lat, lng)
             shipping_cost = cost if covered else 0
 
+    bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
+
     coupon = _resolve_coupon(data.get('code'))
-    discount_amount, error = validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines)
+    discount_amount, error = validate_coupon(coupon, phone, subtotal - bundle_discount, shipping_cost, order_lines)
     if error:
         return jsonify({'ok': False, 'message': error}), 400
 
@@ -420,12 +512,14 @@ def create_order():
             'message': f'El pedido mínimo para despacho es ${owner.min_delivery_order:.0f}.',
         }), 400
 
+    bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
+
     coupon = None
     discount_amount = 0
     coupon_code = data.get('couponCode')
     if coupon_code:
         coupon = _resolve_coupon(coupon_code)
-        discount_amount, error = validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines)
+        discount_amount, error = validate_coupon(coupon, phone, subtotal - bundle_discount, shipping_cost, order_lines)
         if error:
             return jsonify({'ok': False, 'message': error}), 400
 
@@ -442,9 +536,10 @@ def create_order():
             latitude=lat,
             longitude=lng,
             shipping_cost=shipping_cost,
-            total_price=subtotal + shipping_cost - discount_amount,
+            total_price=subtotal + shipping_cost - bundle_discount - discount_amount,
             coupon_id=coupon.id if coupon else None,
             discount_amount=discount_amount,
+            bundle_discount_amount=bundle_discount,
             status='Pending',
         )
         db.session.add(order)
@@ -459,6 +554,17 @@ def create_order():
                 product.stock_quantity = max(product.stock_quantity - quantity, 0)
                 if product.stock_quantity == 0:
                     product.sold_out = True
+
+        effective_total = subtotal + shipping_cost - bundle_discount - discount_amount
+        if _gift_is_available(owner) and effective_total >= owner.gift_threshold_amount:
+            gift_product = owner.gift_product
+            gift_item = OrderItem(order_id=order.id, product_id=gift_product.id, quantity=1, price=0)
+            db.session.add(gift_item)
+            if gift_product.stock_quantity is not None:
+                gift_product.stock_quantity = max(gift_product.stock_quantity - 1, 0)
+                if gift_product.stock_quantity == 0:
+                    gift_product.sold_out = True
+
         if coupon:
             db.session.add(CouponRedemption(coupon_id=coupon.id, order_id=order.id, phone_digits=normalize_phone(phone)))
         db.session.commit()

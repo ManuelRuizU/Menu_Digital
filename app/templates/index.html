@@ -95,6 +95,9 @@
       </div>
       <div id="upsell-suggestions" class="upsell-suggestions"></div>
 
+      <div id="gift-info" data-threshold="{{ gift_threshold_amount or '' }}" data-product-name="{{ gift_product_name or '' }}" hidden></div>
+      <p id="gift-hint" class="hint gift-hint" hidden></p>
+
       <div class="coupon-box">
         <div class="coupon-inputs">
           <input id="coupon-code" type="text" placeholder="¿Tienes un cupón?" autocomplete="off">
@@ -106,6 +109,7 @@
       <div class="summary">
         <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
         <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
+        <div id="bundle-discount-row" class="summary-row discount-row" hidden><span>2x1/3x2 aplicado</span><strong id="bundle-discount">$0</strong></div>
         <div id="discount-row" class="summary-row discount-row" hidden><span>Descuento</span><strong id="discount">$0</strong></div>
         <div class="summary-row total"><span>Total</span><strong id="total">$0</strong></div>
       </div>

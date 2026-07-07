@@ -1,0 +1,47 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Promociones 2x1{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Promociones 2x1 / 3x2</h1>
+      <a href="{{ url_for('catalog.create_bundle_promo') }}"><button type="button">Nueva promoción</button></a>
+    </div>
+    <p class="muted">
+      Se aplican automáticamente en el carrito del cliente, sin necesidad de código - si lleva
+      suficientes productos elegibles, el(los) más barato(s) salen gratis.
+    </p>
+
+    {% for promo in promos %}
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <strong>{{ promo.label }}</strong>
+            <span class="muted">
+              — Lleva {{ promo.buy_quantity }}, paga {{ promo.pay_quantity }}
+              en {{ promo.products|map(attribute='name')|join(', ') }}
+              {% if not promo.is_active %}· inactiva{% endif %}
+            </span>
+          </div>
+        </div>
+        {% if promo.valid_from or promo.valid_until %}
+          <p class="muted">
+            Vigencia: {{ promo.valid_from.strftime('%d-%m-%Y') if promo.valid_from else 'sin inicio' }}
+            a {{ promo.valid_until.strftime('%d-%m-%Y') if promo.valid_until else 'sin fin' }}
+          </p>
+        {% endif %}
+        <div class="inline-actions">
+          <a href="{{ url_for('catalog.edit_bundle_promo', promo_id=promo.id) }}"><button type="button">Editar</button></a>
+          <form method="post" action="{{ url_for('catalog.toggle_bundle_promo_active', promo_id=promo.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">{{ 'Desactivar' if promo.is_active else 'Activar' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.delete_bundle_promo', promo_id=promo.id) }}"
+                onsubmit="return confirm('¿Eliminar esta promoción?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger">Eliminar</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Aún no tienes promociones. Crea la primera arriba.</p>
+    {% endfor %}
+{% endblock %}

@@ -54,6 +54,9 @@ class User(UserMixin, db.Model):
     is_closed_temporarily = db.Column(db.Boolean, nullable=False, default=False)
     closed_message = db.Column(db.Text, nullable=True)
     theme = db.Column(db.String(20), nullable=False, default='oscuro')
+    gift_threshold_amount = db.Column(db.Float, nullable=True)
+    gift_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
+    gift_product = db.relationship('Product', foreign_keys=[gift_product_id])
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -152,6 +155,7 @@ class Order(db.Model):
     total_price = db.Column(db.Float, nullable=False)
     coupon_id = db.Column(db.Integer, db.ForeignKey('coupon.id'), nullable=True)
     discount_amount = db.Column(db.Float, nullable=False, default=0)
+    bundle_discount_amount = db.Column(db.Float, nullable=False, default=0)
     coupon = db.relationship('Coupon')
     status = db.Column(db.String(20), nullable=False, default='Pending')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -231,6 +235,8 @@ class Coupon(db.Model):
     valid_from = db.Column(db.Date, nullable=True)
     valid_until = db.Column(db.Date, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    show_in_banner = db.Column(db.Boolean, nullable=False, default=False)
+    banner_image_filename = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     redemptions = db.relationship('CouponRedemption', backref='coupon', lazy=True, cascade='all, delete-orphan')
 
@@ -253,6 +259,31 @@ class CouponRedemption(db.Model):
 
     def __repr__(self):
         return f'<CouponRedemption coupon_id={self.coupon_id} order_id={self.order_id}>'
+
+
+bundle_promo_product = db.Table(
+    'bundle_promo_product',
+    db.Column('bundle_promo_id', db.Integer, db.ForeignKey('bundle_promo.id'), primary_key=True),
+    db.Column('product_id', db.Integer, db.ForeignKey('product.id'), primary_key=True),
+)
+
+
+class BundlePromo(db.Model):
+    """A "2x1"/"3x2"-style automatic promotion (no code needed): buy `buy_quantity` units
+    across the attached products, pay for only `pay_quantity` of them - the cheapest
+    units in each complete group are the ones that come out free. Applies automatically
+    whenever the cart has enough matching items; never requires the customer to do anything."""
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(80), nullable=False)
+    buy_quantity = db.Column(db.Integer, nullable=False)
+    pay_quantity = db.Column(db.Integer, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    valid_from = db.Column(db.Date, nullable=True)
+    valid_until = db.Column(db.Date, nullable=True)
+    products = db.relationship('Product', secondary=bundle_promo_product, lazy='joined')
+
+    def __repr__(self):
+        return f'<BundlePromo {self.label}>'
 
 
 class DeliveryRadiusTier(db.Model):

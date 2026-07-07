@@ -1,0 +1,45 @@
+{% extends "panel/_layout.html" %}
+{% block title %}{{ 'Editar promoción' if promo else 'Nueva promoción' }}{% endblock %}
+{% block content %}
+    <h1>{{ 'Editar promoción' if promo else 'Nueva promoción' }}</h1>
+
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label for="label">Nombre (para identificarla en el panel)</label>
+      <input id="label" name="label" required value="{{ promo.label if promo else '' }}"
+             placeholder="Ej. 2x1 en bebidas">
+
+      <label for="buy_quantity">Lleva (cantidad de productos elegibles)</label>
+      <input id="buy_quantity" name="buy_quantity" type="number" step="1" min="2" required
+             value="{{ promo.buy_quantity if promo else '' }}" placeholder="Ej. 2">
+
+      <label for="pay_quantity">Paga (cuántos de esos cobra)</label>
+      <input id="pay_quantity" name="pay_quantity" type="number" step="1" min="1" required
+             value="{{ promo.pay_quantity if promo else '' }}" placeholder="Ej. 1">
+      <p class="muted">
+        Ej. "2x1" = Lleva 2, paga 1. "3x2" = Lleva 3, paga 2. El o los productos más baratos
+        del grupo completo salen gratis - si el cliente lleva de a pares/tríos, el resto (sin
+        completar el grupo) se cobra normal.
+      </p>
+
+      <label for="product_ids">Productos elegibles</label>
+      <select id="product_ids" name="product_ids" multiple size="8" required>
+        {% for product in products %}
+          <option value="{{ product.id }}" {{ 'selected' if product.id in selected_product_ids else '' }}>{{ product.name }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted">Mantén Ctrl (o Cmd en Mac) para elegir más de uno.</p>
+
+      <label for="valid_from">Válido desde (opcional)</label>
+      <input id="valid_from" name="valid_from" type="date"
+             value="{{ promo.valid_from.isoformat() if promo and promo.valid_from else '' }}">
+
+      <label for="valid_until">Válido hasta (opcional)</label>
+      <input id="valid_until" name="valid_until" type="date"
+             value="{{ promo.valid_until.isoformat() if promo and promo.valid_until else '' }}">
+      <p class="muted">Deja ambas fechas vacías para una promoción sin vencimiento.</p>
+
+      <button type="submit">Guardar promoción</button>
+    </form>
+{% endblock %}
