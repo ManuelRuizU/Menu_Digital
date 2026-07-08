@@ -25,7 +25,8 @@ def _create_order_with_item(db, product, quantity=1):
                   payment_method='efectivo', total_price=product.price * quantity, status='Pending')
     db.session.add(order)
     db.session.flush()
-    db.session.add(OrderItem(order_id=order.id, product_id=product.id, quantity=quantity, price=product.price))
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=quantity, price=product.price))
     db.session.commit()
     return order
 
@@ -119,7 +120,8 @@ def test_remove_order_item_restores_stock(client, db):
     order = _create_order_with_item(db, product, quantity=2)
     # A second item so removal is allowed (an order must keep at least one item).
     other_product = _create_product(db, stock_quantity=None, price=500)
-    db.session.add(OrderItem(order_id=order.id, product_id=other_product.id, quantity=1, price=500))
+    db.session.add(OrderItem(order_id=order.id, product_id=other_product.id, product_name=other_product.name,
+                              quantity=1, price=500))
     db.session.commit()
 
     item = OrderItem.query.filter_by(order_id=order.id, product_id=product.id).first()
@@ -136,7 +138,8 @@ def test_remove_order_item_clears_sold_out_when_restored(client, db):
     product.sold_out = True
     order = _create_order_with_item(db, product, quantity=2)
     other_product = _create_product(db, stock_quantity=None, price=500)
-    db.session.add(OrderItem(order_id=order.id, product_id=other_product.id, quantity=1, price=500))
+    db.session.add(OrderItem(order_id=order.id, product_id=other_product.id, product_name=other_product.name,
+                              quantity=1, price=500))
     db.session.commit()
 
     item = OrderItem.query.filter_by(order_id=order.id, product_id=product.id).first()
@@ -166,7 +169,8 @@ def test_remove_order_item_recalculates_total(client, db):
     product = _create_product(db, price=1000, stock_quantity=None)
     other = _create_product(db, price=500, stock_quantity=None)
     order = _create_order_with_item(db, product, quantity=1)
-    db.session.add(OrderItem(order_id=order.id, product_id=other.id, quantity=2, price=500))
+    db.session.add(OrderItem(order_id=order.id, product_id=other.id, product_name=other.name,
+                              quantity=2, price=500))
     order.total_price = 1000 + 500 * 2
     db.session.commit()
 

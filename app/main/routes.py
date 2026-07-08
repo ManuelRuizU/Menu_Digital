@@ -543,7 +543,8 @@ def create_order():
         db.session.add(order)
         db.session.flush()
         for product, quantity, selected_options, unit_price in order_lines:
-            order_item = OrderItem(order_id=order.id, product_id=product.id, quantity=quantity, price=unit_price)
+            order_item = OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                                    quantity=quantity, price=unit_price)
             db.session.add(order_item)
             db.session.flush()
             for option in selected_options:
@@ -556,7 +557,8 @@ def create_order():
         effective_total = subtotal + shipping_cost - bundle_discount - discount_amount
         if _gift_is_available(owner) and effective_total >= owner.gift_threshold_amount:
             gift_product = owner.gift_product
-            gift_item = OrderItem(order_id=order.id, product_id=gift_product.id, quantity=1, price=0)
+            gift_item = OrderItem(order_id=order.id, product_id=gift_product.id, product_name=gift_product.name,
+                                   quantity=1, price=0)
             db.session.add(gift_item)
             if gift_product.stock_quantity is not None:
                 gift_product.stock_quantity = max(gift_product.stock_quantity - 1, 0)

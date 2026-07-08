@@ -54,7 +54,7 @@ def _build_courier_message(order):
     lines.append('')
     lines.append('Productos:')
     for item in order.order_items:
-        product_name = item.product.name if item.product else 'Producto eliminado'
+        product_name = item.product_name
         options_text = ''
         if item.selected_options:
             options_text = ' (' + ', '.join(option.name for option in item.selected_options) + ')'
@@ -117,7 +117,7 @@ def _print_order_ticket(order, owner):
         printer.text('-' * width_chars + '\n')
 
         for item in order.order_items:
-            product_name = item.product.name if item.product else 'Producto eliminado'
+            product_name = item.product_name
             printer.text(f'{item.quantity}x {product_name}\n')
             for option in item.selected_options:
                 printer.text(f'   + {option.name}\n')
@@ -901,7 +901,7 @@ def export_orders_csv():
     for order in query.all():
         item_lines = []
         for item in order.order_items:
-            product_name = item.product.name if item.product else 'Producto eliminado'
+            product_name = item.product_name
             options = ', '.join(o.name for o in item.selected_options) if item.selected_options else ''
             label = f'{item.quantity}x {product_name}'
             if options:
@@ -1014,7 +1014,8 @@ def add_order_item(order_id):
         flash(f'Solo quedan {product.stock_quantity} unidades de {product.name}.')
         return _redirect_back_to_orders()
 
-    db.session.add(OrderItem(order_id=order.id, product_id=product.id, quantity=quantity, price=product.price))
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=quantity, price=product.price))
     if product.stock_quantity is not None:
         product.stock_quantity = max(product.stock_quantity - quantity, 0)
         if product.stock_quantity == 0:
