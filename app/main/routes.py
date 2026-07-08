@@ -571,5 +571,5 @@ def create_order():
         current_app.logger.exception('Failed to save order for %s (%s)', customer_name, phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
 
-    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.', 'orderId': order.id,
+    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.',
                      'discountAmount': discount_amount})

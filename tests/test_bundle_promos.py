@@ -38,7 +38,7 @@ def test_2x1_across_two_different_products_frees_the_cheaper_one(client, db):
     })
     data = resp.get_json()
     assert data['ok'] is True
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 3000
     assert order.total_price == 5000  # 8000 - 3000 free
 
@@ -54,8 +54,7 @@ def test_3x2_frees_cheapest_of_three(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 2000
     assert order.total_price == 7000  # 9000 - 2000 free
 
@@ -69,8 +68,7 @@ def test_incomplete_group_gets_no_discount(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 0
     assert order.total_price == 1000
 
@@ -84,8 +82,7 @@ def test_two_full_groups_both_get_cheapest_free(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 2000  # 2 free units at $1000 each
     assert order.total_price == 2000  # pays for 2 of the 4
 
@@ -100,8 +97,7 @@ def test_promo_ignores_products_not_in_its_list(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 0  # only 1 eligible unit, needs 2
     assert order.total_price == 6000
 
@@ -117,7 +113,6 @@ def test_inactive_promo_does_not_apply(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 0
     assert order.total_price == 2000

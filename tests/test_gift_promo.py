@@ -42,8 +42,7 @@ def test_gift_added_when_total_reaches_threshold(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is not None
     assert gift_item.price == 0
@@ -64,8 +63,7 @@ def test_no_gift_when_below_threshold(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is None
 
@@ -83,7 +81,6 @@ def test_no_gift_when_out_of_stock(client, db):
         'customerName': 'Cliente', 'phone': PHONE,
         'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
     })
-    data = resp.get_json()
-    order = Order.query.get(data['orderId'])
+    order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is None
