@@ -327,13 +327,43 @@ def _save_product(product):
     return redirect(url_for('catalog.products'))
 
 
+def _join_with_y(items):
+    """'a' / 'a y b' / 'a, b y c' - Spanish list joining for the delete_product() flash."""
+    if len(items) <= 1:
+        return items[0] if items else ''
+    return ', '.join(items[:-1]) + ' y ' + items[-1]
+
+
+def _product_delete_blockers(product):
+    """Every reason product can't be deleted right now - product.orders isn't the
+    only thing that silently breaks if a product referenced elsewhere just
+    disappears: a coupon/bundle promo built around it stops discounting anything,
+    and a gift product vanishes from the threshold banner, without telling anyone."""
+    reasons = []
+    if product.orders:
+        reasons.append('tiene pedidos asociados')
+    if product.coupons:
+        codes = _join_with_y([f"'{c.code}'" for c in product.coupons])
+        word = 'cupón' if len(product.coupons) == 1 else 'cupones'
+        reasons.append(f'está en el {word} {codes}')
+    if product.bundle_promos:
+        labels = _join_with_y([f"'{p.label}'" for p in product.bundle_promos])
+        article, word = ('la', 'promo') if len(product.bundle_promos) == 1 else ('las', 'promos')
+        reasons.append(f'está en {article} {word} {labels}')
+    if User.query.filter_by(gift_product_id=product.id).first():
+        reasons.append('es el regalo configurado por compra mínima')
+    return reasons
+
+
 @catalog.route('/products/<int:product_id>/delete', methods=['POST'])
 @login_required
 @admin_required
 def delete_product(product_id):
     product = Product.query.get_or_404(product_id)
-    if product.orders:
-        flash('Este producto tiene pedidos asociados; desactívalo en vez de eliminarlo.')
+    reasons = _product_delete_blockers(product)
+    if reasons:
+        flash('No se puede eliminar: ' + _join_with_y(reasons) +
+              '. Quítalo de esas promociones primero, o desactívalo.')
         return redirect(url_for('catalog.products'))
 
     db.session.delete(product)
@@ -524,8 +554,16 @@ def promotions():
 @login_required
 @owner_required
 def update_gift_promo():
-    current_user.gift_threshold_amount = parse_money(request.form, 'gift_threshold_amount')
-    current_user.gift_product_id = request.form.get('gift_product_id', type=int) or None
+    threshold = parse_money(request.form, 'gift_threshold_amount')
+    product_id = request.form.get('gift_product_id', type=int) or None
+
+    if bool(threshold) != bool(product_id):
+        flash('Para activar el regalo por compra mínima, completa el monto y elige un producto - '
+              'o deja ambos vacíos para desactivarlo.')
+        return redirect(url_for('catalog.promotions'))
+
+    current_user.gift_threshold_amount = threshold
+    current_user.gift_product_id = product_id
     db.session.commit()
     flash('Regalo por compra mínima actualizado')
     return redirect(url_for('catalog.promotions'))

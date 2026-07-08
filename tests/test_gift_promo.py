@@ -84,3 +84,60 @@ def test_no_gift_when_out_of_stock(client, db):
     order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is None
+
+
+# --- /admin/promotions/gift form: cross-validation between threshold and product ---
+
+def test_update_gift_promo_rejects_threshold_without_product(client, db):
+    _register_owner(client)
+
+    resp = client.post('/admin/promotions/gift', data={
+        'gift_threshold_amount': '30000',
+    }, follow_redirects=True)
+
+    assert 'Para activar el regalo'.encode() in resp.data
+    owner = User.query.filter_by(is_owner=True).first()
+    assert owner.gift_threshold_amount is None
+    assert owner.gift_product_id is None
+
+
+def test_update_gift_promo_rejects_product_without_threshold(client, db):
+    _register_owner(client)
+    gift = _create_product(db, price=2000, name='Cafe4')
+
+    resp = client.post('/admin/promotions/gift', data={
+        'gift_product_id': str(gift.id),
+    }, follow_redirects=True)
+
+    assert 'Para activar el regalo'.encode() in resp.data
+    owner = User.query.filter_by(is_owner=True).first()
+    assert owner.gift_threshold_amount is None
+    assert owner.gift_product_id is None
+
+
+def test_update_gift_promo_saves_when_both_present(client, db):
+    _register_owner(client)
+    gift = _create_product(db, price=2000, name='Cafe5')
+
+    resp = client.post('/admin/promotions/gift', data={
+        'gift_threshold_amount': '30000',
+        'gift_product_id': str(gift.id),
+    }, follow_redirects=True)
+
+    assert 'Regalo por compra mínima actualizado'.encode() in resp.data
+    owner = User.query.filter_by(is_owner=True).first()
+    assert owner.gift_threshold_amount == 30000
+    assert owner.gift_product_id == gift.id
+
+
+def test_update_gift_promo_saves_when_both_empty_clears_it(client, db):
+    _register_owner(client)
+    gift = _create_product(db, price=2000, name='Cafe6')
+    _set_gift(db, threshold=30000, gift_product=gift)
+
+    resp = client.post('/admin/promotions/gift', data={}, follow_redirects=True)
+
+    assert 'Regalo por compra mínima actualizado'.encode() in resp.data
+    owner = User.query.filter_by(is_owner=True).first()
+    assert owner.gift_threshold_amount is None
+    assert owner.gift_product_id is None

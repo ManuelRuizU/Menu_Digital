@@ -230,7 +230,7 @@ class Coupon(db.Model):
     code = db.Column(db.String(30), unique=True, nullable=False)
     discount_percent = db.Column(db.Float, nullable=False)
     scope = db.Column(db.String(10), nullable=False, default='order')
-    products = db.relationship('Product', secondary=coupon_product, lazy='joined')
+    products = db.relationship('Product', secondary=coupon_product, lazy='joined', backref='coupons')
     max_total_uses = db.Column(db.Integer, nullable=True)
     max_uses_per_customer = db.Column(db.Integer, nullable=True)
     valid_from = db.Column(db.Date, nullable=True)
@@ -281,7 +281,7 @@ class BundlePromo(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     valid_from = db.Column(db.Date, nullable=True)
     valid_until = db.Column(db.Date, nullable=True)
-    products = db.relationship('Product', secondary=bundle_promo_product, lazy='joined')
+    products = db.relationship('Product', secondary=bundle_promo_product, lazy='joined', backref='bundle_promos')
 
     def __repr__(self):
         return f'<BundlePromo {self.label}>'
