@@ -40,7 +40,7 @@ class User(UserMixin, db.Model):
     accepts_transfer = db.Column(db.Boolean, nullable=False, default=True)
     accepts_card = db.Column(db.Boolean, nullable=False, default=True)
     bank_details = db.Column(db.Text, nullable=True)
-    min_delivery_order = db.Column(db.Float, nullable=True)
+    min_delivery_order = db.Column(db.Integer, nullable=True)
     printer_ip = db.Column(db.String(45), nullable=True)
     printer_width_mm = db.Column(db.Integer, nullable=True)
     backup_email_host = db.Column(db.String(120), nullable=True)
@@ -54,7 +54,7 @@ class User(UserMixin, db.Model):
     is_closed_temporarily = db.Column(db.Boolean, nullable=False, default=False)
     closed_message = db.Column(db.Text, nullable=True)
     theme = db.Column(db.String(20), nullable=False, default='oscuro')
-    gift_threshold_amount = db.Column(db.Float, nullable=True)
+    gift_threshold_amount = db.Column(db.Integer, nullable=True)
     gift_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
     gift_product = db.relationship('Product', foreign_keys=[gift_product_id])
 
@@ -101,8 +101,8 @@ class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
-    price = db.Column(db.Float, nullable=False)
-    original_price = db.Column(db.Float, nullable=True)
+    price = db.Column(db.Integer, nullable=False)
+    original_price = db.Column(db.Integer, nullable=True)
     image_filename = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sold_out = db.Column(db.Boolean, nullable=False, default=False)
@@ -138,7 +138,7 @@ class ProductOption(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     group_id = db.Column(db.Integer, db.ForeignKey('product_option_group.id'), nullable=False)
     name = db.Column(db.String(80), nullable=False)
-    price_delta = db.Column(db.Float, nullable=False, default=0)
+    price_delta = db.Column(db.Integer, nullable=False, default=0)
 
     def __repr__(self):
         return f'<ProductOption {self.name}>'
@@ -150,17 +150,17 @@ class Order(db.Model):
     address = db.Column(db.String(255), nullable=True)
     delivery_mode = db.Column(db.String(20), nullable=False, default='retira')
     payment_method = db.Column(db.String(30), nullable=True)
-    shipping_cost = db.Column(db.Float, nullable=False, default=0)
+    shipping_cost = db.Column(db.Integer, nullable=False, default=0)
     order_items = db.relationship('OrderItem', backref='order', lazy=True)
-    total_price = db.Column(db.Float, nullable=False)
+    total_price = db.Column(db.Integer, nullable=False)
     coupon_id = db.Column(db.Integer, db.ForeignKey('coupon.id'), nullable=True)
-    discount_amount = db.Column(db.Float, nullable=False, default=0)
-    bundle_discount_amount = db.Column(db.Float, nullable=False, default=0)
+    discount_amount = db.Column(db.Integer, nullable=False, default=0)
+    bundle_discount_amount = db.Column(db.Integer, nullable=False, default=0)
     coupon = db.relationship('Coupon')
     status = db.Column(db.String(20), nullable=False, default='Pending')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
-    cash_amount = db.Column(db.Float, nullable=True)
+    cash_amount = db.Column(db.Integer, nullable=True)
     requested_time = db.Column(db.String(5), nullable=True)
     requested_time_end = db.Column(db.String(5), nullable=True)
     latitude = db.Column(db.Float, nullable=True)
@@ -191,7 +191,7 @@ class OrderItem(db.Model):
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    price = db.Column(db.Float, nullable=False)  # per-unit price, already including any selected options
+    price = db.Column(db.Integer, nullable=False)  # per-unit price, already including any selected options
     selected_options = db.relationship('OrderItemOption', backref='order_item', lazy=True,
                                         cascade='all, delete-orphan')
 
@@ -205,7 +205,7 @@ class OrderItemOption(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_item_id = db.Column(db.Integer, db.ForeignKey('order_item.id'), nullable=False)
     name = db.Column(db.String(80), nullable=False)
-    price_delta = db.Column(db.Float, nullable=False, default=0)
+    price_delta = db.Column(db.Integer, nullable=False, default=0)
 
     def __repr__(self):
         return f'<OrderItemOption {self.name}>'
@@ -290,7 +290,7 @@ class DeliveryRadiusTier(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     min_km = db.Column(db.Float, nullable=False)
     max_km = db.Column(db.Float, nullable=False)
-    price = db.Column(db.Float, nullable=False)
+    price = db.Column(db.Integer, nullable=False)
 
     def __repr__(self):
         return f'<DeliveryRadiusTier {self.min_km}-{self.max_km}km>'
@@ -299,7 +299,7 @@ class DeliveryRadiusTier(db.Model):
 class DeliveryZone(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    price = db.Column(db.Float, nullable=False)
+    price = db.Column(db.Integer, nullable=False)
     geojson = db.Column(db.Text, nullable=False)
 
     def __repr__(self):

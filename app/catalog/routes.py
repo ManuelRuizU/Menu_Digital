@@ -22,6 +22,7 @@ from app.decorators import admin_required, owner_required
 from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
                          OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
+from app.utils import parse_money
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
 
@@ -274,8 +275,8 @@ def edit_product(product_id):
 def _save_product(product):
     name = request.form.get('name', '').strip()
     description = request.form.get('description', '').strip()
-    price = request.form.get('price', type=float)
-    original_price = request.form.get('original_price', type=float)
+    price = parse_money(request.form, 'price')
+    original_price = parse_money(request.form, 'original_price')
     category_id = request.form.get('category_id', type=int)
     subcategory_id = request.form.get('subcategory_id', type=int) or None
 
@@ -412,7 +413,7 @@ def delete_option_group(product_id, group_id):
 def create_option(product_id, group_id):
     group = ProductOptionGroup.query.filter_by(id=group_id, product_id=product_id).first_or_404()
     name = request.form.get('name', '').strip()
-    price_delta = request.form.get('price_delta', type=float)
+    price_delta = parse_money(request.form, 'price_delta')
     if not name or price_delta is None:
         flash('Completa el nombre y el precio adicional de la opción (puede ser 0).')
         return redirect(url_for('catalog.edit_product', product_id=product_id))
@@ -450,7 +451,7 @@ def delivery():
 def create_delivery_tier():
     min_km = request.form.get('min_km', type=float)
     max_km = request.form.get('max_km', type=float)
-    price = request.form.get('price', type=float)
+    price = parse_money(request.form, 'price')
 
     if min_km is None or max_km is None or price is None or min_km >= max_km or min_km < 0:
         flash('Revisa los kilómetros y el precio del rango de reparto.')
@@ -478,7 +479,7 @@ def delete_delivery_tier(tier_id):
 @owner_required
 def create_delivery_zone():
     name = request.form.get('name', '').strip()
-    price = request.form.get('price', type=float)
+    price = parse_money(request.form, 'price')
     geojson_raw = request.form.get('geojson', '')
 
     if not name or price is None or not geojson_raw:
@@ -523,7 +524,7 @@ def promotions():
 @login_required
 @owner_required
 def update_gift_promo():
-    current_user.gift_threshold_amount = request.form.get('gift_threshold_amount', type=float)
+    current_user.gift_threshold_amount = parse_money(request.form, 'gift_threshold_amount')
     current_user.gift_product_id = request.form.get('gift_product_id', type=int) or None
     db.session.commit()
     flash('Regalo por compra mínima actualizado')

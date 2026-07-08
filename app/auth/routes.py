@@ -13,6 +13,7 @@ from app import db, limiter
 from app.decorators import admin_required, owner_required
 from app.auth import auth
 from app.uploads import save_image
+from app.utils import parse_money
 
 HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 TIME_RE = re.compile(r'^\d{2}:\d{2}$')
@@ -238,7 +239,7 @@ def update_business_profile():
     if not (current_user.accepts_cash or current_user.accepts_transfer or current_user.accepts_card):
         current_user.accepts_cash = True
     current_user.bank_details = request.form.get('bank_details', '').strip() or None
-    current_user.min_delivery_order = request.form.get('min_delivery_order', type=float)
+    current_user.min_delivery_order = parse_money(request.form, 'min_delivery_order')
     current_user.printer_ip = request.form.get('printer_ip', '').strip() or None
     current_user.printer_width_mm = request.form.get('printer_width_mm', type=int) or 80
     current_user.backup_email_host = request.form.get('backup_email_host', '').strip() or None

@@ -11,6 +11,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
+from app.utils import parse_money
 
 
 def get_owner():
@@ -482,10 +483,7 @@ def create_order():
 
     cash_amount = None
     if payment_method == 'efectivo':
-        try:
-            cash_amount = float(data.get('cashAmount'))
-        except (TypeError, ValueError):
-            cash_amount = None
+        cash_amount = parse_money(data, 'cashAmount')
 
     shipping_cost = 0
     lat = lng = None
