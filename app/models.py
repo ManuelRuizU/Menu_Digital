@@ -160,6 +160,7 @@ class Order(db.Model):
     status = db.Column(db.String(20), nullable=False, default='Pending')
     payment_status = db.Column(db.String(10), nullable=False, default='pending')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    confirmed_at = db.Column(db.DateTime, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     cash_amount = db.Column(db.Integer, nullable=True)
     requested_time = db.Column(db.String(5), nullable=True)
@@ -175,6 +176,13 @@ class Order(db.Model):
     def created_at_local(self):
         """created_at is stored in naive UTC; render it in the business's own timezone."""
         return self.created_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(BUSINESS_TZ)
+
+    @property
+    def confirmed_at_local(self):
+        """confirmed_at is stored in naive UTC like created_at - None if never confirmed."""
+        if self.confirmed_at is None:
+            return None
+        return self.confirmed_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(BUSINESS_TZ)
 
     @property
     def requested_time_label(self):

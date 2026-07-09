@@ -814,14 +814,13 @@ def dashboard():
     # "Quién me debe" is a close-of-day figure, not a lifetime one - a stale order
     # from weeks ago shouldn't inflate it forever. Scoped to today (Santiago time),
     # same day boundary orders() uses so this matches what the encargado sees in
-    # today's order list. Anchored to created_at because we don't have confirmed_at
-    # yet (that's A2.3) - once it exists, this should probably anchor to the day the
-    # order was CONFIRMED instead, since an order that came in yesterday but got
-    # confirmed and paid today is today's money, not yesterday's.
+    # today's order list. Anchored to confirmed_at (not created_at): an order that
+    # came in yesterday but got confirmed and paid today is today's money. A row
+    # with confirmed_at NULL (never confirmed) never matches, which is correct.
     today_start_utc, today_end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
     confirmed_unpaid = Order.query.filter(
         Order.status == 'Confirmed', Order.payment_status == 'pending',
-        Order.created_at >= today_start_utc, Order.created_at < today_end_utc,
+        Order.confirmed_at >= today_start_utc, Order.confirmed_at < today_end_utc,
     ).count()
 
     last_order_ids = db.session.query(func.max(Order.id)).group_by(Order.phone)
@@ -1007,6 +1006,7 @@ def confirm_order(order_id):
         flash(f'Este pedido ya está {ORDER_STATUS_LABELS[order.status].lower()} - no se puede confirmar.')
         return _redirect_back_to_orders()
     order.status = 'Confirmed'
+    order.confirmed_at = datetime.utcnow()
     if order.payment_method == 'transferencia':
         order.payment_status = 'paid'
     # efectivo y tarjeta se quedan en 'pending' (default) - ambos se cobran contra

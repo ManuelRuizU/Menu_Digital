@@ -339,18 +339,23 @@ def test_total_clamps_to_zero_when_discount_exceeds_subtotal_and_shipping(client
 def test_confirm_order_moves_pending_to_confirmed(client, db):
     _register_owner(client)
     order = _create_order_with_item(db, _create_product(db, stock_quantity=None))  # starts Pending
+    before = datetime.utcnow()
 
     resp = client.post(f'/admin/orders/{order.id}/confirm')
 
     assert resp.status_code == 302
     db.session.refresh(order)
     assert order.status == 'Confirmed'
+    assert order.confirmed_at is not None
+    assert before <= order.confirmed_at <= datetime.utcnow()
 
 
 def test_confirm_order_on_already_confirmed_is_a_noop(client, db):
     _register_owner(client)
     order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
     order.status = 'Confirmed'
+    first_confirmed_at = datetime(2026, 1, 1, 12, 0, 0)
+    order.confirmed_at = first_confirmed_at
     db.session.commit()
 
     resp = client.post(f'/admin/orders/{order.id}/confirm')
@@ -358,6 +363,7 @@ def test_confirm_order_on_already_confirmed_is_a_noop(client, db):
     assert resp.status_code == 302  # no 500, just redirected with a flash
     db.session.refresh(order)
     assert order.status == 'Confirmed'
+    assert order.confirmed_at == first_confirmed_at  # the no-op must not touch it
 
 
 def test_confirm_order_on_cancelled_is_a_noop(client, db):
@@ -371,6 +377,7 @@ def test_confirm_order_on_cancelled_is_a_noop(client, db):
     assert resp.status_code == 302
     db.session.refresh(order)
     assert order.status == 'Cancelled'  # a cancelled order can never become Confirmed
+    assert order.confirmed_at is None  # it was never actually confirmed
 
 
 def test_cancel_order_from_pending(client, db):
@@ -508,25 +515,34 @@ def test_mark_order_unpaid_moves_paid_to_pending(client, db):
 def test_dashboard_confirmed_unpaid_count_excludes_cancelled_and_pending_sale(client, db):
     _register_owner(client)
     product = _create_product(db, stock_quantity=None)
+    today_start_utc, _ = day_range_utc(datetime.now(BUSINESS_TZ).date())
 
-    # Confirmed + unpaid: the one case that should be counted.
+    # Confirmed + unpaid + confirmed today: the one case that should be counted.
     counted = _create_order_with_item(db, product, payment_method='efectivo')
     counted.status = 'Confirmed'
+    counted.confirmed_at = today_start_utc + timedelta(hours=1)
     # Confirmed + already paid: not counted (nothing owed).
     confirmed_paid = _create_order_with_item(db, product, payment_method='transferencia')
     confirmed_paid.status = 'Confirmed'
     confirmed_paid.payment_status = 'paid'
+    confirmed_paid.confirmed_at = today_start_utc + timedelta(hours=1)
     # Cancelled + unpaid: not counted (sale didn't happen, nothing to collect).
     cancelled_unpaid = _create_order_with_item(db, product, payment_method='efectivo')
     cancelled_unpaid.status = 'Cancelled'
-    # Pending sale + unpaid: not counted (not confirmed as a real sale yet).
+    # Pending sale + unpaid: not counted (not confirmed as a real sale yet, confirmed_at is None).
     pending_sale = _create_order_with_item(db, product, payment_method='efectivo')
-    # Confirmed + unpaid, but from YESTERDAY: not counted - the figure is scoped to
-    # today's close-of-day, not lifetime debt.
-    yesterday_unpaid = _create_order_with_item(db, product, payment_method='efectivo')
-    yesterday_unpaid.status = 'Confirmed'
+    # Confirmed + unpaid, but CONFIRMED YESTERDAY: not counted - the figure is scoped
+    # to today's close-of-day, not lifetime debt. created_at is deliberately today to
+    # prove the filter anchors on confirmed_at, not created_at.
+    confirmed_yesterday = _create_order_with_item(db, product, payment_method='efectivo')
+    confirmed_yesterday.status = 'Confirmed'
     yesterday_start_utc, _ = day_range_utc(datetime.now(BUSINESS_TZ).date() - timedelta(days=1))
-    yesterday_unpaid.created_at = yesterday_start_utc + timedelta(hours=12)
+    confirmed_yesterday.confirmed_at = yesterday_start_utc + timedelta(hours=12)
+    # Confirmed + unpaid, but confirmed_at is NULL: legacy row from before A2.3 (or a
+    # data bug) - must not count, since we can't tell it happened today. This is the
+    # exact shape the migration backfill leaves pre-existing Confirmed orders in.
+    legacy_confirmed_no_timestamp = _create_order_with_item(db, product, payment_method='efectivo')
+    legacy_confirmed_no_timestamp.status = 'Confirmed'
     db.session.commit()
 
     resp = client.get('/admin/dashboard')
