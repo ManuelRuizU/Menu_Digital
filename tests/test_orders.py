@@ -1,6 +1,9 @@
 import json
+import re
+from datetime import datetime, timedelta
 
-from app.models import BundlePromo, Category, Coupon, Order, OrderItem, Product, User
+from app.models import BUSINESS_TZ, BundlePromo, Category, Coupon, Order, OrderItem, Product, User
+from app.utils import day_range_utc
 
 
 def _register_owner(client):
@@ -20,9 +23,9 @@ def _create_product(db, stock_quantity=None, price=1000, name='Bebida'):
     return product
 
 
-def _create_order_with_item(db, product, quantity=1, shipping_cost=0):
+def _create_order_with_item(db, product, quantity=1, shipping_cost=0, payment_method='efectivo'):
     order = Order(customer_name='Cliente', phone='56911112222', delivery_mode='retira',
-                  payment_method='efectivo', shipping_cost=shipping_cost,
+                  payment_method=payment_method, shipping_cost=shipping_cost,
                   total_price=product.price * quantity + shipping_cost, status='Pending')
     db.session.add(order)
     db.session.flush()
@@ -418,3 +421,120 @@ def test_old_toggle_status_route_no_longer_exists(client, db):
     assert resp.status_code == 404
     db.session.refresh(order)
     assert order.status == 'Confirmed'  # nothing could have reverted it - the route is gone
+
+
+# --- payment status (A2.2): second, independent axis from sale status ---
+
+def test_new_order_starts_with_pending_payment_status(client, db):
+    product = _create_product(db, stock_quantity=None)
+
+    resp = client.post('/api/orders', json={
+        'items': [{'id': product.id, 'quantity': 1}],
+        'customerName': 'Cliente', 'phone': '56911112222',
+        'deliveryMode': 'retira', 'paymentMethod': 'transferencia',
+    })
+    assert resp.status_code == 200
+
+    order = Order.query.order_by(Order.id.desc()).first()
+    # Even for transferencia (which becomes 'paid' automatically on confirm), a
+    # freshly created, unconfirmed order always starts 'pending' - the auto-mark
+    # only happens inside confirm_order(), not at checkout.
+    assert order.status == 'Pending'
+    assert order.payment_status == 'pending'
+
+
+def test_confirming_transfer_order_marks_it_paid_automatically(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None),
+                                     payment_method='transferencia')
+
+    client.post(f'/admin/orders/{order.id}/confirm')
+
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'
+    assert order.payment_status == 'paid'
+
+
+def test_confirming_cash_order_leaves_payment_pending(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None),
+                                     payment_method='efectivo')
+
+    client.post(f'/admin/orders/{order.id}/confirm')
+
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'
+    assert order.payment_status == 'pending'  # cash is collected on delivery, not now
+
+
+def test_confirming_card_order_leaves_payment_pending(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None),
+                                     payment_method='tarjeta')
+
+    client.post(f'/admin/orders/{order.id}/confirm')
+
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'
+    assert order.payment_status == 'pending'  # "tarjeta al recibir" - courier brings the card machine
+
+
+def test_mark_order_paid_moves_pending_to_paid(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None),
+                                     payment_method='efectivo')
+
+    resp = client.post(f'/admin/orders/{order.id}/mark-paid')
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.payment_status == 'paid'
+
+
+def test_mark_order_unpaid_moves_paid_to_pending(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None),
+                                     payment_method='transferencia')
+    order.payment_status = 'paid'
+    db.session.commit()
+
+    resp = client.post(f'/admin/orders/{order.id}/mark-unpaid')
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.payment_status == 'pending'
+
+
+def test_dashboard_confirmed_unpaid_count_excludes_cancelled_and_pending_sale(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+
+    # Confirmed + unpaid: the one case that should be counted.
+    counted = _create_order_with_item(db, product, payment_method='efectivo')
+    counted.status = 'Confirmed'
+    # Confirmed + already paid: not counted (nothing owed).
+    confirmed_paid = _create_order_with_item(db, product, payment_method='transferencia')
+    confirmed_paid.status = 'Confirmed'
+    confirmed_paid.payment_status = 'paid'
+    # Cancelled + unpaid: not counted (sale didn't happen, nothing to collect).
+    cancelled_unpaid = _create_order_with_item(db, product, payment_method='efectivo')
+    cancelled_unpaid.status = 'Cancelled'
+    # Pending sale + unpaid: not counted (not confirmed as a real sale yet).
+    pending_sale = _create_order_with_item(db, product, payment_method='efectivo')
+    # Confirmed + unpaid, but from YESTERDAY: not counted - the figure is scoped to
+    # today's close-of-day, not lifetime debt.
+    yesterday_unpaid = _create_order_with_item(db, product, payment_method='efectivo')
+    yesterday_unpaid.status = 'Confirmed'
+    yesterday_start_utc, _ = day_range_utc(datetime.now(BUSINESS_TZ).date() - timedelta(days=1))
+    yesterday_unpaid.created_at = yesterday_start_utc + timedelta(hours=12)
+    db.session.commit()
+
+    resp = client.get('/admin/dashboard')
+    html = resp.data.decode()
+
+    assert resp.status_code == 200
+    # Pull the number straight out of the rendered card, right after its label - the
+    # expected value (1) is hand-counted above, not re-derived from the route's own filter.
+    match = re.search(r'Confirmados sin pagar</div>\s*<div[^>]*>(\d+)</div>', html)
+    assert match is not None
+    assert match.group(1) == '1'

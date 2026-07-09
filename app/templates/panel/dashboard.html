@@ -52,10 +52,18 @@
         <div class="muted">% marcados como confirmados</div>
         <div style="font-size:1.8rem;font-weight:700;">{{ confirmation_rate }}%</div>
       </div>
+      <div class="card" style="flex:1;text-align:center;">
+        <div class="muted">Confirmados sin pagar</div>
+        <div style="font-size:1.8rem;font-weight:700;">{{ confirmed_unpaid }}</div>
+      </div>
     </div>
     <p class="muted">
       Este porcentaje solo mide cuántos pedidos marcaste como "Confirmado" tú mismo - el sistema no sabe
       si la venta realmente se cerró por WhatsApp, así que no es una tasa de conversión real.
+    </p>
+    <p class="muted">
+      "Confirmados sin pagar" son ventas cerradas donde todavía falta cobrar (efectivo o tarjeta contra
+      entrega) - tu control de "quién me debe" para el cierre del día.
     </p>
 
     <h2>Productos más vendidos</h2>

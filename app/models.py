@@ -158,6 +158,7 @@ class Order(db.Model):
     bundle_discount_amount = db.Column(db.Integer, nullable=False, default=0)
     coupon = db.relationship('Coupon')
     status = db.Column(db.String(20), nullable=False, default='Pending')
+    payment_status = db.Column(db.String(10), nullable=False, default='pending')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
     cash_amount = db.Column(db.Integer, nullable=True)

@@ -26,6 +26,7 @@ from app.utils import day_range_utc, parse_money
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
 ORDER_STATUS_LABELS = {'Pending': 'Pendiente', 'Confirmed': 'Confirmado', 'Cancelled': 'Cancelado'}
+PAYMENT_STATUS_LABELS = {'pending': 'Pendiente', 'paid': 'Pagado'}
 
 
 def _build_courier_message(order):
@@ -810,6 +811,19 @@ def dashboard():
     confirmed_orders = Order.query.filter_by(status='Confirmed').count()
     confirmation_rate = round(confirmed_orders / total_orders * 100) if total_orders else 0
 
+    # "Quién me debe" is a close-of-day figure, not a lifetime one - a stale order
+    # from weeks ago shouldn't inflate it forever. Scoped to today (Santiago time),
+    # same day boundary orders() uses so this matches what the encargado sees in
+    # today's order list. Anchored to created_at because we don't have confirmed_at
+    # yet (that's A2.3) - once it exists, this should probably anchor to the day the
+    # order was CONFIRMED instead, since an order that came in yesterday but got
+    # confirmed and paid today is today's money, not yesterday's.
+    today_start_utc, today_end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
+    confirmed_unpaid = Order.query.filter(
+        Order.status == 'Confirmed', Order.payment_status == 'pending',
+        Order.created_at >= today_start_utc, Order.created_at < today_end_utc,
+    ).count()
+
     last_order_ids = db.session.query(func.max(Order.id)).group_by(Order.phone)
     customers = (
         Order.query.filter(Order.id.in_(last_order_ids))
@@ -843,6 +857,7 @@ def dashboard():
         total_orders=total_orders,
         confirmed_orders=confirmed_orders,
         confirmation_rate=confirmation_rate,
+        confirmed_unpaid=confirmed_unpaid,
         customers=customers,
         order_counts=order_counts,
         PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS,
@@ -900,7 +915,8 @@ def orders():
     printer_configured = bool(owner and owner.printer_ip)
     return render_template('panel/orders.html', orders=todays_orders, confirmed_count=confirmed_count,
                             courier_links=courier_links, couriers=couriers, available_products=available_products,
-                            printer_configured=printer_configured, ORDER_STATUS_LABELS=ORDER_STATUS_LABELS)
+                            printer_configured=printer_configured, ORDER_STATUS_LABELS=ORDER_STATUS_LABELS,
+                            PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)
 
 
 @catalog.route('/orders/history')
@@ -910,7 +926,7 @@ def order_history():
     all_orders = Order.query.order_by(Order.id.desc()).all()
     confirmed_count = sum(1 for order in all_orders if order.status == 'Confirmed')
     return render_template('panel/order_history.html', orders=all_orders, confirmed_count=confirmed_count,
-                            ORDER_STATUS_LABELS=ORDER_STATUS_LABELS)
+                            ORDER_STATUS_LABELS=ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)
 
 
 @catalog.route('/orders/export.csv')
@@ -935,7 +951,7 @@ def export_orders_csv():
     writer.writerow([
         'ID', 'Fecha', 'Hora pedido', 'Hora sugerida', 'Cliente', 'Teléfono', 'Tipo de entrega',
         'Dirección', 'Productos', 'Forma de pago', 'Monto con que paga', 'Subtotal', 'Envío',
-        'Total', 'Estado', 'Notas',
+        'Total', 'Estado', 'Estado de pago', 'Notas',
     ])
     for order in query.all():
         item_lines = []
@@ -963,6 +979,7 @@ def export_orders_csv():
             order.shipping_cost,
             order.total_price,
             ORDER_STATUS_LABELS.get(order.status, order.status),
+            PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status),
             order.notes or '',
         ])
 
@@ -990,6 +1007,10 @@ def confirm_order(order_id):
         flash(f'Este pedido ya está {ORDER_STATUS_LABELS[order.status].lower()} - no se puede confirmar.')
         return _redirect_back_to_orders()
     order.status = 'Confirmed'
+    if order.payment_method == 'transferencia':
+        order.payment_status = 'paid'
+    # efectivo y tarjeta se quedan en 'pending' (default) - ambos se cobran contra
+    # entrega, igual que ya lo distingue el ticket térmico (_print_order_ticket).
     db.session.commit()
     flash('Pedido confirmado')
     return _redirect_back_to_orders()
@@ -1006,6 +1027,32 @@ def cancel_order(order_id):
     order.status = 'Cancelled'
     db.session.commit()
     flash('Pedido cancelado')
+    return _redirect_back_to_orders()
+
+
+@catalog.route('/orders/<int:order_id>/mark-paid', methods=['POST'])
+@login_required
+@admin_required
+def mark_order_paid(order_id):
+    order = Order.query.get_or_404(order_id)
+    was_cancelled = order.status == 'Cancelled'
+    order.payment_status = 'paid'
+    db.session.commit()
+    if was_cancelled:
+        flash('Pedido marcado como pagado (nota: este pedido está cancelado)')
+    else:
+        flash('Pedido marcado como pagado')
+    return _redirect_back_to_orders()
+
+
+@catalog.route('/orders/<int:order_id>/mark-unpaid', methods=['POST'])
+@login_required
+@admin_required
+def mark_order_unpaid(order_id):
+    order = Order.query.get_or_404(order_id)
+    order.payment_status = 'pending'
+    db.session.commit()
+    flash('Pedido marcado como pendiente de pago')
     return _redirect_back_to_orders()
 
 

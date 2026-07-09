@@ -19,8 +19,13 @@
             <strong>{{ order.customer_name }}</strong>
             <span class="muted">· {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
           </div>
-          <span class="status-pill {{ order.status|lower }}">
-            {{ ORDER_STATUS_LABELS.get(order.status, order.status) }}
+          <span>
+            <span class="status-pill {{ order.status|lower }}">
+              {{ ORDER_STATUS_LABELS.get(order.status, order.status) }}
+            </span>
+            <span class="payment-pill {{ order.payment_status }}">
+              {{ 'Pagado' if order.payment_status == 'paid' else 'Pendiente de pago' }}
+            </span>
           </span>
         </div>
 
@@ -39,7 +44,7 @@
           {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
           {% if order.delivery_mode == 'envio' and order.address %}· {{ order.address }}{% endif %}
           · Hora: {{ order.requested_time_label }}
-          {% if order.payment_method %}· Pago: {{ {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}.get(order.payment_method, order.payment_method) }}{% endif %}
+          {% if order.payment_method %}· Pago: {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }}{% endif %}
         </p>
         {% if order.notes %}<p class="muted">Notas: {{ order.notes }}</p>{% endif %}
         <p><strong>Total: ${{ '%.0f'|format(order.total_price) }}</strong></p>
@@ -59,6 +64,19 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ request.path }}">
               <button type="submit" class="danger">Cancelar</button>
+            </form>
+          {% endif %}
+          {% if order.payment_status == 'pending' %}
+            <form method="post" action="{{ url_for('catalog.mark_order_paid', order_id=order.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="secondary">Marcar pagado</button>
+            </form>
+          {% else %}
+            <form method="post" action="{{ url_for('catalog.mark_order_unpaid', order_id=order.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="secondary">Marcar no pagado</button>
             </form>
           {% endif %}
         </div>
