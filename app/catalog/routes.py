@@ -19,6 +19,7 @@ from sqlalchemy import func
 from app import db
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
+from app.main.routes import compute_bundle_discount, compute_coupon_discount, _get_active_bundle_promos
 from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
                          OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
@@ -1034,9 +1035,27 @@ def update_order_time(order_id):
 
 
 def _recalculate_order_total(order):
+    """Re-evalúa cupón y bundle promo sobre el pedido ya editado (agregar/quitar
+    productos por el panel puede cambiar qué aplica). unit_price siempre viene del
+    snapshot en OrderItem.price, nunca del catálogo actual. Ítems huérfanos
+    (product_id NULL) suman al subtotal pero se excluyen de promos y cupón, porque
+    compute_bundle_discount/compute_coupon_discount asumen product no-None."""
     items = OrderItem.query.filter_by(order_id=order.id).all()
     subtotal = sum(item.price * item.quantity for item in items)
-    order.total_price = subtotal + order.shipping_cost
+
+    order_lines = [(item.product, item.quantity, [], item.price)
+                    for item in items if item.product is not None]
+
+    bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
+
+    coupon_discount = 0
+    if order.coupon is not None:
+        coupon_discount, _error = compute_coupon_discount(
+            order.coupon, subtotal, order.shipping_cost, order_lines)
+
+    order.discount_amount = coupon_discount
+    order.bundle_discount_amount = bundle_discount
+    order.total_price = max(subtotal + order.shipping_cost - bundle_discount - coupon_discount, 0)
 
 
 @catalog.route('/orders/<int:order_id>/items/add', methods=['POST'])

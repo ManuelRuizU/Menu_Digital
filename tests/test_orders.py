@@ -1,6 +1,6 @@
 import json
 
-from app.models import Category, Order, OrderItem, Product, User
+from app.models import BundlePromo, Category, Coupon, Order, OrderItem, Product, User
 
 
 def _register_owner(client):
@@ -9,26 +9,46 @@ def _register_owner(client):
     })
 
 
-def _create_product(db, stock_quantity=None, price=1000):
+def _create_product(db, stock_quantity=None, price=1000, name='Bebida'):
     category = Category(name='Bebidas')
     db.session.add(category)
     db.session.commit()
-    product = Product(name='Bebida', description='Test', price=price,
+    product = Product(name=name, description='Test', price=price,
                        category_id=category.id, stock_quantity=stock_quantity)
     db.session.add(product)
     db.session.commit()
     return product
 
 
-def _create_order_with_item(db, product, quantity=1):
+def _create_order_with_item(db, product, quantity=1, shipping_cost=0):
     order = Order(customer_name='Cliente', phone='56911112222', delivery_mode='retira',
-                  payment_method='efectivo', total_price=product.price * quantity, status='Pending')
+                  payment_method='efectivo', shipping_cost=shipping_cost,
+                  total_price=product.price * quantity + shipping_cost, status='Pending')
     db.session.add(order)
     db.session.flush()
     db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
                               quantity=quantity, price=product.price))
     db.session.commit()
     return order
+
+
+def _create_coupon(db, **overrides):
+    defaults = dict(code='PRIMERACOMPRA', discount_percent=10, scope='order', is_active=True)
+    defaults.update(overrides)
+    coupon = Coupon(**defaults)
+    db.session.add(coupon)
+    db.session.commit()
+    return coupon
+
+
+def _create_promo(db, products, buy_quantity=2, pay_quantity=1, **overrides):
+    promo = BundlePromo(label='Promo', buy_quantity=buy_quantity, pay_quantity=pay_quantity,
+                         is_active=True, **overrides)
+    db.session.add(promo)
+    db.session.flush()
+    promo.products = products
+    db.session.commit()
+    return promo
 
 
 # --- stock decrement on public checkout (/api/orders) ---
@@ -179,3 +199,133 @@ def test_remove_order_item_recalculates_total(client, db):
 
     db.session.refresh(order)
     assert order.total_price == 1000
+
+
+# --- order total recalculation: coupon + bundle promo re-evaluated after editing ---
+
+def test_add_order_item_reapplies_percent_coupon_over_new_subtotal(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, stock_quantity=None)
+    order = _create_order_with_item(db, product, quantity=1, shipping_cost=1500)
+    coupon = _create_coupon(db, discount_percent=10, scope='order', applies_to_shipping=False)
+    order.coupon_id = coupon.id
+    db.session.commit()
+
+    other = _create_product(db, price=500, stock_quantity=None)
+    client.post(f'/admin/orders/{order.id}/items/add', data={'product_id': other.id, 'quantity': 1})
+
+    db.session.refresh(order)
+    # subtotal = 1000 + 500 = 1500; coupon = 10% of 1500 (shipping excluded) = 150
+    assert order.discount_amount == 150
+    assert order.bundle_discount_amount == 0
+    assert order.total_price == 1500 + 1500 - 150  # subtotal + shipping - coupon
+
+
+def test_bundle_promo_appears_and_disappears_as_items_are_edited(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, stock_quantity=None)
+    _create_promo(db, [product], buy_quantity=2, pay_quantity=1)
+    order = _create_order_with_item(db, product, quantity=1, shipping_cost=1500)
+
+    # Adding a second unit of the same product (as a separate line, like the panel does)
+    # completes the 2x1.
+    client.post(f'/admin/orders/{order.id}/items/add', data={'product_id': product.id, 'quantity': 1})
+
+    db.session.refresh(order)
+    assert order.bundle_discount_amount == 1000  # 1 free unit at $1000
+    assert order.total_price == 2000 + 1500 - 1000  # subtotal(2000) + shipping - bundle
+
+    # Removing one of the two lines breaks the 2x1 again.
+    second_item = OrderItem.query.filter_by(order_id=order.id, product_id=product.id) \
+        .order_by(OrderItem.id.desc()).first()
+    client.post(f'/admin/orders/{order.id}/items/{second_item.id}/remove')
+
+    db.session.refresh(order)
+    assert order.bundle_discount_amount == 0
+    assert order.total_price == 1000 + 1500  # subtotal(1 unit) + shipping, no promo
+
+
+def test_removing_last_applicable_product_zeroes_products_scope_coupon_without_error(client, db):
+    _register_owner(client)
+    target = _create_product(db, price=1000, name='Target', stock_quantity=None)
+    other = _create_product(db, price=500, name='Other', stock_quantity=None)
+    coupon = _create_coupon(db, discount_percent=20, scope='products')
+    coupon.products = [target]
+    db.session.commit()
+
+    order = _create_order_with_item(db, target, quantity=1, shipping_cost=1500)
+    db.session.add(OrderItem(order_id=order.id, product_id=other.id, product_name=other.name,
+                              quantity=1, price=other.price))
+    order.coupon_id = coupon.id
+    db.session.commit()
+
+    target_item = OrderItem.query.filter_by(order_id=order.id, product_id=target.id).first()
+    resp = client.post(f'/admin/orders/{order.id}/items/{target_item.id}/remove')
+
+    assert resp.status_code == 302  # edit succeeds, no error raised/blocked
+    db.session.refresh(order)
+    assert order.discount_amount == 0
+    assert order.total_price == 500 + 1500  # only "other" left + shipping, no discount
+
+
+def test_orphan_item_excluded_from_bundle_promo_without_crashing(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Bundled', stock_quantity=None)
+    _create_promo(db, [product], buy_quantity=2, pay_quantity=1)
+    order = _create_order_with_item(db, product, quantity=1, shipping_cost=1500)
+    # Orphan line: product deleted after the sale, only the price/name snapshot remains.
+    db.session.add(OrderItem(order_id=order.id, product_id=None, product_name='Producto eliminado',
+                              quantity=1, price=800))
+    db.session.commit()
+
+    # Completing the 2x1 must not raise AttributeError from the orphan's product_id lookup.
+    resp = client.post(f'/admin/orders/{order.id}/items/add', data={'product_id': product.id, 'quantity': 1})
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.bundle_discount_amount == 1000  # 1 free unit of the bundled product only
+    # subtotal = 800 (orphan) + 1000*2 (bundled) = 2800
+    assert order.total_price == 2800 + 1500 - 1000
+
+
+def test_order_scope_coupon_shipping_discount_follows_applies_to_shipping_flag(client, db):
+    _register_owner(client)
+
+    # Flag off: shipping stays out of the discount base after the edit.
+    product_a = _create_product(db, price=1000, name='A', stock_quantity=None)
+    order_no_flag = _create_order_with_item(db, product_a, quantity=1, shipping_cost=1500)
+    coupon_no_flag = _create_coupon(db, code='SINFLAG', discount_percent=10, scope='order',
+                                     applies_to_shipping=False)
+    order_no_flag.coupon_id = coupon_no_flag.id
+    db.session.commit()
+    other_a = _create_product(db, price=500, name='A2', stock_quantity=None)
+    client.post(f'/admin/orders/{order_no_flag.id}/items/add', data={'product_id': other_a.id, 'quantity': 1})
+    db.session.refresh(order_no_flag)
+    assert order_no_flag.discount_amount == 150  # 10% of subtotal (1500) only
+
+    # Flag on: shipping enters the discount base after the edit.
+    product_b = _create_product(db, price=1000, name='B', stock_quantity=None)
+    order_with_flag = _create_order_with_item(db, product_b, quantity=1, shipping_cost=1500)
+    coupon_with_flag = _create_coupon(db, code='CONFLAG', discount_percent=10, scope='order',
+                                       applies_to_shipping=True)
+    order_with_flag.coupon_id = coupon_with_flag.id
+    db.session.commit()
+    other_b = _create_product(db, price=500, name='B2', stock_quantity=None)
+    client.post(f'/admin/orders/{order_with_flag.id}/items/add', data={'product_id': other_b.id, 'quantity': 1})
+    db.session.refresh(order_with_flag)
+    assert order_with_flag.discount_amount == 300  # 10% of subtotal(1500) + shipping(1500) = 3000
+
+
+def test_total_clamps_to_zero_when_discount_exceeds_subtotal_and_shipping(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, stock_quantity=None)
+    order = _create_order_with_item(db, product, quantity=1, shipping_cost=1500)
+    coupon = _create_coupon(db, discount_percent=150, scope='order', applies_to_shipping=True)
+    order.coupon_id = coupon.id
+    db.session.commit()
+
+    client.post(f'/admin/orders/{order.id}/items/add', data={'product_id': product.id, 'quantity': 1})
+
+    db.session.refresh(order)
+    # subtotal(2000) + shipping(1500) = 3500 applicable; 150% of that is 5250 - far over the total
+    assert order.total_price == 0
