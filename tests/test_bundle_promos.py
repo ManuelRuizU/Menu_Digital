@@ -1,4 +1,6 @@
-from app.models import BundlePromo, Category, Order, Product
+import json
+
+from app.models import BundlePromo, Category, DeliveryZone, Order, Product
 
 
 def _create_product(db, price=1000, name='Producto'):
@@ -21,6 +23,17 @@ def _create_promo(db, products, buy_quantity=2, pay_quantity=1, **overrides):
     promo.products = products
     db.session.commit()
     return promo
+
+
+def _create_delivery_zone(db, price=1500):
+    geojson = json.dumps({
+        'type': 'Polygon',
+        'coordinates': [[[-71, -34], [-69, -34], [-69, -33], [-71, -33], [-71, -34]]],
+    })
+    zone = DeliveryZone(name='Zona test', price=price, geojson=geojson)
+    db.session.add(zone)
+    db.session.commit()
+    return zone
 
 
 PHONE = '56911112222'
@@ -116,3 +129,20 @@ def test_inactive_promo_does_not_apply(client, db):
     order = Order.query.order_by(Order.id.desc()).first()
     assert order.bundle_discount_amount == 0
     assert order.total_price == 2000
+
+
+def test_bundle_discount_never_touches_shipping_cost(client, db):
+    product = _create_product(db, price=1000, name='Unico')
+    _create_promo(db, [product], buy_quantity=2, pay_quantity=1)
+    _create_delivery_zone(db, price=1500)
+
+    resp = client.post('/api/orders', json={
+        'items': [{'id': product.id, 'quantity': 2}],  # triggers the 2x1
+        'customerName': 'Cliente', 'phone': PHONE,
+        'deliveryMode': 'envio', 'paymentMethod': 'efectivo',
+        'lat': -33.5, 'lng': -70.5,
+    })
+    order = Order.query.order_by(Order.id.desc()).first()
+    assert order.bundle_discount_amount == 1000  # 1 free unit at $1000
+    assert order.shipping_cost == 1500  # untouched by the bundle discount
+    assert order.total_price == 2500  # 2000 (subtotal) + 1500 (shipping) - 1000 (bundle discount)

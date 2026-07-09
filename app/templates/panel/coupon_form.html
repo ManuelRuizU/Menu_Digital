@@ -16,9 +16,14 @@
 
       <label for="scope">Aplica a</label>
       <select id="scope" name="scope" required>
-        <option value="order" {{ 'selected' if coupon and coupon.scope == 'order' else '' }}>Total de la compra (productos + reparto)</option>
+        <option value="order" {{ 'selected' if coupon and coupon.scope == 'order' else '' }}>Total de la compra (productos)</option>
         <option value="products" {{ 'selected' if coupon and coupon.scope == 'products' else '' }}>Productos específicos</option>
       </select>
+
+      <div id="shipping-field">
+        <label class="checkbox-row"><input type="checkbox" id="applies_to_shipping" name="applies_to_shipping"
+               {{ 'checked' if coupon and coupon.applies_to_shipping else '' }}> Aplicar el descuento también al costo de reparto</label>
+      </div>
 
       <div id="products-field">
         <label for="product_ids">Productos (para "productos específicos")</label>
@@ -75,11 +80,16 @@
       (function () {
         const scopeSelect = document.getElementById('scope');
         const productsField = document.getElementById('products-field');
-        function toggleProductsField() {
-          productsField.style.display = scopeSelect.value === 'products' ? 'block' : 'none';
+        const shippingField = document.getElementById('shipping-field');
+        function toggleScopeFields() {
+          const isProducts = scopeSelect.value === 'products';
+          productsField.style.display = isProducts ? 'block' : 'none';
+          // applies_to_shipping only has an effect on scope='order' coupons -
+          // hide it for scope='products' so it doesn't look like it does something it doesn't.
+          shippingField.style.display = isProducts ? 'none' : 'block';
         }
-        scopeSelect.addEventListener('change', toggleProductsField);
-        toggleProductsField();
+        scopeSelect.addEventListener('change', toggleScopeFields);
+        toggleScopeFields();
       })();
     </script>
 {% endblock %}

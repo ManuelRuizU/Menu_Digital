@@ -222,14 +222,17 @@ coupon_product = db.Table(
 class Coupon(db.Model):
     """A promo code the customer types in the cart (e.g. "PRIMERACOMPRA" or "DIADELSUSHI10").
 
-    scope='order' discounts the whole purchase (products + shipping); scope='products'
-    discounts only the line total of the specific products attached below. All limits
-    (max_total_uses, max_uses_per_customer, valid_from/valid_until) are independent and
-    optional - a coupon can use any combination, or none at all."""
+    scope='order' discounts the whole purchase (products, and shipping too only if
+    applies_to_shipping is set - off by default, since shipping is a pass-through to
+    the courier, not the business's own margin); scope='products' discounts only the
+    line total of the specific products attached below and never touches shipping.
+    All limits (max_total_uses, max_uses_per_customer, valid_from/valid_until) are
+    independent and optional - a coupon can use any combination, or none at all."""
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(30), unique=True, nullable=False)
     discount_percent = db.Column(db.Float, nullable=False)
     scope = db.Column(db.String(10), nullable=False, default='order')
+    applies_to_shipping = db.Column(db.Boolean, nullable=False, default=False)
     products = db.relationship('Product', secondary=coupon_product, lazy='joined', backref='coupons')
     max_total_uses = db.Column(db.Integer, nullable=True)
     max_uses_per_customer = db.Column(db.Integer, nullable=True)

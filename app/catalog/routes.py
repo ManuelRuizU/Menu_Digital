@@ -623,6 +623,7 @@ def _save_coupon(coupon):
     valid_until = _parse_date(request.form.get('valid_until'))
     product_ids = request.form.getlist('product_ids', type=int)
     show_in_banner = request.form.get('show_in_banner') == 'on'
+    applies_to_shipping = request.form.get('applies_to_shipping') == 'on'
 
     def _redisplay():
         return render_template('panel/coupon_form.html', **_coupon_form_context(coupon if coupon.id else None))
@@ -654,6 +655,7 @@ def _save_coupon(coupon):
     coupon.valid_until = valid_until
     coupon.products = Product.query.filter(Product.id.in_(product_ids)).all() if scope == 'products' else []
     coupon.show_in_banner = show_in_banner
+    coupon.applies_to_shipping = applies_to_shipping
     if is_new:
         coupon.is_active = True
 

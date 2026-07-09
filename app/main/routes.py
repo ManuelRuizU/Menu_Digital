@@ -376,7 +376,7 @@ def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
         if applicable <= 0:
             return 0, 'Este cupón no aplica a los productos de tu carrito.'
     else:
-        applicable = subtotal + shipping_cost
+        applicable = subtotal + (shipping_cost if coupon.applies_to_shipping else 0)
 
     return round(applicable * coupon.discount_percent / 100), None
 

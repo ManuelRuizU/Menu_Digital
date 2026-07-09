@@ -1,6 +1,7 @@
+import json
 from datetime import date, timedelta
 
-from app.models import Category, Coupon, CouponRedemption, Order, Product
+from app.models import Category, Coupon, CouponRedemption, DeliveryZone, Order, Product
 
 
 def _create_product(db, price=1000, name='Producto'):
@@ -22,6 +23,17 @@ def _create_coupon(db, **overrides):
     db.session.add(coupon)
     db.session.commit()
     return coupon
+
+
+def _create_delivery_zone(db, price=1500):
+    geojson = json.dumps({
+        'type': 'Polygon',
+        'coordinates': [[[-71, -34], [-69, -34], [-69, -33], [-71, -33], [-71, -34]]],
+    })
+    zone = DeliveryZone(name='Zona test', price=price, geojson=geojson)
+    db.session.add(zone)
+    db.session.commit()
+    return zone
 
 
 PHONE = '56911112222'
@@ -49,6 +61,36 @@ def test_apply_coupon_order_scope_discounts_subtotal(client, db):
     assert resp.status_code == 200
     assert data['ok'] is True
     assert data['discountAmount'] == 200  # 10% of 2000
+
+
+def test_apply_coupon_order_scope_does_not_discount_shipping_by_default(client, db):
+    product = _create_product(db, price=1000)
+    _create_coupon(db, discount_percent=10, scope='order')  # applies_to_shipping defaults to False
+    _create_delivery_zone(db, price=1500)
+
+    resp = client.post('/api/apply-coupon', json={
+        'code': 'primeracompra', 'phone': PHONE, 'deliveryMode': 'envio',
+        'items': [{'id': product.id, 'quantity': 2}],
+        'lat': -33.5, 'lng': -70.5,
+    })
+    data = resp.get_json()
+    assert data['ok'] is True
+    assert data['discountAmount'] == 200  # 10% of the 2000 subtotal only, shipping (1500) excluded
+
+
+def test_apply_coupon_order_scope_discounts_shipping_when_flag_set(client, db):
+    product = _create_product(db, price=1000)
+    _create_coupon(db, discount_percent=10, scope='order', applies_to_shipping=True)
+    _create_delivery_zone(db, price=1500)
+
+    resp = client.post('/api/apply-coupon', json={
+        'code': 'primeracompra', 'phone': PHONE, 'deliveryMode': 'envio',
+        'items': [{'id': product.id, 'quantity': 2}],
+        'lat': -33.5, 'lng': -70.5,
+    })
+    data = resp.get_json()
+    assert data['ok'] is True
+    assert data['discountAmount'] == 350  # 10% of subtotal (2000) + shipping (1500)
 
 
 def test_apply_coupon_products_scope_only_discounts_matching_product(client, db):
