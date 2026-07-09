@@ -329,3 +329,92 @@ def test_total_clamps_to_zero_when_discount_exceeds_subtotal_and_shipping(client
     db.session.refresh(order)
     # subtotal(2000) + shipping(1500) = 3500 applicable; 150% of that is 5250 - far over the total
     assert order.total_price == 0
+
+
+# --- explicit order status transitions (A2.1): confirm/cancel replace the old toggle ---
+
+def test_confirm_order_moves_pending_to_confirmed(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))  # starts Pending
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm')
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'
+
+
+def test_confirm_order_on_already_confirmed_is_a_noop(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+    order.status = 'Confirmed'
+    db.session.commit()
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm')
+
+    assert resp.status_code == 302  # no 500, just redirected with a flash
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'
+
+
+def test_confirm_order_on_cancelled_is_a_noop(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+    order.status = 'Cancelled'
+    db.session.commit()
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm')
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.status == 'Cancelled'  # a cancelled order can never become Confirmed
+
+
+def test_cancel_order_from_pending(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/cancel')
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.status == 'Cancelled'
+
+
+def test_cancel_order_from_confirmed(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+    order.status = 'Confirmed'
+    db.session.commit()
+
+    resp = client.post(f'/admin/orders/{order.id}/cancel')
+
+    assert resp.status_code == 302
+    db.session.refresh(order)
+    assert order.status == 'Cancelled'
+
+
+def test_cancel_order_on_already_cancelled_is_a_noop(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+    order.status = 'Cancelled'
+    db.session.commit()
+
+    resp = client.post(f'/admin/orders/{order.id}/cancel')
+
+    assert resp.status_code == 302  # no 500
+    db.session.refresh(order)
+    assert order.status == 'Cancelled'
+
+
+def test_old_toggle_status_route_no_longer_exists(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+    order.status = 'Confirmed'
+    db.session.commit()
+
+    resp = client.post(f'/admin/orders/{order.id}/toggle-status')
+
+    assert resp.status_code == 404
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'  # nothing could have reverted it - the route is gone

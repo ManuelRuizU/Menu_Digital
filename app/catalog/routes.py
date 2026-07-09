@@ -25,6 +25,7 @@ from app.uploads import save_image
 from app.utils import day_range_utc, parse_money
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
+ORDER_STATUS_LABELS = {'Pending': 'Pendiente', 'Confirmed': 'Confirmado', 'Cancelled': 'Cancelado'}
 
 
 def _build_courier_message(order):
@@ -899,7 +900,7 @@ def orders():
     printer_configured = bool(owner and owner.printer_ip)
     return render_template('panel/orders.html', orders=todays_orders, confirmed_count=confirmed_count,
                             courier_links=courier_links, couriers=couriers, available_products=available_products,
-                            printer_configured=printer_configured)
+                            printer_configured=printer_configured, ORDER_STATUS_LABELS=ORDER_STATUS_LABELS)
 
 
 @catalog.route('/orders/history')
@@ -908,7 +909,8 @@ def orders():
 def order_history():
     all_orders = Order.query.order_by(Order.id.desc()).all()
     confirmed_count = sum(1 for order in all_orders if order.status == 'Confirmed')
-    return render_template('panel/order_history.html', orders=all_orders, confirmed_count=confirmed_count)
+    return render_template('panel/order_history.html', orders=all_orders, confirmed_count=confirmed_count,
+                            ORDER_STATUS_LABELS=ORDER_STATUS_LABELS)
 
 
 @catalog.route('/orders/export.csv')
@@ -960,7 +962,7 @@ def export_orders_csv():
             order.total_price - order.shipping_cost,
             order.shipping_cost,
             order.total_price,
-            'Confirmado' if order.status == 'Confirmed' else 'Pendiente',
+            ORDER_STATUS_LABELS.get(order.status, order.status),
             order.notes or '',
         ])
 
@@ -979,14 +981,31 @@ def _redirect_back_to_orders():
     return redirect(url_for('catalog.orders'))
 
 
-@catalog.route('/orders/<int:order_id>/toggle-status', methods=['POST'])
+@catalog.route('/orders/<int:order_id>/confirm', methods=['POST'])
 @login_required
 @admin_required
-def toggle_order_status(order_id):
+def confirm_order(order_id):
     order = Order.query.get_or_404(order_id)
-    order.status = 'Pending' if order.status == 'Confirmed' else 'Confirmed'
+    if order.status != 'Pending':
+        flash(f'Este pedido ya está {ORDER_STATUS_LABELS[order.status].lower()} - no se puede confirmar.')
+        return _redirect_back_to_orders()
+    order.status = 'Confirmed'
     db.session.commit()
-    flash('Pedido confirmado' if order.status == 'Confirmed' else 'Pedido marcado como pendiente')
+    flash('Pedido confirmado')
+    return _redirect_back_to_orders()
+
+
+@catalog.route('/orders/<int:order_id>/cancel', methods=['POST'])
+@login_required
+@admin_required
+def cancel_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    if order.status not in ('Pending', 'Confirmed'):
+        flash('Este pedido ya está cancelado.')
+        return _redirect_back_to_orders()
+    order.status = 'Cancelled'
+    db.session.commit()
+    flash('Pedido cancelado')
     return _redirect_back_to_orders()
 
 

@@ -31,8 +31,8 @@
             <strong>{{ order.customer_name }}</strong>
             <span class="muted">· {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
           </div>
-          <span class="status-pill {{ 'confirmed' if order.status == 'Confirmed' else 'pending' }}">
-            {{ 'Confirmado' if order.status == 'Confirmed' else 'Pendiente' }}
+          <span class="status-pill {{ order.status|lower }}">
+            {{ ORDER_STATUS_LABELS.get(order.status, order.status) }}
           </span>
         </div>
 
@@ -110,13 +110,21 @@
               <button type="submit" class="secondary">🖨️ Imprimir ticket</button>
             </form>
           {% endif %}
-          <form method="post" action="{{ url_for('catalog.toggle_order_status', order_id=order.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="next" value="{{ request.path }}">
-            <button type="submit" class="{{ 'secondary' if order.status == 'Confirmed' else '' }}">
-              {{ 'Marcar como pendiente' if order.status == 'Confirmed' else 'Confirmar' }}
-            </button>
-          </form>
+          {% if order.status == 'Pending' %}
+            <form method="post" action="{{ url_for('catalog.confirm_order', order_id=order.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit">Confirmar</button>
+            </form>
+          {% endif %}
+          {% if order.status in ('Pending', 'Confirmed') %}
+            <form method="post" action="{{ url_for('catalog.cancel_order', order_id=order.id) }}"
+                onsubmit="return confirm('¿Cancelar este pedido? Esta acción no se puede deshacer.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="danger">Cancelar</button>
+            </form>
+          {% endif %}
         </div>
       </div>
     {% else %}
