@@ -42,6 +42,6 @@ class Config:
 
     # Small "hecho con amor" credit shown on the public menu footer - override via env
     # vars for a different install/reseller of this codebase.
-    CREATOR_NAME = os.environ.get('CREATOR_NAME', 'Manuel Ruiz')
+    CREATOR_NAME = os.environ.get('CREATOR_NAME', 'ZERO')
     CREATOR_WHATSAPP = os.environ.get('CREATOR_WHATSAPP', '56958052262')
 
