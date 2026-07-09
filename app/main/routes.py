@@ -363,6 +363,24 @@ def _resolve_coupon(code):
     return Coupon.query.filter(db.func.upper(Coupon.code) == code.upper()).first()
 
 
+def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
+    """Calcula el monto del descuento del cupón sobre el carrito actual.
+    NO valida vigencia ni límites de uso — eso es responsabilidad de
+    validate_coupon(). Devuelve (discount_amount, error) donde error solo
+    aparece si el cupón scope='products' ya no tiene productos aplicables
+    en el carrito (razón de carrito, no de tiempo)."""
+    if coupon.scope == 'products':
+        coupon_product_ids = {product.id for product in coupon.products}
+        applicable = sum(unit_price * quantity for product, quantity, _options, unit_price in order_lines
+                          if product.id in coupon_product_ids)
+        if applicable <= 0:
+            return 0, 'Este cupón no aplica a los productos de tu carrito.'
+    else:
+        applicable = subtotal + shipping_cost
+
+    return round(applicable * coupon.discount_percent / 100), None
+
+
 def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
     """Returns (discount_amount, error_message) - error_message is None on success.
     Re-checks every limit against the database (redemption rows), never a client-sent number."""
@@ -388,16 +406,7 @@ def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
         if customer_used >= coupon.max_uses_per_customer:
             return 0, 'Ya usaste este cupón antes.'
 
-    if coupon.scope == 'products':
-        coupon_product_ids = {product.id for product in coupon.products}
-        applicable = sum(unit_price * quantity for product, quantity, _options, unit_price in order_lines
-                          if product.id in coupon_product_ids)
-        if applicable <= 0:
-            return 0, 'Este cupón no aplica a los productos de tu carrito.'
-    else:
-        applicable = subtotal + shipping_cost
-
-    return round(applicable * coupon.discount_percent / 100), None
+    return compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines)
 
 
 @main.route('/api/apply-coupon', methods=['POST'])
