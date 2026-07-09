@@ -3,10 +3,9 @@ import csv
 import json
 import os
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from io import BytesIO, StringIO
 from urllib.parse import quote
-from zoneinfo import ZoneInfo
 
 from flask import current_app, flash, redirect, render_template, request, url_for, Response
 from flask_login import current_user, login_required
@@ -23,7 +22,7 @@ from app.main.routes import compute_bundle_discount, compute_coupon_discount, _g
 from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
                          OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
-from app.utils import parse_money
+from app.utils import day_range_utc, parse_money
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
 
@@ -884,10 +883,7 @@ def orders():
     # created_at is stored in naive UTC - convert "today, in the business's own timezone"
     # into the matching UTC range so this can filter in SQL instead of loading every
     # historical order just to throw most of them away.
-    start_local = datetime.combine(datetime.now(BUSINESS_TZ).date(), time.min, tzinfo=BUSINESS_TZ)
-    end_local = start_local + timedelta(days=1)
-    start_utc = start_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
-    end_utc = end_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    start_utc, end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
 
     todays_orders = (Order.query
                       .filter(Order.created_at >= start_utc, Order.created_at < end_utc)
@@ -926,11 +922,11 @@ def export_orders_csv():
 
     query = Order.query.order_by(Order.id)
     if start:
-        start_local = datetime.combine(datetime.strptime(start, '%Y-%m-%d').date(), time.min, tzinfo=BUSINESS_TZ)
-        query = query.filter(Order.created_at >= start_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None))
+        start_utc, _end_utc = day_range_utc(datetime.strptime(start, '%Y-%m-%d').date())
+        query = query.filter(Order.created_at >= start_utc)
     if end:
-        end_local = datetime.combine(datetime.strptime(end, '%Y-%m-%d').date(), time.min, tzinfo=BUSINESS_TZ) + timedelta(days=1)
-        query = query.filter(Order.created_at < end_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None))
+        _start_utc, end_utc = day_range_utc(datetime.strptime(end, '%Y-%m-%d').date())
+        query = query.filter(Order.created_at < end_utc)
 
     buffer = StringIO()
     writer = csv.writer(buffer)
