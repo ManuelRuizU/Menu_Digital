@@ -1,10 +1,11 @@
 import json
 import re
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from app.models import BUSINESS_TZ, BundlePromo, Category, Coupon, Order, OrderItem, Product, User
+from app.models import BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, Order, OrderItem, Product, User
 from app.utils import day_range_utc
 
 
@@ -25,8 +26,9 @@ def _create_product(db, stock_quantity=None, price=1000, name='Bebida'):
     return product
 
 
-def _create_order_with_item(db, product, quantity=1, shipping_cost=0, payment_method='efectivo'):
-    order = Order(customer_name='Cliente', phone='56911112222', delivery_mode='retira',
+def _create_order_with_item(db, product, quantity=1, shipping_cost=0, payment_method='efectivo',
+                             delivery_mode='retira'):
+    order = Order(customer_name='Cliente', phone='56911112222', delivery_mode=delivery_mode,
                   payment_method=payment_method, shipping_cost=shipping_cost,
                   total_price=product.price * quantity + shipping_cost, status='Pending')
     db.session.add(order)
@@ -54,6 +56,13 @@ def _create_promo(db, products, buy_quantity=2, pay_quantity=1, **overrides):
     promo.products = products
     db.session.commit()
     return promo
+
+
+def _create_courier(db, name='Repartidor', whatsapp_number='56900000000'):
+    courier = Courier(name=name, whatsapp_number=whatsapp_number)
+    db.session.add(courier)
+    db.session.commit()
+    return courier
 
 
 # --- stock decrement on public checkout (/api/orders) ---
@@ -718,3 +727,142 @@ def test_dashboard_confirmed_unpaid_count_excludes_cancelled_and_pending_sale(cl
     match = re.search(r'Confirmados sin pagar</div>\s*<div[^>]*>(\d+)</div>', html)
     assert match is not None
     assert match.group(1) == '1'
+
+
+# --- send_route (A2.4 part 3, option B): batch dispatch, confirmed-only ---
+
+def _message_from_redirect(resp):
+    location = resp.headers['Location']
+    query = parse_qs(urlparse(location).query)
+    return location, query.get('text', [''])[0]
+
+
+def test_send_route_all_confirmed_with_courier(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_a = _create_order_with_item(db, product, delivery_mode='envio')
+    order_a.customer_name = 'Ana'
+    order_b = _create_order_with_item(db, product, delivery_mode='envio')
+    order_b.customer_name = 'Beto'
+    db.session.commit()
+    client.post(f'/admin/orders/{order_a.id}/confirm')
+    client.post(f'/admin/orders/{order_b.id}/confirm')
+    courier = _create_courier(db)
+
+    resp = client.post('/admin/orders/send-route', data={
+        'order_ids': [order_a.id, order_b.id],
+        'courier_id': courier.id,
+    })
+
+    assert resp.status_code == 302
+    location, message = _message_from_redirect(resp)
+    assert location.startswith(f'https://wa.me/{courier.whatsapp_number}')
+    assert 'Ana' in message
+    assert 'Beto' in message
+
+
+def test_send_route_all_confirmed_without_courier_uses_modo_libre(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_a = _create_order_with_item(db, product, delivery_mode='envio')
+    order_a.customer_name = 'Ana'
+    order_b = _create_order_with_item(db, product, delivery_mode='envio')
+    order_b.customer_name = 'Beto'
+    db.session.commit()
+    client.post(f'/admin/orders/{order_a.id}/confirm')
+    client.post(f'/admin/orders/{order_b.id}/confirm')
+
+    resp = client.post('/admin/orders/send-route', data={
+        'order_ids': [order_a.id, order_b.id],
+    })
+
+    assert resp.status_code == 302
+    location, message = _message_from_redirect(resp)
+    assert location.startswith('https://wa.me/?text=')  # modo libre - no courier number
+    assert 'Ana' in message
+    assert 'Beto' in message
+
+
+def test_send_route_mixed_batch_builds_route_with_confirmed_only(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_a = _create_order_with_item(db, product, delivery_mode='envio')
+    order_a.customer_name = 'Ana'
+    order_b = _create_order_with_item(db, product, delivery_mode='envio')
+    order_b.customer_name = 'Beto'
+    order_pending = _create_order_with_item(db, product, delivery_mode='envio')
+    order_pending.customer_name = 'Cancelado O Pendiente'
+    db.session.commit()
+    client.post(f'/admin/orders/{order_a.id}/confirm')
+    client.post(f'/admin/orders/{order_b.id}/confirm')
+    # order_pending stays Pending - never confirmed.
+
+    resp = client.post('/admin/orders/send-route', data={
+        'order_ids': [order_a.id, order_b.id, order_pending.id],
+    })
+
+    # Success path: at least one confirmed order means the route still gets built and
+    # redirects straight to wa.me (not back to catalog.orders).
+    assert resp.status_code == 302
+    location, message = _message_from_redirect(resp)
+    assert location.startswith('https://wa.me/')
+    assert 'Ana' in message
+    assert 'Beto' in message
+    assert 'Cancelado O Pendiente' not in message  # the unconfirmed one never made it in
+
+    # The "quedaron afuera" flash can't be read by following the redirect - it points
+    # to an external URL (wa.me), so no further request of ours ever renders it via
+    # get_flashed_messages(). Instead, inspect the session cookie directly (the
+    # standard Flask test idiom for checking flashes without a page render).
+    with client.session_transaction() as sess:
+        flashed = [message_text for _category, message_text in sess.get('_flashes', [])]
+    assert any('Quedaron afuera por no estar confirmados' in text and 'Cancelado O Pendiente' in text
+               for text in flashed)
+
+
+def test_send_route_all_unconfirmed_blocks_and_redirects_to_orders(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_a = _create_order_with_item(db, product, delivery_mode='envio')
+    order_b = _create_order_with_item(db, product, delivery_mode='envio')
+    # Neither gets confirmed.
+
+    resp = client.post('/admin/orders/send-route', data={
+        'order_ids': [order_a.id, order_b.id],
+    }, follow_redirects=True)
+
+    assert resp.status_code == 200  # followed the redirect back into our own app
+    assert b'Ninguno de los pedidos marcados est\xc3\xa1 confirmado' in resp.data
+
+
+def test_send_route_with_no_orders_marked(client, db):
+    _register_owner(client)
+
+    resp = client.post('/admin/orders/send-route', data={}, follow_redirects=True)
+
+    assert resp.status_code == 200
+    assert 'Marca al menos un pedido'.encode() in resp.data
+
+
+def test_send_route_orders_by_requested_time_not_by_order_ids_order(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_late = _create_order_with_item(db, product, delivery_mode='envio')
+    order_late.customer_name = 'Later'
+    order_late.requested_time = '20:00'
+    order_early = _create_order_with_item(db, product, delivery_mode='envio')
+    order_early.customer_name = 'Earlier'
+    order_early.requested_time = '19:00'
+    db.session.commit()
+    # Confirm/mark them in reverse chronological order, on purpose.
+    client.post(f'/admin/orders/{order_late.id}/confirm')
+    client.post(f'/admin/orders/{order_early.id}/confirm')
+
+    resp = client.post('/admin/orders/send-route', data={
+        # order_ids also lists the late one first - the route order must not follow this.
+        'order_ids': [order_late.id, order_early.id],
+    })
+
+    assert resp.status_code == 302
+    _location, message = _message_from_redirect(resp)
+    assert message.index('Earlier') < message.index('Later')  # 19:00 stop comes before 20:00
