@@ -206,16 +206,12 @@ def test_apply_coupon_allows_a_different_customer_when_per_customer_limit_reache
 
 # --- /api/orders (actual redemption on checkout) ---
 
-def test_create_order_applies_coupon_and_records_redemption(client, db):
+def test_create_order_applies_coupon_and_records_redemption(client, db, order_payload):
     product = _create_product(db, price=1000)
     coupon = _create_coupon(db, discount_percent=10)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-        'couponCode': 'primeracompra',
-    })
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], phone=PHONE, couponCode='primeracompra'))
     data = resp.get_json()
     assert resp.status_code == 200
     assert data['ok'] is True
@@ -226,37 +222,25 @@ def test_create_order_applies_coupon_and_records_redemption(client, db):
     assert redemptions[0].phone_digits == PHONE
 
 
-def test_create_order_rejects_invalid_coupon_without_creating_order(client, db):
+def test_create_order_rejects_invalid_coupon_without_creating_order(client, db, order_payload):
     product = _create_product(db, price=1000, name='Rechazo')
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-        'couponCode': 'NOEXISTE',
-    })
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], phone=PHONE, couponCode='NOEXISTE'))
     assert resp.status_code == 400
     assert resp.get_json()['ok'] is False
     assert Order.query.count() == 0
 
 
-def test_create_order_enforces_per_customer_limit_across_two_orders(client, db):
+def test_create_order_enforces_per_customer_limit_across_two_orders(client, db, order_payload):
     product = _create_product(db, price=1000, name='Limitado')
     _create_coupon(db, code='UNAVEZ', discount_percent=10, max_uses_per_customer=1)
 
-    first = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-        'couponCode': 'UNAVEZ',
-    })
+    first = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], phone=PHONE, couponCode='UNAVEZ'))
     assert first.get_json()['ok'] is True
 
-    second = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-        'couponCode': 'UNAVEZ',
-    })
+    second = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], phone=PHONE, couponCode='UNAVEZ'))
     assert second.status_code == 400
     assert second.get_json()['ok'] is False

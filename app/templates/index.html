@@ -136,13 +136,13 @@
             <input id="requested-time" type="time"
               {% if opens_at and closes_at and opens_at <= closes_at %}min="{{ opens_at }}" max="{{ closes_at }}"{% endif %}
               data-opens-at="{{ opens_at or '' }}" data-closes-at="{{ closes_at or '' }}">
-            {% if opens_at and closes_at %}
-              <p id="business-hours-hint" class="hint">Horario sugerido debe estar entre las {{ opens_at }} y las {{ closes_at }}.</p>
-            {% endif %}
+            <p id="business-hours-hint" class="hint">
+              {% if opens_at and closes_at %}Horario sugerido debe estar entre las {{ opens_at }} y las {{ closes_at }}. {% endif %}Sujeto a disponibilidad.
+            </p>
 
-            <div id="delivery-address-block" style="display:none;">
-              <label for="address">Dirección</label>
-              <input id="address" type="text" placeholder="Escribe tu dirección" autocomplete="street-address">
+            <label id="address-label" for="address">Dirección</label>
+            <input id="address" type="text" placeholder="Escribe tu dirección" autocomplete="street-address">
+            <div id="delivery-map-block" style="display:none;">
               <div id="address-hint" class="hint">Busca tu dirección; si no aparece exacta, ajusta el pin del mapa a tu ubicación real.</div>
               <div id="map" class="map" data-lat="{{ business_lat }}" data-lng="{{ business_lng }}"></div>
             </div>

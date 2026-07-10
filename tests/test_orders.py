@@ -67,14 +67,10 @@ def _create_courier(db, name='Repartidor', whatsapp_number='56900000000'):
 
 # --- stock decrement on public checkout (/api/orders) ---
 
-def test_create_order_decrements_stock(client, db):
+def test_create_order_decrements_stock(client, db, order_payload):
     product = _create_product(db, stock_quantity=5)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 2}],
-        'customerName': 'Cliente', 'phone': '56911112222',
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 2}]))
     assert resp.status_code == 200
     assert resp.get_json()['ok'] is True
 
@@ -83,14 +79,10 @@ def test_create_order_decrements_stock(client, db):
     assert product.sold_out is False
 
 
-def test_create_order_marks_sold_out_at_zero_stock(client, db):
+def test_create_order_marks_sold_out_at_zero_stock(client, db, order_payload):
     product = _create_product(db, stock_quantity=2)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 2}],
-        'customerName': 'Cliente', 'phone': '56911112222',
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 2}]))
     assert resp.status_code == 200
 
     db.session.refresh(product)
@@ -98,14 +90,10 @@ def test_create_order_marks_sold_out_at_zero_stock(client, db):
     assert product.sold_out is True
 
 
-def test_create_order_rejects_insufficient_stock(client, db):
+def test_create_order_rejects_insufficient_stock(client, db, order_payload):
     product = _create_product(db, stock_quantity=1)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 5}],
-        'customerName': 'Cliente', 'phone': '56911112222',
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 5}]))
     assert resp.status_code == 400
     assert resp.get_json()['ok'] is False
 
@@ -113,14 +101,10 @@ def test_create_order_rejects_insufficient_stock(client, db):
     assert product.stock_quantity == 1  # unchanged - the rejected order must not touch stock
 
 
-def test_create_order_with_unlimited_stock_product(client, db):
+def test_create_order_with_unlimited_stock_product(client, db, order_payload):
     product = _create_product(db, stock_quantity=None)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 100}],
-        'customerName': 'Cliente', 'phone': '56911112222',
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 100}]))
     assert resp.status_code == 200
 
     db.session.refresh(product)
@@ -605,14 +589,11 @@ def test_old_toggle_status_route_no_longer_exists(client, db):
 
 # --- payment status (A2.2): second, independent axis from sale status ---
 
-def test_new_order_starts_with_pending_payment_status(client, db):
+def test_new_order_starts_with_pending_payment_status(client, db, order_payload):
     product = _create_product(db, stock_quantity=None)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': '56911112222',
-        'deliveryMode': 'retira', 'paymentMethod': 'transferencia',
-    })
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], paymentMethod='transferencia'))
     assert resp.status_code == 200
 
     order = Order.query.order_by(Order.id.desc()).first()
@@ -866,3 +847,77 @@ def test_send_route_orders_by_requested_time_not_by_order_ids_order(client, db):
     assert resp.status_code == 302
     _location, message = _message_from_redirect(resp)
     assert message.index('Earlier') < message.index('Later')  # 19:00 stop comes before 20:00
+
+
+# --- required fields on checkout (Paso 1): horario obligatorio, direccion opcional en retiro ---
+
+def test_create_order_without_requested_time_fails(client, db, order_payload):
+    product = _create_product(db, stock_quantity=None)
+    payload = order_payload(items=[{'id': product.id, 'quantity': 1}])
+    del payload['requestedTime']
+
+    resp = client.post('/api/orders', json=payload)
+
+    assert resp.status_code == 400
+    assert resp.get_json()['ok'] is False
+    assert Order.query.count() == 0
+
+
+def test_create_order_without_customer_name_fails(client, db, order_payload):
+    product = _create_product(db, stock_quantity=None)
+    payload = order_payload(items=[{'id': product.id, 'quantity': 1}])
+    del payload['customerName']
+
+    resp = client.post('/api/orders', json=payload)
+
+    assert resp.status_code == 400
+    assert resp.get_json()['ok'] is False
+    assert Order.query.count() == 0
+
+
+def test_create_order_without_phone_fails(client, db, order_payload):
+    product = _create_product(db, stock_quantity=None)
+    payload = order_payload(items=[{'id': product.id, 'quantity': 1}])
+    del payload['phone']
+
+    resp = client.post('/api/orders', json=payload)
+
+    assert resp.status_code == 400
+    assert resp.get_json()['ok'] is False
+    assert Order.query.count() == 0
+
+
+def test_create_order_despacho_without_address_fails(client, db, order_payload):
+    product = _create_product(db, stock_quantity=None)
+    payload = order_payload(items=[{'id': product.id, 'quantity': 1}],
+                             deliveryMode='envio', lat=-33.5, lng=-70.5)
+    # deliberately no 'address' - despacho requires it, unlike retiro
+
+    resp = client.post('/api/orders', json=payload)
+
+    assert resp.status_code == 400
+    assert resp.get_json()['ok'] is False
+    assert Order.query.count() == 0
+
+
+def test_create_order_retiro_without_address_succeeds(client, db, order_payload):
+    product = _create_product(db, stock_quantity=None)
+
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 1}]))
+
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+    order = Order.query.order_by(Order.id.desc()).first()
+    assert order.address is None  # retiro never required one
+
+
+def test_create_order_with_all_required_fields_saves_requested_time(client, db, order_payload):
+    product = _create_product(db, stock_quantity=None)
+
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], requestedTime='20:30'))
+
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+    order = Order.query.order_by(Order.id.desc()).first()
+    assert order.requested_time == '20:30'

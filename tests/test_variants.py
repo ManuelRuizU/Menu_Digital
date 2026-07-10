@@ -24,18 +24,14 @@ def _create_pizza(db):
     return product, size_group, extras_group, individual, familiar, cheese, bacon
 
 
-def _order_payload(product_id, options, phone='56911112222'):
-    return {
-        'items': [{'id': product_id, 'quantity': 1, 'options': options}],
-        'customerName': 'Cliente', 'phone': phone,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    }
+def _order_payload(order_payload, product_id, options, phone='56911112222'):
+    return order_payload(items=[{'id': product_id, 'quantity': 1, 'options': options}], phone=phone)
 
 
-def test_order_computes_price_with_selected_options(client, db):
+def test_order_computes_price_with_selected_options(client, db, order_payload):
     product, *_ , familiar, cheese, bacon = _create_pizza(db)
 
-    resp = client.post('/api/orders', json=_order_payload(product.id, [familiar.id, cheese.id]))
+    resp = client.post('/api/orders', json=_order_payload(order_payload, product.id, [familiar.id, cheese.id]))
     assert resp.status_code == 200
 
     from app.models import Order, OrderItem
@@ -45,26 +41,27 @@ def test_order_computes_price_with_selected_options(client, db):
     assert {o.name for o in item.selected_options} == {'Familiar', 'Extra queso'}
 
 
-def test_order_rejects_missing_required_group(client, db):
+def test_order_rejects_missing_required_group(client, db, order_payload):
     product, *_ = _create_pizza(db)
 
-    resp = client.post('/api/orders', json=_order_payload(product.id, []))
+    resp = client.post('/api/orders', json=_order_payload(order_payload, product.id, []))
     assert resp.status_code == 400
     assert 'Tamaño' in resp.get_json()['message']
 
 
-def test_order_rejects_multiple_choices_in_single_select_group(client, db):
+def test_order_rejects_multiple_choices_in_single_select_group(client, db, order_payload):
     product, _, _, individual, familiar, *_ = _create_pizza(db)
 
-    resp = client.post('/api/orders', json=_order_payload(product.id, [individual.id, familiar.id]))
+    resp = client.post('/api/orders', json=_order_payload(order_payload, product.id, [individual.id, familiar.id]))
     assert resp.status_code == 400
     assert 'Tamaño' in resp.get_json()['message']
 
 
-def test_order_allows_multiple_choices_in_multi_select_group(client, db):
+def test_order_allows_multiple_choices_in_multi_select_group(client, db, order_payload):
     product, _, _, individual, _, cheese, bacon = _create_pizza(db)
 
-    resp = client.post('/api/orders', json=_order_payload(product.id, [individual.id, cheese.id, bacon.id]))
+    resp = client.post('/api/orders',
+                        json=_order_payload(order_payload, product.id, [individual.id, cheese.id, bacon.id]))
     assert resp.status_code == 200
 
     from app.models import Order, OrderItem
@@ -73,19 +70,19 @@ def test_order_allows_multiple_choices_in_multi_select_group(client, db):
     assert item.price == 6000 + 0 + 1000 + 1500
 
 
-def test_order_rejects_option_from_another_product(client, db):
+def test_order_rejects_option_from_another_product(client, db, order_payload):
     product, *_ , familiar, cheese, bacon = _create_pizza(db)
     other = Product(name='Bebida', description='Test', price=1000, category_id=product.category_id)
     db.session.add(other)
     db.session.commit()
 
     # Trying to use the pizza's "Familiar" option against a product with no option groups at all.
-    resp = client.post('/api/orders', json=_order_payload(other.id, [familiar.id]))
+    resp = client.post('/api/orders', json=_order_payload(order_payload, other.id, [familiar.id]))
     assert resp.status_code == 400
 
 
-def test_order_rejects_nonexistent_option_id(client, db):
+def test_order_rejects_nonexistent_option_id(client, db, order_payload):
     product, *_ = _create_pizza(db)
 
-    resp = client.post('/api/orders', json=_order_payload(product.id, [999999]))
+    resp = client.post('/api/orders', json=_order_payload(order_payload, product.id, [999999]))
     assert resp.status_code == 400

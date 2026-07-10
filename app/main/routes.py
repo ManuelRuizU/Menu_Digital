@@ -11,7 +11,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
-from app.utils import parse_money
+from app.utils import parse_money, validate_order_fields
 
 
 def get_owner():
@@ -462,11 +462,13 @@ def create_order():
     payment_method = data.get('paymentMethod')
     notes = (data.get('notes') or '').strip()[:500] or None
     requested_time = data.get('requestedTime')
-    if not requested_time or not re.match(r'^\d{2}:\d{2}$', requested_time):
-        requested_time = None
 
-    if not items or not customer_name or not phone:
+    if not items:
         return jsonify({'ok': False, 'message': 'Faltan datos del pedido.'}), 400
+
+    ok, error = validate_order_fields(data, delivery_mode)
+    if not ok:
+        return jsonify({'ok': False, 'message': error}), 400
 
     owner = get_owner()
     if owner and owner.is_closed_temporarily:

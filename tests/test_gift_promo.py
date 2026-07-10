@@ -31,17 +31,14 @@ def _set_gift(db, threshold, gift_product):
     return owner
 
 
-def test_gift_added_when_total_reaches_threshold(client, db):
+def test_gift_added_when_total_reaches_threshold(client, db, order_payload):
     _register_owner(client)
     main_product = _create_product(db, price=10000, name='Principal')
     gift = _create_product(db, price=2000, name='Cafe', stock_quantity=5)
     _set_gift(db, threshold=8000, gift_product=gift)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': main_product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': main_product.id, 'quantity': 1}], phone=PHONE))
     order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is not None
@@ -52,23 +49,20 @@ def test_gift_added_when_total_reaches_threshold(client, db):
     assert gift.stock_quantity == 4  # decremented like any dispatched item
 
 
-def test_no_gift_when_below_threshold(client, db):
+def test_no_gift_when_below_threshold(client, db, order_payload):
     _register_owner(client)
     main_product = _create_product(db, price=5000, name='Chico')
     gift = _create_product(db, price=2000, name='Cafe2', stock_quantity=5)
     _set_gift(db, threshold=8000, gift_product=gift)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': main_product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': main_product.id, 'quantity': 1}], phone=PHONE))
     order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is None
 
 
-def test_no_gift_when_out_of_stock(client, db):
+def test_no_gift_when_out_of_stock(client, db, order_payload):
     _register_owner(client)
     main_product = _create_product(db, price=10000, name='Principal2')
     gift = _create_product(db, price=2000, name='Cafe3', stock_quantity=0)
@@ -76,11 +70,8 @@ def test_no_gift_when_out_of_stock(client, db):
     db.session.commit()
     _set_gift(db, threshold=8000, gift_product=gift)
 
-    resp = client.post('/api/orders', json={
-        'items': [{'id': main_product.id, 'quantity': 1}],
-        'customerName': 'Cliente', 'phone': PHONE,
-        'deliveryMode': 'retira', 'paymentMethod': 'efectivo',
-    })
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': main_product.id, 'quantity': 1}], phone=PHONE))
     order = Order.query.order_by(Order.id.desc()).first()
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is None

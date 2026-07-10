@@ -63,7 +63,8 @@ const elements = {
   cartFab: document.getElementById('cart-fab'),
   cartFabCount: document.getElementById('cart-fab-count'),
   cartFabTotal: document.getElementById('cart-fab-total'),
-  deliveryAddressBlock: document.getElementById('delivery-address-block'),
+  deliveryMapBlock: document.getElementById('delivery-map-block'),
+  addressLabel: document.getElementById('address-label'),
   cashBlock: document.getElementById('cash-block'),
   cashAmount: document.getElementById('cash-amount'),
   changeHint: document.getElementById('change-hint'),
@@ -355,7 +356,11 @@ function getPaymentMethod() {
 
 function toggleDeliveryFields() {
   const isDelivery = getDeliveryMode() === 'envio'
-  elements.deliveryAddressBlock.style.display = isDelivery ? 'grid' : 'none'
+  // The address input itself stays visible in both modes - in retiro it's an
+  // optional plain text field (no map needed, the customer picks it up in person);
+  // in despacho it's required and paired with the map/pin for shipping cost.
+  elements.addressLabel.textContent = isDelivery ? 'Dirección' : 'Dirección (opcional — para futuros despachos)'
+  elements.deliveryMapBlock.style.display = isDelivery ? 'grid' : 'none'
   // The map was created while its container may have been hidden (display:none),
   // so Leaflet needs a nudge to recompute its size once it becomes visible.
   if (isDelivery && map) setTimeout(() => map.invalidateSize(), 0)

@@ -37,3 +37,22 @@ def client(app):
 def db(app):
     with app.app_context():
         yield _db
+
+
+@pytest.fixture
+def order_payload():
+    """Fábrica de payloads válidos para POST /api/orders. Centraliza los defaults
+    (incluido requestedTime) en un solo lugar - el próximo campo obligatorio se
+    agrega acá una vez, no en cada test que arma un pedido para probar otra cosa."""
+    def _build(**overrides):
+        payload = {
+            'items': [],
+            'customerName': 'Cliente',
+            'phone': '56911112222',
+            'deliveryMode': 'retira',
+            'paymentMethod': 'efectivo',
+            'requestedTime': '19:00',
+        }
+        payload.update(overrides)
+        return payload
+    return _build
