@@ -161,12 +161,22 @@ class Order(db.Model):
     payment_status = db.Column(db.String(10), nullable=False, default='pending')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     confirmed_at = db.Column(db.DateTime, nullable=True)
+    # The Santiago calendar day confirmed_at falls on, computed in Python (never
+    # DATE(confirmed_at) in SQL - that would be the UTC day, wrong near midnight).
+    # Paired with daily_number under a UNIQUE constraint so the DB - not the app
+    # server - is what guarantees no two orders share a number on the same day.
+    confirmed_date = db.Column(db.Date, nullable=True, index=True)
+    daily_number = db.Column(db.Integer, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     cash_amount = db.Column(db.Integer, nullable=True)
     requested_time = db.Column(db.String(5), nullable=True)
     requested_time_end = db.Column(db.String(5), nullable=True)
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('confirmed_date', 'daily_number'),
+    )
 
     @property
     def phone_digits(self):

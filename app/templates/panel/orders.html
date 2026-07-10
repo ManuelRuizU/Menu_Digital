@@ -28,6 +28,7 @@
       <div class="card">
         <div class="card-row">
           <div>
+            {% if order.daily_number is not none %}<strong>Pedido #{{ order.daily_number }}</strong> · {% endif %}
             <strong>{{ order.customer_name }}</strong>
             <span class="muted">· {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
           </div>

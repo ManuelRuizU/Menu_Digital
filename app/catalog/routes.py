@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from io import BytesIO, StringIO
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from flask import current_app, flash, redirect, render_template, request, url_for, Response
 from flask_login import current_user, login_required
@@ -14,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 from escpos.printer import Network
 from shapely.geometry import shape
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.catalog import catalog
@@ -30,12 +32,17 @@ PAYMENT_STATUS_LABELS = {'pending': 'Pendiente', 'paid': 'Pagado'}
 
 
 def _build_courier_message(order):
-    """Everything a delivery driver needs for one order, as plain WhatsApp text."""
+    """Everything a delivery driver needs for one order, as plain WhatsApp text.
+    Both callers (_build_courier_links for the single-order link, send_route for the
+    batch route) only ever pass already-Confirmed orders, so daily_number is always
+    set here - if that assumption is ever broken by a future bug, this should fail
+    loudly (AttributeError/None showing up in the message) rather than silently
+    paper over it with a fallback."""
     if order.delivery_mode != 'envio':
         return None
 
     lines = [
-        f'Pedido #{order.id}',
+        f'Pedido #{order.daily_number}',
         f'Cliente: {order.customer_name}',
         f'Teléfono: {order.phone}',
         f'Hora: {order.requested_time_label}',
@@ -74,7 +81,11 @@ def _build_courier_message(order):
 
 def _build_courier_links(order, couriers):
     """One WhatsApp link per saved courier, or a single number-less link (modo libre)
-    that lets the owner pick any contact, if no couriers are configured yet."""
+    that lets the owner pick any contact, if no couriers are configured yet.
+    An unconfirmed order has nothing to hand a driver yet - the sale might not have
+    actually closed, so it shouldn't be dispatched."""
+    if order.status != 'Confirmed':
+        return None
     message = _build_courier_message(order)
     if message is None:
         return None
@@ -101,7 +112,9 @@ def _print_order_ticket(order, owner):
         printer = Network(owner.printer_ip, timeout=5)
 
         printer.set(align='center', bold=True, width=2, height=2)
-        printer.text(f'ORDEN #{order.id}\n')
+        # print_order_ticket() (the route calling this) already blocks anything but
+        # status == 'Confirmed', so daily_number is always set here.
+        printer.text(f'ORDEN #{order.daily_number}\n')
         printer.set(align='center', bold=False, width=1, height=1)
         printer.text('-' * width_chars + '\n')
 
@@ -948,7 +961,7 @@ def export_orders_csv():
     buffer = StringIO()
     writer = csv.writer(buffer)
     writer.writerow([
-        'ID', 'Fecha', 'Hora pedido', 'Hora sugerida', 'Cliente', 'Teléfono', 'Tipo de entrega',
+        'ID', 'N° del día', 'Fecha', 'Hora pedido', 'Hora sugerida', 'Cliente', 'Teléfono', 'Tipo de entrega',
         'Dirección', 'Productos', 'Forma de pago', 'Monto con que paga', 'Subtotal', 'Envío',
         'Total', 'Estado', 'Estado de pago', 'Notas',
     ])
@@ -964,6 +977,7 @@ def export_orders_csv():
 
         writer.writerow([
             order.id,
+            order.daily_number if order.daily_number is not None else '',
             order.created_at_local.strftime('%Y-%m-%d'),
             order.created_at_local.strftime('%H:%M'),
             order.requested_time or '',
@@ -997,6 +1011,9 @@ def _redirect_back_to_orders():
     return redirect(url_for('catalog.orders'))
 
 
+CONFIRM_ORDER_MAX_ATTEMPTS = 5
+
+
 @catalog.route('/orders/<int:order_id>/confirm', methods=['POST'])
 @login_required
 @admin_required
@@ -1005,13 +1022,37 @@ def confirm_order(order_id):
     if order.status != 'Pending':
         flash(f'Este pedido ya está {ORDER_STATUS_LABELS[order.status].lower()} - no se puede confirmar.')
         return _redirect_back_to_orders()
-    order.status = 'Confirmed'
-    order.confirmed_at = datetime.utcnow()
-    if order.payment_method == 'transferencia':
-        order.payment_status = 'paid'
-    # efectivo y tarjeta se quedan en 'pending' (default) - ambos se cobran contra
-    # entrega, igual que ya lo distingue el ticket térmico (_print_order_ticket).
-    db.session.commit()
+
+    confirmed_at = datetime.utcnow()
+    confirmed_date = confirmed_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(BUSINESS_TZ).date()
+
+    # daily_number = MAX(daily_number) of today + 1. The real guarantee against two
+    # orders getting the same number is the DB's UNIQUE(confirmed_date, daily_number)
+    # constraint, not this worker being single-threaded (-w 1 today, but that could
+    # change). A collision is only possible with concurrent workers; on one, roll back
+    # everything (the rollback discards ALL pending changes on `order`, so status,
+    # confirmed_at, etc. must be re-applied too) and retry with a fresh MAX, capped so
+    # a persistent problem surfaces as a visible error instead of retrying forever.
+    for attempt in range(CONFIRM_ORDER_MAX_ATTEMPTS):
+        order.status = 'Confirmed'
+        order.confirmed_at = confirmed_at
+        order.confirmed_date = confirmed_date
+        if order.payment_method == 'transferencia':
+            order.payment_status = 'paid'
+        # efectivo y tarjeta se quedan en 'pending' (default) - ambos se cobran contra
+        # entrega, igual que ya lo distingue el ticket térmico (_print_order_ticket).
+        last_number = (db.session.query(func.max(Order.daily_number))
+                       .filter(Order.confirmed_date == confirmed_date).scalar())
+        order.daily_number = (last_number or 0) + 1
+        try:
+            db.session.commit()
+            break
+        except IntegrityError:
+            db.session.rollback()
+    else:
+        flash('No se pudo asignar el número de pedido del día - inténtalo de nuevo.')
+        return _redirect_back_to_orders()
+
     flash('Pedido confirmado')
     return _redirect_back_to_orders()
 
@@ -1178,10 +1219,21 @@ def remove_order_item(order_id, item_id):
 @admin_required
 def send_route():
     order_ids = request.form.getlist('order_ids', type=int)
-    orders = Order.query.filter(Order.id.in_(order_ids), Order.delivery_mode == 'envio').all()
-    if not orders:
+    marked = Order.query.filter(Order.id.in_(order_ids), Order.delivery_mode == 'envio').all()
+    if not marked:
         flash('Marca al menos un pedido de despacho para armar el recorrido.')
         return redirect(url_for('catalog.orders'))
+
+    orders = [order for order in marked if order.status == 'Confirmed']
+    if not orders:
+        flash('Ninguno de los pedidos marcados está confirmado; confírmalos antes de armar el recorrido.')
+        return redirect(url_for('catalog.orders'))
+
+    unconfirmed = [order for order in marked if order.status != 'Confirmed']
+    if unconfirmed:
+        names = ', '.join(order.customer_name for order in unconfirmed)
+        flash(f'Recorrido enviado con {len(orders)} pedidos. '
+              f'Quedaron afuera por no estar confirmados: {names}.')
 
     message = _build_route_message(orders)
     courier_id = request.form.get('courier_id', type=int)

@@ -2,6 +2,8 @@ import json
 import re
 from datetime import datetime, timedelta
 
+import pytest
+
 from app.models import BUSINESS_TZ, BundlePromo, Category, Coupon, Order, OrderItem, Product, User
 from app.utils import day_range_utc
 
@@ -340,6 +342,7 @@ def test_confirm_order_moves_pending_to_confirmed(client, db):
     _register_owner(client)
     order = _create_order_with_item(db, _create_product(db, stock_quantity=None))  # starts Pending
     before = datetime.utcnow()
+    today_santiago = datetime.now(BUSINESS_TZ).date()
 
     resp = client.post(f'/admin/orders/{order.id}/confirm')
 
@@ -348,6 +351,8 @@ def test_confirm_order_moves_pending_to_confirmed(client, db):
     assert order.status == 'Confirmed'
     assert order.confirmed_at is not None
     assert before <= order.confirmed_at <= datetime.utcnow()
+    assert order.confirmed_date == today_santiago
+    assert order.daily_number == 1  # first order confirmed today, in a fresh test db
 
 
 def test_confirm_order_on_already_confirmed_is_a_noop(client, db):
@@ -356,6 +361,8 @@ def test_confirm_order_on_already_confirmed_is_a_noop(client, db):
     order.status = 'Confirmed'
     first_confirmed_at = datetime(2026, 1, 1, 12, 0, 0)
     order.confirmed_at = first_confirmed_at
+    order.confirmed_date = first_confirmed_at.date()
+    order.daily_number = 1
     db.session.commit()
 
     resp = client.post(f'/admin/orders/{order.id}/confirm')
@@ -364,6 +371,8 @@ def test_confirm_order_on_already_confirmed_is_a_noop(client, db):
     db.session.refresh(order)
     assert order.status == 'Confirmed'
     assert order.confirmed_at == first_confirmed_at  # the no-op must not touch it
+    assert order.confirmed_date == first_confirmed_at.date()
+    assert order.daily_number == 1  # not reassigned, not bumped
 
 
 def test_confirm_order_on_cancelled_is_a_noop(client, db):
@@ -378,6 +387,161 @@ def test_confirm_order_on_cancelled_is_a_noop(client, db):
     db.session.refresh(order)
     assert order.status == 'Cancelled'  # a cancelled order can never become Confirmed
     assert order.confirmed_at is None  # it was never actually confirmed
+    assert order.confirmed_date is None
+    assert order.daily_number is None
+
+
+# --- daily_number (A2.4): per-day correlative assigned once, on first confirmation ---
+
+def test_daily_number_increments_in_confirmation_order_same_day(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_a = _create_order_with_item(db, product)
+    order_b = _create_order_with_item(db, product)
+
+    client.post(f'/admin/orders/{order_a.id}/confirm')
+    client.post(f'/admin/orders/{order_b.id}/confirm')
+
+    db.session.refresh(order_a)
+    db.session.refresh(order_b)
+    assert order_a.daily_number == 1
+    assert order_b.daily_number == 2
+
+
+def test_daily_number_of_cancelled_order_is_not_reused(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order_a = _create_order_with_item(db, product)
+    order_b = _create_order_with_item(db, product)
+    order_c = _create_order_with_item(db, product)
+
+    client.post(f'/admin/orders/{order_a.id}/confirm')  # daily_number 1
+    client.post(f'/admin/orders/{order_b.id}/confirm')  # daily_number 2
+    client.post(f'/admin/orders/{order_b.id}/cancel')   # keeps daily_number 2, per design
+    client.post(f'/admin/orders/{order_c.id}/confirm')  # must be 3, not 2 again (MAX+1, not COUNT+1)
+
+    db.session.refresh(order_a)
+    db.session.refresh(order_b)
+    db.session.refresh(order_c)
+    assert order_a.daily_number == 1
+    assert order_b.daily_number == 2  # cancelled, but keeps its number
+    assert order_b.status == 'Cancelled'
+    assert order_c.daily_number == 3  # NOT 2 - a COUNT-based scheme would have reused it
+
+
+def test_daily_number_resets_on_a_new_day(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+
+    # Order confirmed "yesterday" (Santiago time) - simulated the same way A2.2/A2.3
+    # tests anchor a day boundary: set confirmed_at/confirmed_date directly rather
+    # than going through confirm_order(), since we can't travel back in time.
+    order_yesterday = _create_order_with_item(db, product)
+    order_yesterday.status = 'Confirmed'
+    yesterday_start_utc, _ = day_range_utc(datetime.now(BUSINESS_TZ).date() - timedelta(days=1))
+    order_yesterday.confirmed_at = yesterday_start_utc + timedelta(hours=12)
+    order_yesterday.confirmed_date = (yesterday_start_utc + timedelta(hours=12)).date()
+    order_yesterday.daily_number = 1
+    db.session.commit()
+
+    order_today = _create_order_with_item(db, product)
+    client.post(f'/admin/orders/{order_today.id}/confirm')
+
+    db.session.refresh(order_today)
+    assert order_today.daily_number == 1  # today's count starts over, ignores yesterday's MAX
+
+
+def test_confirmed_date_daily_number_unique_constraint_is_enforced_by_the_db(db):
+    """Direct proof that UNIQUE(confirmed_date, daily_number) actually exists and is
+    enforced by the database engine itself - independent of confirm_order()'s retry
+    logic (tested elsewhere with a MOCKED IntegrityError, not a real constraint hit).
+    If a future migration ever dropped this constraint by mistake, the two collision
+    tests below would stay green regardless (their exception is injected, not real) -
+    this is the one test that would actually catch that regression."""
+    from sqlalchemy.exc import IntegrityError
+
+    product = _create_product(db, stock_quantity=None)
+    same_date = datetime.now(BUSINESS_TZ).date()
+
+    order_a = _create_order_with_item(db, product)
+    order_a.status = 'Confirmed'
+    order_a.confirmed_date = same_date
+    order_a.daily_number = 1
+    db.session.commit()
+
+    order_b = _create_order_with_item(db, product)
+    order_b.status = 'Confirmed'
+    order_b.confirmed_date = same_date
+    order_b.daily_number = 1  # same (confirmed_date, daily_number) pair as order_a
+
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+
+    db.session.rollback()
+    db.session.refresh(order_a)
+    assert order_a.daily_number == 1  # order_a's row is untouched by order_b's failed insert
+
+
+def test_daily_number_collision_retries_with_a_fresh_max(client, db, monkeypatch):
+    """Simulates a race with another worker: the first commit attempt raises
+    IntegrityError (as the real UNIQUE(confirmed_date, daily_number) constraint
+    would on a genuine collision), and confirm_order must recover by rolling back
+    and retrying with a fresh MAX instead of 500ing or leaving the order half-set."""
+    from sqlalchemy.exc import IntegrityError
+    from app.catalog import routes as catalog_routes
+
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order = _create_order_with_item(db, product)
+
+    real_commit = catalog_routes.db.session.commit
+    call_count = {'n': 0}
+
+    def flaky_commit():
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            raise IntegrityError('mock unique violation', {}, Exception('UNIQUE constraint failed'))
+        return real_commit()
+
+    monkeypatch.setattr(catalog_routes.db.session, 'commit', flaky_commit)
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm')
+
+    assert resp.status_code == 302
+    assert call_count['n'] == 2  # failed once, succeeded on the retry
+    db.session.refresh(order)
+    assert order.status == 'Confirmed'
+    assert order.daily_number == 1  # the retry still landed on the correct number
+
+
+def test_daily_number_collision_gives_up_after_max_attempts_without_corrupting_data(client, db, monkeypatch):
+    """If every retry keeps colliding (pathological case), confirm_order must not
+    loop forever and must not fall back to assigning a duplicate - better a visible,
+    honest error than silently corrupting the daily_number sequence."""
+    from sqlalchemy.exc import IntegrityError
+    from app.catalog import routes as catalog_routes
+
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    order = _create_order_with_item(db, product)
+
+    call_count = {'n': 0}
+
+    def always_flaky_commit():
+        call_count['n'] += 1
+        raise IntegrityError('mock unique violation', {}, Exception('UNIQUE constraint failed'))
+
+    monkeypatch.setattr(catalog_routes.db.session, 'commit', always_flaky_commit)
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm')
+
+    assert resp.status_code == 302  # a flash + redirect, not a 500
+    assert call_count['n'] == catalog_routes.CONFIRM_ORDER_MAX_ATTEMPTS  # capped, not an infinite loop
+    db.session.refresh(order)
+    # Since every commit failed, nothing was actually persisted - the order is
+    # exactly as it was before the attempt, not half-confirmed with no number.
+    assert order.status == 'Pending'
+    assert order.daily_number is None
 
 
 def test_cancel_order_from_pending(client, db):
