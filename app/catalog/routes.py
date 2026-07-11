@@ -20,7 +20,8 @@ from sqlalchemy.exc import IntegrityError
 from app import db
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
-from app.main.routes import compute_bundle_discount, compute_coupon_discount, _get_active_bundle_promos
+from app.main.routes import compute_bundle_discount, compute_coupon_discount, get_hours_for_today, \
+    _get_active_bundle_promos
 from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
                          OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
@@ -904,6 +905,116 @@ def toggle_closed():
     return redirect(url_for('catalog.dashboard'))
 
 
+# Used when the business has no BusinessHours configured at all, or today is
+# specifically marked closed but still has leftover confirmed orders to show -
+# a broad window covering typical lunch+dinner hours for a food business.
+AGENDA_DEFAULT_OPENS_AT = '09:00'
+AGENDA_DEFAULT_CLOSES_AT = '22:00'
+
+TIME_RE = re.compile(r'^\d{2}:\d{2}$')
+
+
+def _parse_time_to_minutes(time_str):
+    """"HH:MM" -> minutes since midnight, or None if missing/unparseable (old data,
+    free-form leftovers, etc.) - never raises, the caller decides what to do with None."""
+    if not time_str or not TIME_RE.match(time_str):
+        return None
+    hh, mm = (int(part) for part in time_str.split(':'))
+    if not (0 <= hh < 24 and 0 <= mm < 60):
+        return None
+    return hh * 60 + mm
+
+
+def _format_minutes(total_minutes):
+    hh, mm = divmod(total_minutes % 1440, 60)
+    return f'{hh:02d}:{mm:02d}'
+
+
+def _build_agenda_blocks(confirmed_orders, block_minutes, opens_at, closes_at, now_str):
+    """Groups today's confirmed orders into fixed-size time blocks between opens_at
+    and closes_at. Everything is done in "minutes since opens_at" so a range that
+    crosses midnight (opens_at > closes_at) is handled the same way as a normal one -
+    closes_at, and any order/now time earlier than opens_at, gets +1440 to land in
+    the following day's segment of the same timeline.
+
+    Returns (blocks, unscheduled_orders): blocks is a list of dicts (start/end in
+    "HH:MM", is_past, orders, unpaid_count), in chronological order. unscheduled_orders
+    holds anything with no requested_time, an unparseable one, or one that falls
+    outside [opens_at, closes_at) - nothing with status='Confirmed' is ever dropped."""
+    opens_minutes = _parse_time_to_minutes(opens_at)
+    closes_minutes_raw = _parse_time_to_minutes(closes_at)
+    wraps = closes_minutes_raw <= opens_minutes
+    closes_minutes = closes_minutes_raw + 1440 if wraps else closes_minutes_raw
+
+    def _to_timeline(minutes):
+        return minutes + 1440 if (wraps and minutes < opens_minutes) else minutes
+
+    now_minutes = _to_timeline(_parse_time_to_minutes(now_str))
+
+    blocks = []
+    block_start = opens_minutes
+    while block_start < closes_minutes:
+        block_end = min(block_start + block_minutes, closes_minutes)
+        blocks.append({'start': block_start, 'end': block_end, 'orders': []})
+        block_start += block_minutes
+
+    unscheduled_orders = []
+    for order in confirmed_orders:
+        order_minutes = _parse_time_to_minutes(order.requested_time)
+        if order_minutes is None:
+            unscheduled_orders.append(order)
+            continue
+        order_minutes = _to_timeline(order_minutes)
+        if not (opens_minutes <= order_minutes < closes_minutes) or not blocks:
+            unscheduled_orders.append(order)
+            continue
+        block_index = min((order_minutes - opens_minutes) // block_minutes, len(blocks) - 1)
+        blocks[block_index]['orders'].append(order)
+
+    for block in blocks:
+        block['orders'].sort(key=lambda order: _parse_time_to_minutes(order.requested_time) or 0)
+        block['unpaid_count'] = sum(1 for order in block['orders'] if order.payment_status == 'pending')
+        block['is_past'] = block['end'] <= now_minutes
+        block['label_start'] = _format_minutes(block['start'])
+        block['label_end'] = _format_minutes(block['end'])
+
+    unscheduled_orders.sort(key=lambda order: (order.requested_time is None, order.requested_time or ''))
+    return blocks, unscheduled_orders
+
+
+@catalog.route('/agenda')
+@login_required
+@admin_required
+def agenda():
+    """Read-only view of today's CONFIRMED orders, grouped into time blocks - the
+    daily_number is the bridge back to orders() (still the only place to act on a
+    pedido: confirm, cancel, edit, print, mark paid)."""
+    start_utc, end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
+    confirmed_orders = (Order.query
+                        .filter(Order.created_at >= start_utc, Order.created_at < end_utc,
+                                Order.status == 'Confirmed')
+                        .all())
+
+    owner = User.query.filter_by(is_owner=True).first()
+    block_minutes = owner.agenda_block_minutes if owner else 10
+
+    hours_today = get_hours_for_today()
+    if hours_today is None or hours_today.is_closed:
+        opens_at, closes_at = AGENDA_DEFAULT_OPENS_AT, AGENDA_DEFAULT_CLOSES_AT
+    else:
+        opens_at, closes_at = hours_today.opens_at, hours_today.closes_at
+
+    now_str = datetime.now(BUSINESS_TZ).strftime('%H:%M')
+    blocks, unscheduled_orders = _build_agenda_blocks(confirmed_orders, block_minutes, opens_at, closes_at, now_str)
+
+    unpaid_count = sum(1 for order in confirmed_orders if order.payment_status == 'pending')
+
+    return render_template('panel/agenda.html', today=datetime.now(BUSINESS_TZ).date(),
+                            block_minutes=block_minutes, blocks=blocks, unscheduled_orders=unscheduled_orders,
+                            confirmed_count=len(confirmed_orders), unpaid_count=unpaid_count,
+                            PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS=PAYMENT_STATUS_LABELS)
+
+
 @catalog.route('/orders')
 @login_required
 @admin_required
@@ -1110,9 +1221,6 @@ def print_order_ticket(order_id):
     ok, error = _print_order_ticket(order, owner)
     flash('Ticket enviado a la impresora' if ok else error)
     return _redirect_back_to_orders()
-
-
-TIME_RE = re.compile(r'^\d{2}:\d{2}$')
 
 
 @catalog.route('/orders/<int:order_id>/update-time', methods=['POST'])
