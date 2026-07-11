@@ -19,6 +19,10 @@ THEMES = {
     'trattoria': {'label': 'Trattoria clásica', 'primary': '#a5312f', 'accent': '#3f6b45'},
 }
 
+# How many minutes wide each Agenda time slot is (Paso 2b) - a fixed list, not a
+# free field, so the Agenda's grid math never has to handle an arbitrary value.
+AGENDA_BLOCK_MINUTES_OPTIONS = [5, 10, 15, 20, 30, 60]
+
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -54,6 +58,7 @@ class User(UserMixin, db.Model):
     is_closed_temporarily = db.Column(db.Boolean, nullable=False, default=False)
     closed_message = db.Column(db.Text, nullable=True)
     theme = db.Column(db.String(20), nullable=False, default='oscuro')
+    agenda_block_minutes = db.Column(db.Integer, nullable=False, default=10)
     gift_threshold_amount = db.Column(db.Integer, nullable=True)
     gift_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
     gift_product = db.relationship('Product', foreign_keys=[gift_product_id])

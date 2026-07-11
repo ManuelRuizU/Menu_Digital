@@ -121,6 +121,17 @@
         {% endif %}
       </p>
 
+      <label for="agenda_block_minutes">Bloques de la agenda</label>
+      <select id="agenda_block_minutes" name="agenda_block_minutes">
+        {% for minutes in agenda_block_minutes_options %}
+          <option value="{{ minutes }}" {{ 'selected' if current_user.agenda_block_minutes == minutes }}>{{ minutes }} min</option>
+        {% endfor %}
+      </select>
+      <p class="muted">
+        Cada cuántos minutos se divide el día en la agenda. No limita las horas de los pedidos, solo cómo
+        se agrupan visualmente.
+      </p>
+
       <button type="submit">Guardar</button>
     </form>
 

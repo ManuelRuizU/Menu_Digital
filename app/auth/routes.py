@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, render_template, redirect, url_for, fl
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.models import THEMES, BusinessHours, User
+from app.models import AGENDA_BLOCK_MINUTES_OPTIONS, THEMES, BusinessHours, User
 from app import db, limiter
 from app.decorators import admin_required, owner_required
 from app.auth import auth
@@ -202,7 +202,8 @@ def _ensure_business_hours_rows():
 def admin_panel():
     _ensure_business_hours_rows()
     business_hours = BusinessHours.query.order_by(BusinessHours.day_of_week).all()
-    return render_template('panel/index.html', themes=THEMES, business_hours=business_hours)
+    return render_template('panel/index.html', themes=THEMES, business_hours=business_hours,
+                            agenda_block_minutes_options=AGENDA_BLOCK_MINUTES_OPTIONS)
 
 
 @auth.route('/admin/business-profile', methods=['POST'])
@@ -215,6 +216,13 @@ def update_business_profile():
     theme = request.form.get('theme', '').strip()
     if theme in THEMES:
         current_user.theme = theme
+    raw_agenda_block_minutes = request.form.get('agenda_block_minutes', '').strip()
+    try:
+        agenda_block_minutes = int(raw_agenda_block_minutes)
+    except (TypeError, ValueError):
+        agenda_block_minutes = None
+    if agenda_block_minutes in AGENDA_BLOCK_MINUTES_OPTIONS:
+        current_user.agenda_block_minutes = agenda_block_minutes
     current_user.whatsapp_number = request.form.get('whatsapp_number', '').strip()
     current_user.business_name = request.form.get('business_name', '').strip()
     current_user.slogan = request.form.get('slogan', '').strip() or None
