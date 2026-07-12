@@ -1,42 +1,60 @@
 {% extends "panel/_layout.html" %}
 {% block title %}Agenda del día{% endblock %}
+{% macro order_card(order) %}
+  <div class="agenda-card">
+    <strong class="daily-number">#{{ order.daily_number if order.daily_number is not none else order.id }}</strong>
+    · {{ order.requested_time or 'Sin hora' }} · {{ order.customer_name }}
+    · {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
+    · ${{ '%.0f'|format(order.total_price) }}
+    ·
+    {% if order.payment_status == 'paid' %}
+      <span class="agenda-payment-pill paid">✓ {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }} · {{ PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status)|lower }}</span>
+    {% else %}
+      <span class="agenda-payment-pill unpaid">⚠ {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }} · {{ PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status)|lower }}</span>
+    {% endif %}
+
+    {% if order.payment_status == 'pending' %}
+      <div class="agenda-card-actions">
+        <form method="post" action="{{ url_for('catalog.mark_order_paid', order_id=order.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ url_for('catalog.agenda') }}">
+          <button type="submit" class="secondary">Marcar pagado</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+{% endmacro %}
 {% block content %}
     <div class="card-row">
       <h1>Agenda del día</h1>
       <a href="{{ url_for('catalog.orders') }}"><button type="button" class="secondary">Ver pedidos de hoy</button></a>
     </div>
     <p class="muted">
-      {{ today.strftime('%d/%m/%Y') }} · bloques de {{ block_minutes }} min · vista de solo lectura -
-      para confirmar, cancelar, cobrar o editar un pedido, usa "Ver pedidos de hoy" y busca su número.
+      {{ today.strftime('%d/%m/%Y') }} · bloques de {{ block_minutes }} min · solo lectura de horario -
+      para confirmar, cancelar o editar un pedido, usa "Ver pedidos de hoy" y busca su número.
     </p>
     <p><strong>{{ confirmed_count }}</strong> confirmados · <strong>{{ unpaid_count }}</strong> sin pagar</p>
 
     {% for block in blocks %}
-      <div class="agenda-block {{ 'past' if block.is_past else '' }}">
-        <div class="agenda-block-header">
-          <strong>{{ block.label_start }}–{{ block.label_end }}</strong>
-          {% if block.is_past %}
-            <span class="muted">{{ block.orders|length }} pedidos · {{ block.unpaid_count }} sin pagar</span>
-          {% elif not block.orders %}
-            <span class="agenda-free">Libre</span>
-          {% endif %}
-        </div>
-
-        {% if not block.is_past and block.orders %}
+      {% if block.orders %}
+        <div class="agenda-block has-orders">
+          <div class="agenda-block-header">
+            <strong>{{ block.label_start }}–{{ block.label_end }}</strong>
+          </div>
           <div class="agenda-orders">
             {% for order in block.orders %}
-              <div class="agenda-card">
-                <strong class="daily-number">#{{ order.daily_number if order.daily_number is not none else order.id }}</strong>
-                · {{ order.requested_time }} · {{ order.customer_name }}
-                · {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
-                · ${{ '%.0f'|format(order.total_price) }}
-                · {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }}
-                · {{ PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status) }}
-              </div>
+              {{ order_card(order) }}
             {% endfor %}
           </div>
-        {% endif %}
-      </div>
+        </div>
+      {% elif not block.is_past %}
+        <div class="agenda-block-free">
+          <span>{{ block.label_start }}–{{ block.label_end }}</span>
+          <span class="agenda-free">libre</span>
+        </div>
+      {% endif %}
+      {# A past, empty block has nothing worth showing - it can't be agendado
+         anymore and it hides no debt, so it renders nothing at all. #}
     {% else %}
       <p class="muted">No hay horario de agenda configurado para hoy.</p>
     {% endfor %}
@@ -44,17 +62,10 @@
     {% if unscheduled_orders %}
       <h2>Sin hora o fuera de horario</h2>
       <p class="muted">Pedidos confirmados que no encajan en la grilla de arriba - nunca desaparecen, solo quedan acá.</p>
-      <div class="agenda-block">
+      <div class="agenda-block has-orders">
         <div class="agenda-orders">
           {% for order in unscheduled_orders %}
-            <div class="agenda-card">
-              <strong class="daily-number">#{{ order.daily_number if order.daily_number is not none else order.id }}</strong>
-              · {{ order.requested_time or 'Sin hora' }} · {{ order.customer_name }}
-              · {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
-              · ${{ '%.0f'|format(order.total_price) }}
-              · {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }}
-              · {{ PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status) }}
-            </div>
+            {{ order_card(order) }}
           {% endfor %}
         </div>
       </div>

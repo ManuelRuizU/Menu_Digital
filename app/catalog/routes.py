@@ -1117,7 +1117,7 @@ def export_orders_csv():
 
 def _redirect_back_to_orders():
     next_url = request.form.get('next')
-    if next_url in (url_for('catalog.orders'), url_for('catalog.order_history')):
+    if next_url in (url_for('catalog.orders'), url_for('catalog.order_history'), url_for('catalog.agenda')):
         return redirect(next_url)
     return redirect(url_for('catalog.orders'))
 

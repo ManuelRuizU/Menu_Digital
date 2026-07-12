@@ -5,9 +5,13 @@ from app.models import BUSINESS_TZ, BusinessHours, Category, Order, OrderItem, P
 
 
 def _future_time_str(minutes_ahead=60):
-    """A requested_time guaranteed to land in a block that hasn't happened yet,
-    so the route renders its order details instead of collapsing it as "past"."""
+    """A requested_time in a block that hasn't happened yet."""
     return (datetime.now(BUSINESS_TZ) + timedelta(minutes=minutes_ahead)).strftime('%H:%M')
+
+
+def _past_time_str(minutes_ago=60):
+    """A requested_time in a block that has already happened."""
+    return (datetime.now(BUSINESS_TZ) - timedelta(minutes=minutes_ago)).strftime('%H:%M')
 
 
 def _order(requested_time=None, payment_status='pending'):
@@ -226,14 +230,70 @@ def test_agenda_route_shows_daily_number_on_card(client, db):
     assert 'ConNumero' in html
 
 
-def test_agenda_route_marks_empty_block_as_libre(client, db):
+def test_agenda_route_marks_future_empty_block_as_libre(client, db):
     _register_owner(client)
     _set_business_hours_for_today(db)  # no orders at all today
 
     resp = client.get('/admin/agenda')
     html = resp.data.decode()
 
-    assert 'Libre' in html
+    assert 'libre' in html
+
+
+def test_agenda_route_shows_free_blocks_after_the_one_with_an_order(client, db):
+    """Regression: reported bug where only the block with the order rendered and
+    every later free block of the day silently disappeared."""
+    _register_owner(client)
+    _set_business_hours_for_today(db, opens_at='09:00', closes_at='23:00')
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.agenda_block_minutes = 5
+    db.session.commit()
+    product = _create_product(db)
+    order_time = _future_time_str(30)  # well before closing, room for later free blocks
+    _create_order(db, product, order_time, status='Confirmed', daily_number=1, customer_name='ConPedido')
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert 'ConPedido' in html
+    assert html.count('agenda-block-free') > 1  # more than just one lonely free block
+    assert 'libre' in html
+
+
+def test_agenda_route_past_block_with_orders_shows_order_details(client, db):
+    """Paso 2c fix: a past block that HAS orders must render them in full - it must
+    never collapse into a summary that hides an unpaid order."""
+    _register_owner(client)
+    _set_business_hours_for_today(db, opens_at='00:00', closes_at='23:59')
+    product = _create_product(db)
+    _create_order(db, product, _past_time_str(60), status='Confirmed', daily_number=9,
+                   customer_name='PedidoDelPasado', payment_status='pending')
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert 'PedidoDelPasado' in html
+    assert '#9' in html
+
+
+def test_agenda_route_past_empty_block_is_not_rendered(client, db):
+    """Paso 2c fix: a past block with NO orders can't be agendado into anymore and
+    hides no debt, so it must not take up any space on the page."""
+    _register_owner(client)
+    two_hours_ago = (datetime.now(BUSINESS_TZ) - timedelta(hours=2)).strftime('%H:%M')
+    one_hour_ago = (datetime.now(BUSINESS_TZ) - timedelta(hours=1)).strftime('%H:%M')
+    db.session.add(BusinessHours(day_of_week=datetime.now(BUSINESS_TZ).weekday(),
+                                  opens_at=two_hours_ago, closes_at=one_hour_ago))
+    db.session.commit()
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.agenda_block_minutes = 60
+    db.session.commit()
+    # No orders created - the single 60-min block spanning this hour is empty and past.
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert f'{two_hours_ago}–{one_hour_ago}' not in html
 
 
 def test_agenda_route_unscheduled_zone_for_null_requested_time(client, db):
@@ -274,7 +334,39 @@ def test_agenda_route_uses_owners_configured_block_size(client, db):
     resp = client.get('/admin/agenda')
     html = resp.data.decode()
 
-    # Block headers render unconditionally (past or future), so this alone proves
-    # the route used the owner's 30-min size - the 10-min default would never
-    # produce a single 10:00-10:30 block, only three 10-min ones.
+    # A block with an order always renders its header, past or future - this alone
+    # proves the route used the owner's 30-min size, since the 10-min default would
+    # never produce a single 10:00-10:30 block, only three separate 10-min ones.
     assert '10:00–10:30' in html
+
+
+def test_agenda_mark_paid_button_only_on_pending_payment(client, db):
+    _register_owner(client)
+    _set_business_hours_for_today(db)
+    product = _create_product(db)
+    future = _future_time_str()
+    unpaid = _create_order(db, product, future, status='Confirmed', daily_number=1,
+                            customer_name='SinPagar', payment_status='pending')
+    paid = _create_order(db, product, future, status='Confirmed', daily_number=2,
+                          customer_name='YaPagado', payment_status='paid')
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert f'/admin/orders/{unpaid.id}/mark-paid' in html
+    assert f'/admin/orders/{paid.id}/mark-paid' not in html
+
+
+def test_mark_paid_from_agenda_redirects_back_to_agenda(client, db):
+    _register_owner(client)
+    _set_business_hours_for_today(db)
+    product = _create_product(db)
+    order = _create_order(db, product, _future_time_str(), status='Confirmed', daily_number=1,
+                           customer_name='Cliente', payment_status='pending')
+
+    resp = client.post(f'/admin/orders/{order.id}/mark-paid', data={'next': '/admin/agenda'})
+
+    assert resp.status_code == 302
+    assert resp.location == '/admin/agenda'
+    db.session.refresh(order)
+    assert order.payment_status == 'paid'
