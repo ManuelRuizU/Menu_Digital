@@ -179,9 +179,9 @@ def _create_product(db, price=1000, name='Producto'):
 
 
 def _create_order(db, product, requested_time, status='Confirmed', daily_number=None,
-                   customer_name='Cliente', payment_status='pending'):
+                   customer_name='Cliente', payment_status='pending', payment_method='efectivo'):
     order = Order(customer_name=customer_name, phone='56911112222', delivery_mode='retira',
-                  payment_method='efectivo', total_price=product.price, status=status,
+                  payment_method=payment_method, total_price=product.price, status=status,
                   requested_time=requested_time, daily_number=daily_number, payment_status=payment_status)
     db.session.add(order)
     db.session.flush()
@@ -355,6 +355,28 @@ def test_agenda_mark_paid_button_only_on_pending_payment(client, db):
 
     assert f'/admin/orders/{unpaid.id}/mark-paid' in html
     assert f'/admin/orders/{paid.id}/mark-paid' not in html
+
+
+def test_agenda_mark_paid_button_appears_for_every_payment_method_when_pending(client, db):
+    """A2.2.1: no payment method is auto-marked paid anymore, so the button must
+    show for all three (efectivo, tarjeta, transferencia) whenever pending."""
+    _register_owner(client)
+    _set_business_hours_for_today(db)
+    product = _create_product(db)
+    future = _future_time_str()
+    cash = _create_order(db, product, future, daily_number=1, customer_name='Efectivo',
+                          payment_status='pending', payment_method='efectivo')
+    card = _create_order(db, product, future, daily_number=2, customer_name='Tarjeta',
+                          payment_status='pending', payment_method='tarjeta')
+    transfer = _create_order(db, product, future, daily_number=3, customer_name='Transferencia',
+                              payment_status='pending', payment_method='transferencia')
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert f'/admin/orders/{cash.id}/mark-paid' in html
+    assert f'/admin/orders/{card.id}/mark-paid' in html
+    assert f'/admin/orders/{transfer.id}/mark-paid' in html
 
 
 def test_mark_paid_from_agenda_redirects_back_to_agenda(client, db):

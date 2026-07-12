@@ -142,21 +142,27 @@ def _print_order_ticket(order, owner):
         printer.text('-' * width_chars + '\n')
 
         printer.set(align='center', bold=True)
-        if order.payment_method == 'efectivo':
-            printer.text('EFECTIVO\n')
-            printer.set(align='center', bold=False)
-            if order.cash_amount:
+        method_label = {'efectivo': 'EFECTIVO', 'transferencia': 'TRANSFERENCIA', 'tarjeta': 'TARJETA'}.get(order.payment_method)
+        if method_label:
+            printer.text(f'{method_label}\n')
+        printer.set(align='center', bold=False)
+        # payment_status (not payment_method) decides pagado/no pagado - every method
+        # is confirmed manually by the owner (A2.2.1), so a transferencia that hasn't
+        # actually landed must print "cobrar", never "ya pagado" (the courier would
+        # hand over the order for nothing). The method only decides HOW to collect
+        # once we already know payment is still pending.
+        if order.payment_status == 'paid':
+            printer.text('YA PAGADO\n')
+        else:
+            printer.text('COBRAR EN LA ENTREGA\n')
+            if order.payment_method == 'efectivo' and order.cash_amount:
                 change = max(order.cash_amount - order.total_price, 0)
                 printer.text(f'Paga con: ${order.cash_amount:.0f}\n')
                 printer.text(f'Vuelto: ${change:.0f}\n')
-        elif order.payment_method == 'transferencia':
-            printer.text('TRANSFERENCIA\n')
-            printer.set(align='center', bold=False)
-            printer.text('YA PAGADO\n')
-        elif order.payment_method == 'tarjeta':
-            printer.text('TARJETA\n')
-            printer.set(align='center', bold=False)
-            printer.text('Cobrar en la entrega\n(llevar máquina)\n')
+            elif order.payment_method == 'tarjeta':
+                printer.text('(llevar máquina)\n')
+            elif order.payment_method == 'transferencia':
+                printer.text('(pedir comprobante)\n')
 
         printer.set(align='center', bold=True)
         printer.text(f'\nTOTAL: ${order.total_price:.0f}\n\n')
@@ -1148,10 +1154,11 @@ def confirm_order(order_id):
         order.status = 'Confirmed'
         order.confirmed_at = confirmed_at
         order.confirmed_date = confirmed_date
-        if order.payment_method == 'transferencia':
-            order.payment_status = 'paid'
-        # efectivo y tarjeta se quedan en 'pending' (default) - ambos se cobran contra
-        # entrega, igual que ya lo distingue el ticket térmico (_print_order_ticket).
+        # payment_status is NEVER auto-set here, regardless of payment_method - A2.2
+        # assumed "transferencia = ya pagado al confirmar" because the ticket printed
+        # "YA PAGADO" for it, but that's false in practice: some customers transfer
+        # right away, others take a while. Every payment is confirmed manually by the
+        # owner (WhatsApp receipt, cash from the courier, card charged) - see A2.2.1.
         last_number = (db.session.query(func.max(Order.daily_number))
                        .filter(Order.confirmed_date == confirmed_date).scalar())
         order.daily_number = (last_number or 0) + 1

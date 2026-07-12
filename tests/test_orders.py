@@ -597,14 +597,14 @@ def test_new_order_starts_with_pending_payment_status(client, db, order_payload)
     assert resp.status_code == 200
 
     order = Order.query.order_by(Order.id.desc()).first()
-    # Even for transferencia (which becomes 'paid' automatically on confirm), a
-    # freshly created, unconfirmed order always starts 'pending' - the auto-mark
-    # only happens inside confirm_order(), not at checkout.
+    # A freshly created, unconfirmed order always starts 'pending', regardless of
+    # payment_method - nothing auto-marks payment_status, ever (A2.2.1: every
+    # payment is confirmed manually by the owner, no method is an exception).
     assert order.status == 'Pending'
     assert order.payment_status == 'pending'
 
 
-def test_confirming_transfer_order_marks_it_paid_automatically(client, db):
+def test_confirming_transfer_order_leaves_payment_pending(client, db):
     _register_owner(client)
     order = _create_order_with_item(db, _create_product(db, stock_quantity=None),
                                      payment_method='transferencia')
@@ -613,7 +613,10 @@ def test_confirming_transfer_order_marks_it_paid_automatically(client, db):
 
     db.session.refresh(order)
     assert order.status == 'Confirmed'
-    assert order.payment_status == 'paid'
+    # A2.2.1: transferencia is no longer auto-marked 'paid' on confirm - some
+    # customers transfer right away, others take a while, so the owner marks it
+    # manually once they actually see the money (WhatsApp receipt, bank app, etc).
+    assert order.payment_status == 'pending'
 
 
 def test_confirming_cash_order_leaves_payment_pending(client, db):
