@@ -13,6 +13,12 @@
       <span class="agenda-payment-pill unpaid">⚠ {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }} · {{ PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status)|lower }}</span>
     {% endif %}
 
+    <p class="muted" style="margin:4px 0 0;">
+      {%- for item in order.order_items -%}
+        {{ item.quantity }}x {{ item.product_name }}{% if item.selected_options %} ({{ item.selected_options|map(attribute='name')|join(', ') }}){% endif %}{% if not loop.last %}, {% endif %}
+      {%- endfor -%}
+    </p>
+
     {% if order.payment_status == 'pending' %}
       <div class="agenda-card-actions">
         <form method="post" action="{{ url_for('catalog.mark_order_paid', order_id=order.id) }}">

@@ -16,6 +16,7 @@ from escpos.printer import Network
 from shapely.geometry import shape
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from app import db, limiter
 from app.catalog import catalog
@@ -997,7 +998,14 @@ def agenda():
     daily_number is the bridge back to orders() (still the only place to act on a
     pedido: confirm, cancel, edit, print, mark paid)."""
     start_utc, end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
+    # Eager-loaded because the template shows each order's items (product_name +
+    # selected_options) on every card - without this, order.order_items and each
+    # item.selected_options are lazy='select' (app/models.py), so N orders would
+    # fire N+1 queries just to render the day. orders()/orders.html has the exact
+    # same lazy-load shape and the exact same gap - not fixed here on purpose,
+    # that's a separate view/commit.
     confirmed_orders = (Order.query
+                        .options(selectinload(Order.order_items).selectinload(OrderItem.selected_options))
                         .filter(Order.created_at >= start_utc, Order.created_at < end_utc,
                                 Order.status == 'Confirmed')
                         .all())

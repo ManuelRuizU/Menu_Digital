@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 
 from app.catalog.routes import _build_agenda_blocks
-from app.models import BUSINESS_TZ, BusinessHours, Category, Order, OrderItem, Product, User
+from app.extensions import db as _db
+from app.models import BUSINESS_TZ, BusinessHours, Category, Order, OrderItem, OrderItemOption, Product, User
 
 
 def _future_time_str(minutes_ahead=60):
@@ -392,3 +393,100 @@ def test_mark_paid_from_agenda_redirects_back_to_agenda(client, db):
     assert resp.location == '/admin/agenda'
     db.session.refresh(order)
     assert order.payment_status == 'paid'
+
+
+# --- order contents on each card (product_name, quantity, selected_options) ---
+
+def _create_order_with_items(db, items, requested_time, daily_number=None, customer_name='Cliente'):
+    """items: list of (product, quantity, [option_name, ...]) tuples."""
+    order = Order(customer_name=customer_name, phone='56911112222', delivery_mode='retira',
+                  payment_method='efectivo', total_price=sum(p.price * q for p, q, _ in items),
+                  status='Confirmed', requested_time=requested_time, daily_number=daily_number)
+    db.session.add(order)
+    db.session.flush()
+    for product, quantity, option_names in items:
+        item = OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                          quantity=quantity, price=product.price)
+        db.session.add(item)
+        db.session.flush()
+        for option_name in option_names:
+            db.session.add(OrderItemOption(order_item_id=item.id, name=option_name, price_delta=0))
+    db.session.commit()
+    return order
+
+
+def test_agenda_card_shows_product_names_and_quantities(client, db):
+    _register_owner(client)
+    _set_business_hours_for_today(db)
+    roll = _create_product(db, name='Roll California')
+    ebi = _create_product(db, name='Ebi Tempura')
+    _create_order_with_items(db, [(roll, 2, []), (ebi, 1, [])], _future_time_str(), daily_number=1)
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert '2x Roll California' in html
+    assert '1x Ebi Tempura' in html
+
+
+def test_agenda_card_shows_selected_options(client, db):
+    _register_owner(client)
+    _set_business_hours_for_today(db)
+    roll = _create_product(db, name='Roll California')
+    _create_order_with_items(db, [(roll, 1, ['Extra queso', 'Sin sésamo'])], _future_time_str(), daily_number=1)
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert '1x Roll California (Extra queso, Sin sésamo)' in html
+
+
+def test_agenda_route_orders_items_use_eager_loading_not_n_plus_1(client, db):
+    """Regression guard: order.order_items and item.selected_options are
+    lazy='select' by default (app/models.py) - without eager loading, each extra
+    order/item fires its own query. With selectinload, the query count for items
+    stays flat no matter how many orders exist (a couple of batched queries total,
+    not one per order)."""
+    _register_owner(client)
+    _set_business_hours_for_today(db)
+    product = _create_product(db)
+
+    def _add_confirmed_order_with_item(index):
+        _create_order_with_items(db, [(product, 1, ['Opcion'])],
+                                  f'{9 + index:02d}:00', daily_number=index + 1)
+
+    queries = []
+
+    def _log_query(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    from sqlalchemy import event
+    engine = _db.engine
+
+    _add_confirmed_order_with_item(0)
+    event.listen(engine, 'before_cursor_execute', _log_query)
+    try:
+        resp_one = client.get('/admin/agenda')
+    finally:
+        event.remove(engine, 'before_cursor_execute', _log_query)
+    assert resp_one.status_code == 200
+    count_with_one_order = len(queries)
+
+    for i in range(1, 6):
+        _add_confirmed_order_with_item(i)
+
+    queries.clear()
+    event.listen(engine, 'before_cursor_execute', _log_query)
+    try:
+        resp_many = client.get('/admin/agenda')
+    finally:
+        event.remove(engine, 'before_cursor_execute', _log_query)
+    assert resp_many.status_code == 200
+    count_with_six_orders = len(queries)
+
+    # Going from 1 to 6 orders (each with 1 item + 1 option) must not scale the
+    # query count linearly - selectinload batches order_items and selected_options
+    # into a couple of extra queries total, regardless of how many orders/items
+    # exist. Without eager loading this delta would be at least 10 (5 more
+    # order_items queries + 5 more selected_options queries).
+    assert count_with_six_orders - count_with_one_order <= 2
