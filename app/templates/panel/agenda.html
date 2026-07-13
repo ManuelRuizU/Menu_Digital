@@ -35,6 +35,16 @@
     </p>
     <p><strong>{{ confirmed_count }}</strong> confirmados · <strong>{{ unpaid_count }}</strong> sin pagar</p>
 
+    <div class="card">
+      <label for="cercania-direccion">¿Dónde va el pedido nuevo?</label>
+      <div class="inline-actions">
+        <input type="text" id="cercania-direccion" placeholder="Escribe la dirección..." style="flex:1;min-width:200px;">
+        <button type="button" id="cercania-buscar" class="secondary">Buscar</button>
+        <button type="button" id="cercania-cerrar" class="secondary" style="display:none;">Cerrar</button>
+      </div>
+      <div id="cercania-resultados" style="display:none;"></div>
+    </div>
+
     {% for block in blocks %}
       {% if block.orders %}
         <div class="agenda-block has-orders">
@@ -70,4 +80,84 @@
         </div>
       </div>
     {% endif %}
+
+    <script>
+      (function () {
+        const input = document.getElementById('cercania-direccion');
+        const buscarBtn = document.getElementById('cercania-buscar');
+        const cerrarBtn = document.getElementById('cercania-cerrar');
+        const resultados = document.getElementById('cercania-resultados');
+
+        function formatDistance(km) {
+          if (km < 1) return `${Math.round(km * 1000)} m`;
+          return `${km.toFixed(1).replace('.', ',')} km`;
+        }
+
+        function orderRow(order, distanceLabel) {
+          const row = document.createElement('div');
+          row.className = 'agenda-card' + (order.distanceKm !== null && order.distanceKm !== undefined && order.distanceKm < 1 ? ' agenda-card-near' : '');
+          const numero = order.dailyNumber !== null && order.dailyNumber !== undefined ? order.dailyNumber : order.id;
+          row.innerHTML = `<strong class="daily-number">#${numero}</strong>` +
+            ` · ${order.requestedTime || 'Sin hora'} · ${order.customerName}` +
+            ` · <strong>${distanceLabel}</strong>` +
+            ` · $${order.totalPrice.toLocaleString('es-CL')}` +
+            ` · ${order.paymentMethod} · ${order.paymentStatus.toLowerCase()}`;
+          return row;
+        }
+
+        function renderResults(data) {
+          resultados.innerHTML = '';
+          if (!data.ok) {
+            resultados.innerHTML = `<p class="muted">${data.message}</p>`;
+          } else if (!data.results.length && !data.withoutLocation.length) {
+            resultados.innerHTML = '<p class="muted">No hay despachos confirmados hoy para comparar.</p>';
+          } else {
+            const block = document.createElement('div');
+            block.className = 'agenda-block has-orders';
+            const inner = document.createElement('div');
+            inner.className = 'agenda-orders';
+            data.results.forEach((order) => {
+              inner.appendChild(orderRow(order, formatDistance(order.distanceKm)));
+            });
+            data.withoutLocation.forEach((order) => {
+              inner.appendChild(orderRow(order, 'sin ubicación registrada'));
+            });
+            block.appendChild(inner);
+            resultados.appendChild(block);
+          }
+          resultados.style.display = 'block';
+          cerrarBtn.style.display = 'inline-block';
+        }
+
+        async function buscar() {
+          const direccion = input.value.trim();
+          if (!direccion) return;
+          resultados.innerHTML = '<p class="muted">Buscando...</p>';
+          resultados.style.display = 'block';
+          try {
+            const resp = await fetch(`{{ url_for('catalog.agenda_cercania') }}?direccion=${encodeURIComponent(direccion)}`);
+            const data = await resp.json();
+            renderResults(data);
+          } catch (error) {
+            resultados.innerHTML = '<p class="muted">No se pudo conectar con el servidor.</p>';
+            resultados.style.display = 'block';
+            cerrarBtn.style.display = 'inline-block';
+          }
+        }
+
+        buscarBtn.addEventListener('click', buscar);
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            buscar();
+          }
+        });
+        cerrarBtn.addEventListener('click', () => {
+          resultados.style.display = 'none';
+          resultados.innerHTML = '';
+          cerrarBtn.style.display = 'none';
+          input.value = '';
+        });
+      })();
+    </script>
 {% endblock %}

@@ -77,6 +77,9 @@
       .agenda-card-actions { margin-top: 6px; }
       .agenda-card-actions form { display: inline; margin: 0; padding: 0; background: none; border: none; }
       .agenda-card-actions button { padding: 6px 12px; min-height: auto; font-size: 0.82rem; }
+      /* Cercanía search result that's a real candidate to bundle together (< 1 km) -
+         needs to jump out the same way a has-orders block does against free ones. */
+      .agenda-card.agenda-card-near { background: #eef6ff; border-left: 3px solid #1d4ed8; padding-left: 8px; margin-left: -8px; }
     </style>
     {% block head %}{% endblock %}
   </head>

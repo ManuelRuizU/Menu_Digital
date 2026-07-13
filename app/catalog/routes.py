@@ -8,7 +8,7 @@ from io import BytesIO, StringIO
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from flask import current_app, flash, redirect, render_template, request, url_for, Response
+from flask import current_app, flash, jsonify, redirect, render_template, request, url_for, Response
 from flask_login import current_user, login_required
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
@@ -17,11 +17,12 @@ from shapely.geometry import shape
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
-from app import db
+from app import db, limiter
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
+from app.geocoding import geocode
 from app.main.routes import compute_bundle_discount, compute_coupon_discount, get_hours_for_today, \
-    _get_active_bundle_promos
+    _get_active_bundle_promos, _haversine_km
 from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
                          OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
@@ -1019,6 +1020,60 @@ def agenda():
                             block_minutes=block_minutes, blocks=blocks, unscheduled_orders=unscheduled_orders,
                             confirmed_count=len(confirmed_orders), unpaid_count=unpaid_count,
                             PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS=PAYMENT_STATUS_LABELS)
+
+
+def _serialize_agenda_order(order, distance_km=None):
+    return {
+        'id': order.id,
+        'dailyNumber': order.daily_number,
+        'requestedTime': order.requested_time,
+        'customerName': order.customer_name,
+        'totalPrice': order.total_price,
+        'paymentMethod': PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method),
+        'paymentStatus': PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status),
+        'distanceKm': distance_km,
+    }
+
+
+@catalog.route('/agenda/cercania')
+@login_required
+@admin_required
+@limiter.limit('1 per second')
+def agenda_cercania():
+    """Geocodes an address the owner types in and ranks today's confirmed despachos
+    by distance to it - "¿dónde va este pedido nuevo, y qué entrega ya tengo cerca?".
+    Read-only, same as the rest of the Agenda - doesn't touch any order."""
+    address = request.args.get('direccion', '').strip()
+    if not address:
+        return jsonify({'ok': False, 'message': 'Escribe una dirección para buscar.'}), 400
+
+    coords = geocode(address)
+    if coords is None:
+        return jsonify({'ok': False, 'message': 'No pudimos encontrar esa dirección. Prueba con más detalle.'}), 400
+    lat, lon = coords
+
+    start_utc, end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
+    despachos = (Order.query
+                 .filter(Order.created_at >= start_utc, Order.created_at < end_utc,
+                         Order.status == 'Confirmed', Order.delivery_mode == 'envio')
+                 .all())
+
+    # Orders without coordinates (old orders from before the address+pin requirement
+    # was enforced - see A2.4/Paso1 diagnosis) can't be placed on the ranking, but
+    # must never just vanish - they go in their own bucket, always returned.
+    ranked = []
+    without_location = []
+    for order in despachos:
+        if order.latitude is None or order.longitude is None:
+            without_location.append(_serialize_agenda_order(order))
+        else:
+            distance_km = _haversine_km(lat, lon, order.latitude, order.longitude)
+            ranked.append((distance_km, order))
+
+    ranked.sort(key=lambda pair: pair[0])
+    results = [_serialize_agenda_order(order, distance_km) for distance_km, order in ranked]
+
+    return jsonify({'ok': True, 'results': results, 'withoutLocation': without_location})
 
 
 @catalog.route('/orders')
