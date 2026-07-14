@@ -898,6 +898,12 @@ async function loadProducts() {
   }
 
   renderProducts()
+  // A cart restored from localStorage is rendered once, synchronously, before this
+  // fetch resolves (STATE.products is still [] at that point) - anything in the cart
+  // summary that looks a cart item back up against STATE.products (prep time, upsell
+  // suggestions) silently comes up empty on that first pass and never recovers unless
+  // the cart is re-rendered here, now that STATE.products is actually populated.
+  renderCart()
 }
 
 const DELIVERY_ICON = L.divIcon({
