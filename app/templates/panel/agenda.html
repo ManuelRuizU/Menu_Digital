@@ -94,18 +94,20 @@
         const cerrarBtn = document.getElementById('cercania-cerrar');
         const resultados = document.getElementById('cercania-resultados');
 
-        function formatDistance(km) {
-          if (km < 1) return `${Math.round(km * 1000)} m`;
-          return `${km.toFixed(1).replace('.', ',')} km`;
+        function formatDetour(km) {
+          // The "+" communicates what this number means: how much LONGER the trip
+          // gets by adding this stop - not how far away the order is.
+          if (km < 1) return `+${Math.round(km * 1000)} m de desvío`;
+          return `+${km.toFixed(1).replace('.', ',')} km de desvío`;
         }
 
-        function orderRow(order, distanceLabel) {
+        function orderRow(order, detourLabel) {
           const row = document.createElement('div');
-          row.className = 'agenda-card' + (order.distanceKm !== null && order.distanceKm !== undefined && order.distanceKm < 1 ? ' agenda-card-near' : '');
+          row.className = 'agenda-card' + (order.detourKm !== null && order.detourKm !== undefined && order.detourKm < 1 ? ' agenda-card-near' : '');
           const numero = order.dailyNumber !== null && order.dailyNumber !== undefined ? order.dailyNumber : order.id;
           row.innerHTML = `<strong class="daily-number">#${numero}</strong>` +
             ` · ${order.requestedTime || 'Sin hora'} · ${order.customerName}` +
-            ` · <strong>${distanceLabel}</strong>` +
+            ` · <strong>${detourLabel}</strong>` +
             ` · $${order.totalPrice.toLocaleString('es-CL')}` +
             ` · ${order.paymentMethod} · ${order.paymentStatus.toLowerCase()}`;
           return row;
@@ -115,15 +117,30 @@
           resultados.innerHTML = '';
           if (!data.ok) {
             resultados.innerHTML = `<p class="muted">${data.message}</p>`;
-          } else if (!data.results.length && !data.withoutLocation.length) {
-            resultados.innerHTML = '<p class="muted">No hay despachos confirmados hoy para comparar.</p>';
+            resultados.style.display = 'block';
+            cerrarBtn.style.display = 'inline-block';
+            return;
+          }
+
+          if (!data.detourAvailable && data.message) {
+            const warning = document.createElement('p');
+            warning.className = 'muted';
+            warning.textContent = data.message;
+            resultados.appendChild(warning);
+          }
+
+          if (!data.results.length && !data.withoutLocation.length) {
+            const empty = document.createElement('p');
+            empty.className = 'muted';
+            empty.textContent = 'No hay despachos confirmados hoy para comparar.';
+            resultados.appendChild(empty);
           } else {
             const block = document.createElement('div');
             block.className = 'agenda-block has-orders';
             const inner = document.createElement('div');
             inner.className = 'agenda-orders';
             data.results.forEach((order) => {
-              inner.appendChild(orderRow(order, formatDistance(order.distanceKm)));
+              inner.appendChild(orderRow(order, formatDetour(order.detourKm)));
             });
             data.withoutLocation.forEach((order) => {
               inner.appendChild(orderRow(order, 'sin ubicación registrada'));

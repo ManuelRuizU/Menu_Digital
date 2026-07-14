@@ -1049,7 +1049,7 @@ def agenda():
                             PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS=PAYMENT_STATUS_LABELS)
 
 
-def _serialize_agenda_order(order, distance_km=None):
+def _serialize_agenda_order(order, detour_km=None):
     return {
         'id': order.id,
         'dailyNumber': order.daily_number,
@@ -1058,8 +1058,12 @@ def _serialize_agenda_order(order, distance_km=None):
         'totalPrice': order.total_price,
         'paymentMethod': PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method),
         'paymentStatus': PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status),
-        'distanceKm': distance_km,
+        'detourKm': detour_km,
     }
+
+
+NO_OWNER_LOCATION_MESSAGE = ('Configura la ubicación de tu local en el Perfil del negocio para calcular '
+                              'el desvío real del repartidor. Por ahora se muestra la distancia directa.')
 
 
 @catalog.route('/agenda/cercania')
@@ -1067,9 +1071,12 @@ def _serialize_agenda_order(order, distance_km=None):
 @admin_required
 @limiter.limit('1 per second')
 def agenda_cercania():
-    """Geocodes an address the owner types in and ranks today's confirmed despachos
-    by distance to it - "¿dónde va este pedido nuevo, y qué entrega ya tengo cerca?".
-    Read-only, same as the rest of the Agenda - doesn't touch any order."""
+    """Geocodes an address the owner types in and ranks today's confirmed despachos by
+    how much each one would DETOUR the courier's trip if the new address were added to
+    it - not by raw distance to the new address. Every courier starts from the local,
+    so an order 500m from the local but on the way to a far-off existing order barely
+    costs anything to bundle together, even though it sits "3 km" from that order in a
+    straight line. Read-only, same as the rest of the Agenda - doesn't touch any order."""
     address = request.args.get('direccion', '').strip()
     if not address:
         return jsonify({'ok': False, 'message': 'Escribe una dirección para buscar.'}), 400
@@ -1085,6 +1092,16 @@ def agenda_cercania():
                          Order.status == 'Confirmed', Order.delivery_mode == 'envio')
                  .all())
 
+    # The detour math needs the local's own coordinates - the pin on the business
+    # profile map, same field compute_shipping_cost() already reads for radius tiers.
+    # It's optional there (nullable, never enforced at onboarding), so it can genuinely
+    # be unset - falling back to plain point-to-point distance (today's behavior)
+    # rather than 500ing, but the owner needs to know the ranking is less precise.
+    owner = User.query.filter_by(is_owner=True).first()
+    detour_available = bool(owner and owner.latitude is not None and owner.longitude is not None)
+    dist_local_to_new = (_haversine_km(owner.latitude, owner.longitude, lat, lon)
+                          if detour_available else None)
+
     # Orders without coordinates (old orders from before the address+pin requirement
     # was enforced - see A2.4/Paso1 diagnosis) can't be placed on the ranking, but
     # must never just vanish - they go in their own bucket, always returned.
@@ -1093,14 +1110,31 @@ def agenda_cercania():
     for order in despachos:
         if order.latitude is None or order.longitude is None:
             without_location.append(_serialize_agenda_order(order))
+            continue
+
+        dist_new_to_existing = _haversine_km(lat, lon, order.latitude, order.longitude)
+        if detour_available:
+            dist_local_to_existing = _haversine_km(owner.latitude, owner.longitude,
+                                                     order.latitude, order.longitude)
+            route_via_new_then_existing = dist_local_to_new + dist_new_to_existing
+            route_via_existing_then_new = dist_local_to_existing + dist_new_to_existing
+            detour_km = min(route_via_new_then_existing, route_via_existing_then_new) - dist_local_to_existing
         else:
-            distance_km = _haversine_km(lat, lon, order.latitude, order.longitude)
-            ranked.append((distance_km, order))
+            # No local coordinates to route from - the best we can do is the old
+            # point-to-point distance, same ranking as before this feature existed.
+            detour_km = dist_new_to_existing
+        ranked.append((detour_km, order))
 
     ranked.sort(key=lambda pair: pair[0])
-    results = [_serialize_agenda_order(order, distance_km) for distance_km, order in ranked]
+    results = [_serialize_agenda_order(order, detour_km) for detour_km, order in ranked]
 
-    return jsonify({'ok': True, 'results': results, 'withoutLocation': without_location})
+    return jsonify({
+        'ok': True,
+        'results': results,
+        'withoutLocation': without_location,
+        'detourAvailable': detour_available,
+        'message': None if detour_available else NO_OWNER_LOCATION_MESSAGE,
+    })
 
 
 @catalog.route('/orders')
