@@ -33,6 +33,21 @@ PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia
 ORDER_STATUS_LABELS = {'Pending': 'Pendiente', 'Confirmed': 'Confirmado', 'Cancelled': 'Cancelado'}
 PAYMENT_STATUS_LABELS = {'pending': 'Pendiente', 'paid': 'Pagado'}
 
+# Groups orders() by what still needs action, not by delivery time: Pending (nothing
+# confirmed yet, the thing an encargado can't afford to miss) always on top, then
+# Confirmed, then Cancelled (needs no action at all) at the bottom.
+ORDERS_STATUS_SORT_PRIORITY = {'Pending': 0, 'Confirmed': 1, 'Cancelled': 2}
+
+
+def _orders_sort_key(order):
+    priority = ORDERS_STATUS_SORT_PRIORITY.get(order.status, len(ORDERS_STATUS_SORT_PRIORITY))
+    if order.status == 'Pending':
+        # Oldest-waiting-first within the group that most needs attention.
+        return (priority, order.created_at)
+    # Confirmed and Cancelled both fall back to requested_time - once a sale is
+    # closed (or dead), delivery time is what's operationally meaningful to scan by.
+    return (priority, order.requested_time or '99:99')
+
 
 def _build_courier_message(order):
     """Everything a delivery driver needs for one order, as plain WhatsApp text.
@@ -1096,16 +1111,19 @@ def orders():
     todays_orders = (Order.query
                       .filter(Order.created_at >= start_utc, Order.created_at < end_utc)
                       .all())
-    todays_orders.sort(key=lambda order: order.requested_time or '99:99')
+    todays_orders.sort(key=_orders_sort_key)
 
+    pending_count = sum(1 for order in todays_orders if order.status == 'Pending')
     confirmed_count = sum(1 for order in todays_orders if order.status == 'Confirmed')
+    cancelled_count = sum(1 for order in todays_orders if order.status == 'Cancelled')
     couriers = Courier.query.order_by(Courier.name).all()
     courier_links = {order.id: _build_courier_links(order, couriers) for order in todays_orders}
     available_products = (Product.query.filter_by(is_active=True, sold_out=False)
                            .order_by(Product.name).all())
     owner = User.query.filter_by(is_owner=True).first()
     printer_configured = bool(owner and owner.printer_ip)
-    return render_template('panel/orders.html', orders=todays_orders, confirmed_count=confirmed_count,
+    return render_template('panel/orders.html', orders=todays_orders, pending_count=pending_count,
+                            confirmed_count=confirmed_count, cancelled_count=cancelled_count,
                             courier_links=courier_links, couriers=couriers, available_products=available_products,
                             printer_configured=printer_configured, ORDER_STATUS_LABELS=ORDER_STATUS_LABELS,
                             PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)

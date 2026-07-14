@@ -924,3 +924,94 @@ def test_create_order_with_all_required_fields_saves_requested_time(client, db, 
     assert resp.get_json()['ok'] is True
     order = Order.query.order_by(Order.id.desc()).first()
     assert order.requested_time == '20:30'
+
+
+# --- orders() view grouping/sort: Pending on top (oldest-waiting first), then
+# Confirmed (by requested_time), then Cancelled last - so the encargado never has
+# to hunt through the list for what still needs a decision ---
+
+def test_orders_view_lists_pending_before_confirmed_even_with_earlier_requested_time(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    confirmed = _create_order_with_item(db, product)
+    confirmed.customer_name = 'Confirmado13'
+    confirmed.requested_time = '13:00'
+    confirmed.status = 'Confirmed'
+    pending = _create_order_with_item(db, product)
+    pending.customer_name = 'Pendiente20'
+    pending.requested_time = '20:00'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    # Pending must appear first even though its delivery time (20:00) is later than
+    # the confirmed order's (13:00) - status takes priority over requested_time.
+    assert html.index('Pendiente20') < html.index('Confirmado13')
+
+
+def test_orders_view_pending_orders_sorted_oldest_first(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    today_start_utc, _ = day_range_utc(datetime.now(BUSINESS_TZ).date())
+    newer = _create_order_with_item(db, product)
+    newer.customer_name = 'Nuevo'
+    newer.created_at = today_start_utc + timedelta(hours=10)
+    older = _create_order_with_item(db, product)
+    older.customer_name = 'Viejo'
+    older.created_at = today_start_utc + timedelta(hours=8)
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    # The order waiting longest (oldest created_at) is the most urgent - it goes first.
+    assert html.index('Viejo') < html.index('Nuevo')
+
+
+def test_orders_view_cancelled_orders_go_last(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    cancelled = _create_order_with_item(db, product)
+    cancelled.customer_name = 'Cancelado'
+    cancelled.status = 'Cancelled'
+    confirmed = _create_order_with_item(db, product)
+    confirmed.customer_name = 'Confirmado'
+    confirmed.status = 'Confirmed'
+    pending = _create_order_with_item(db, product)
+    pending.customer_name = 'Pendiente'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert html.index('Pendiente') < html.index('Confirmado') < html.index('Cancelado')
+
+
+def test_orders_view_shows_all_three_statuses_and_their_group_headers(client, db):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    pending = _create_order_with_item(db, product)
+    pending.customer_name = 'UnoPendiente'
+    confirmed = _create_order_with_item(db, product)
+    confirmed.customer_name = 'DosConfirmado'
+    confirmed.status = 'Confirmed'
+    cancelled = _create_order_with_item(db, product)
+    cancelled.customer_name = 'TresCancelado'
+    cancelled.status = 'Cancelled'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    # Reordering must not filter anything out - all 3 statuses still render.
+    assert 'UnoPendiente' in html
+    assert 'DosConfirmado' in html
+    assert 'TresCancelado' in html
+    assert 'Por confirmar (1)' in html
+    assert 'Confirmados (1)' in html
+    assert 'Cancelados (1)' in html

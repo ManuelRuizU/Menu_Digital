@@ -24,7 +24,20 @@
       <button type="submit">🛵 Enviar recorrido</button>
     </form>
 
+    {# orders llega ya agrupado por estado (Pending, Confirmed, Cancelled en ese orden) -
+       solo hace falta marcar dónde empieza cada grupo para separarlos con un encabezado. #}
+    {% set ns = namespace(previous_status=None) %}
     {% for order in orders %}
+      {% if order.status != ns.previous_status %}
+        {% set ns.previous_status = order.status %}
+        {% if order.status == 'Pending' %}
+          <h2>Por confirmar ({{ pending_count }})</h2>
+        {% elif order.status == 'Confirmed' %}
+          <h2>Confirmados ({{ confirmed_count }})</h2>
+        {% elif order.status == 'Cancelled' %}
+          <h2>Cancelados ({{ cancelled_count }})</h2>
+        {% endif %}
+      {% endif %}
       <div class="card">
         <div class="card-row">
           <div>
