@@ -1136,6 +1136,25 @@ function closeConfirmModal() {
   document.body.classList.remove('modal-open')
 }
 
+function resetCartAfterOrder() {
+  // The order is already saved server-side at this point - the cart MUST be cleared
+  // no matter what happens next (WhatsApp opening, etc), or a second "Enviar" tap
+  // creates a duplicate Order the encargado has to notice and cancel by hand.
+  STATE.cart = []
+  // Null it out before saveCart() so its own clearAppliedCoupon() call becomes a
+  // no-op (it early-returns when there's nothing applied) instead of overwriting the
+  // UI with a "tu carrito cambió, vuelve a aplicar el cupón" message that makes no
+  // sense right after a successful order.
+  STATE.appliedCoupon = null
+  if (elements.couponCode) elements.couponCode.value = ''
+  if (elements.couponMessage) {
+    elements.couponMessage.textContent = ''
+    elements.couponMessage.className = 'coupon-message'
+  }
+  saveCart()  // persists the emptied cart to localStorage too - not just STATE.cart
+  renderCart()  // repaints cart items + upsell suggestions + every summary hint
+}
+
 async function handleConfirmSend() {
   elements.confirmModalSend.disabled = true
   elements.confirmModalSend.textContent = 'Enviando...'
@@ -1144,6 +1163,7 @@ async function handleConfirmSend() {
   saveCustomer()
   const result = await saveOrder()
   if (!result.ok) {
+    // Order was never saved - the customer keeps their cart to retry, nothing to clear.
     elements.confirmError.textContent = result.message
     elements.confirmError.style.display = 'block'
     elements.confirmModalSend.disabled = false
@@ -1159,6 +1179,7 @@ async function handleConfirmSend() {
   } catch (error) {
     window.open(`https://wa.me/56900000000?text=${buildWhatsAppText()}`, '_blank')
   }
+  resetCartAfterOrder()
   closeConfirmModal()
 }
 
