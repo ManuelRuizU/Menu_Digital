@@ -89,6 +89,7 @@ const elements = {
   productModalOptions: document.getElementById('product-modal-options'),
   deliveryModeOptions: document.getElementById('delivery-mode-options'),
   minOrderHint: document.getElementById('min-order-hint'),
+  prepTimeHint: document.getElementById('prep-time-hint'),
   upsellSuggestions: document.getElementById('upsell-suggestions'),
   confirmModal: document.getElementById('confirm-modal'),
   confirmModalBackdrop: document.getElementById('confirm-modal-backdrop'),
@@ -504,6 +505,7 @@ function productCardHtml(product) {
         ${!product.imageUrl ? badge : ''}
         <strong>${safeName}</strong>
         <div class="price">${priceHtml(product)}</div>
+        ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
         ${bundlePromo ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
       </div>
       <div class="card-actions">
@@ -809,6 +811,7 @@ function updateSummary() {
   elements.cartFabTotal.textContent = outOfCoverage ? formatPrice(subtotal) : formatPrice(total)
 
   updateMinOrderHint(subtotal)
+  updatePrepTimeHint()
   updateChangeHint()
 }
 
@@ -826,6 +829,28 @@ function updateMinOrderHint(subtotal) {
   }
   elements.minOrderHint.style.display = 'block'
   elements.minOrderHint.textContent = `Pedido mínimo para despacho: ${formatPrice(MIN_DELIVERY_ORDER)} (te faltan ${formatPrice(shortfall)}).`
+}
+
+function getCartMaxPrepMinutes() {
+  // The slowest product sets the pace, not the sum - two items being prepared at the
+  // same time don't take longer together than the slower one alone (no parallelism
+  // accounting yet, that's future work).
+  return STATE.cart.reduce((max, item) => {
+    const product = STATE.products.find((p) => p.id === item.id)
+    const prepMinutes = product ? product.prepMinutes : null
+    return prepMinutes && prepMinutes > max ? prepMinutes : max
+  }, 0)
+}
+
+function updatePrepTimeHint() {
+  if (!elements.prepTimeHint) return
+  const maxPrepMinutes = getCartMaxPrepMinutes()
+  if (!maxPrepMinutes) {
+    elements.prepTimeHint.style.display = 'none'
+    return
+  }
+  elements.prepTimeHint.style.display = 'block'
+  elements.prepTimeHint.textContent = `Preparación: ≈${maxPrepMinutes} min. Elige un horario que lo tenga en cuenta.`
 }
 
 async function setLocation(lat, lng, label, precise = true) {

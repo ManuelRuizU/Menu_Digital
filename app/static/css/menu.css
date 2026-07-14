@@ -243,6 +243,7 @@ button, input { font: inherit; }
 .product-photo { width: 100%; height: 140px; object-fit: cover; border-radius: 14px; }
 .product-card strong { display: block; font-size: 1rem; color: var(--text-strong); }
 .product-card .price { font-size: 1.1rem; color: var(--primary); font-weight: 700; }
+.product-card .prep-time { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; }
 .card-actions { margin-top: auto; display: flex; gap: 8px; }
 .card-actions .add-btn { flex: 1; border: none; border-radius: 14px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; padding: 12px 14px; font-size: 1.4rem; font-weight: 700; line-height: 1; cursor: pointer; transition: transform 0.2s ease, opacity 0.2s ease; }
 .card-actions .add-btn:hover { transform: translateY(-1px); opacity: 0.95; }

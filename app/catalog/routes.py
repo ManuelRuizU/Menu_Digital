@@ -340,6 +340,10 @@ def _save_product(product):
     product.stock_quantity = request.form.get('stock_quantity', type=int)
     if product.stock_quantity is not None:
         product.sold_out = product.stock_quantity <= 0
+    prep_minutes = request.form.get('prep_minutes', type=int)
+    # Purely informational field - 0, negative or non-numeric input never blocks
+    # saving the product, it just means no prep time is shown to the customer.
+    product.prep_minutes = prep_minutes if prep_minutes and prep_minutes > 0 else None
     if is_new:
         product.is_active = True
 

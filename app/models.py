@@ -113,6 +113,7 @@ class Product(db.Model):
     sold_out = db.Column(db.Boolean, nullable=False, default=False)
     is_featured = db.Column(db.Boolean, nullable=False, default=False)
     stock_quantity = db.Column(db.Integer, nullable=True)
+    prep_minutes = db.Column(db.Integer, nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
     subcategory_id = db.Column(db.Integer, db.ForeignKey('subcategory.id'), nullable=True)
     category = db.relationship('Category')

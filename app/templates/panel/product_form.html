@@ -60,6 +60,14 @@
         marca "Agotado" a mano cuando corresponda.
       </p>
 
+      <label for="prep_minutes">Tiempo de preparación (minutos)</label>
+      <input id="prep_minutes" name="prep_minutes" type="number" step="1" min="1"
+             value="{{ product.prep_minutes if product and product.prep_minutes is not none else '' }}"
+             placeholder="Ej. 15">
+      <p class="muted">
+        Opcional. Se muestra al cliente para que sepa cuánto demora. Déjalo vacío si no aplica.
+      </p>
+
       <button type="submit">Guardar producto</button>
     </form>
 
