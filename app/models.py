@@ -59,6 +59,7 @@ class User(UserMixin, db.Model):
     closed_message = db.Column(db.Text, nullable=True)
     theme = db.Column(db.String(20), nullable=False, default='oscuro')
     agenda_block_minutes = db.Column(db.Integer, nullable=False, default=10)
+    accept_orders_outside_hours = db.Column(db.Boolean, nullable=False, default=False)
     gift_threshold_amount = db.Column(db.Integer, nullable=True)
     gift_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
     gift_product = db.relationship('Product', foreign_keys=[gift_product_id])

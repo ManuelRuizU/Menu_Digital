@@ -114,6 +114,17 @@ def index():
     else:
         closed_message = None
 
+    # Whether the CURRENT moment (not whatever the customer might pick later) falls
+    # outside today's window - only meaningful when the day actually has hours and
+    # isn't already closed (that case shows the full "Cerrado" screen instead, this
+    # flag is never even read then). No schedule configured at all (hours_today is
+    # None) means unrestricted, same as is_within_business_hours' own convention.
+    outside_hours_now = bool(
+        hours_today is not None and not hours_today.is_closed
+        and not is_within_business_hours(datetime.now(BUSINESS_TZ).strftime('%H:%M'),
+                                          hours_today.opens_at, hours_today.closes_at)
+    )
+
     return render_template(
         'index.html',
         is_closed=(is_closed_temporarily or closed_by_schedule),
@@ -139,6 +150,9 @@ def index():
         gift_product_name=(owner.gift_product.name if gift_available else None),
         opens_at=(hours_today.opens_at if hours_today else None),
         closes_at=(hours_today.closes_at if hours_today else None),
+        outside_hours_now=outside_hours_now,
+        accept_orders_outside_hours=(owner.accept_orders_outside_hours if owner else False),
+        whatsapp_number=(owner.whatsapp_number if owner else None),
         creator_name=current_app.config.get('CREATOR_NAME'),
         creator_whatsapp=current_app.config.get('CREATOR_WHATSAPP'),
     )
@@ -478,6 +492,20 @@ def create_order():
     hours_today = get_hours_for_today()
     if hours_today is not None and hours_today.is_closed:
         return jsonify({'ok': False, 'message': f'Hoy {hours_today.day_name} no atendemos.'}), 400
+
+    # Day is open and has hours, but the CURRENT moment (not the requested delivery
+    # time, checked separately below) falls outside them - blocked unless the owner
+    # opted in to taking orders outside hours. Without this, the toggle being OFF is
+    # purely decorative: a direct POST to this endpoint would sail through regardless
+    # of what the cart UI shows.
+    if (hours_today is not None and not (owner and owner.accept_orders_outside_hours)
+            and not is_within_business_hours(datetime.now(BUSINESS_TZ).strftime('%H:%M'),
+                                              hours_today.opens_at, hours_today.closes_at)):
+        return jsonify({
+            'ok': False,
+            'message': f'Nuestro horario es de {hours_today.opens_at} a {hours_today.closes_at}. '
+                       'Escríbenos por WhatsApp para coordinar.',
+        }), 400
 
     enabled_methods = {
         'efectivo': owner.accepts_cash if owner else True,

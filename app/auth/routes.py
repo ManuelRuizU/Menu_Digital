@@ -246,6 +246,7 @@ def update_business_profile():
     current_user.accepts_card = 'accepts_card' in request.form
     if not (current_user.accepts_cash or current_user.accepts_transfer or current_user.accepts_card):
         current_user.accepts_cash = True
+    current_user.accept_orders_outside_hours = 'accept_orders_outside_hours' in request.form
     current_user.bank_details = request.form.get('bank_details', '').strip() or None
     current_user.min_delivery_order = parse_money(request.form, 'min_delivery_order')
     current_user.printer_ip = request.form.get('printer_ip', '').strip() or None

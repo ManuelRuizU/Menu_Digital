@@ -5,7 +5,8 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from app.models import BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, Order, OrderItem, Product, User
+from app.main import routes as main_routes
+from app.models import BUSINESS_TZ, BundlePromo, BusinessHours, Category, Coupon, Courier, Order, OrderItem, Product, User
 from app.utils import day_range_utc
 
 
@@ -1195,3 +1196,155 @@ def test_confirm_order_redirect_has_no_anchor_when_not_provided(client, db):
 
     assert resp.status_code == 302
     assert '#' not in resp.headers['Location']
+
+
+# --- accept_orders_outside_hours toggle: create_order() server-side gate on the
+# CURRENT moment, independent from the pre-existing check on the requested delivery time ---
+
+def _offset_time_str(minutes_offset):
+    """A 'HH:MM' string minutes_offset away from the real current Santiago time,
+    wrapped cyclically through a 24h clock. Built this way (not a fixed literal like
+    '14:00') so the test is robust no matter what time of day the suite actually runs -
+    the same time-of-day fragility documented elsewhere in this file for the Agenda."""
+    now = datetime.now(BUSINESS_TZ)
+    total = (now.hour * 60 + now.minute + minutes_offset) % 1440
+    return f'{total // 60:02d}:{total % 60:02d}'
+
+
+def _set_business_hours_for_today(db, opens_at, closes_at):
+    today_weekday = datetime.now(BUSINESS_TZ).weekday()
+    db.session.add(BusinessHours(day_of_week=today_weekday, opens_at=opens_at, closes_at=closes_at))
+    db.session.commit()
+
+
+def _freeze_time_of_day(monkeypatch, hour, minute):
+    """Pins app.main.routes' notion of "now" to a fixed HH:MM, keeping today's real
+    date/weekday intact (so a BusinessHours row set for 'today' still matches) -
+    avoids hardcoding a calendar date whose weekday could drift out of sync."""
+    real_datetime = datetime
+
+    class FixedNow(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime.now(tz).replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    monkeypatch.setattr(main_routes, 'datetime', FixedNow)
+
+
+def test_create_order_blocked_outside_hours_when_toggle_off(client, db, order_payload):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    # accept_orders_outside_hours defaults to False - left untouched.
+    opens = _offset_time_str(180)
+    closes = _offset_time_str(300)
+    _set_business_hours_for_today(db, opens, closes)
+
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 1}]))
+
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data['ok'] is False
+    assert 'horario' in data['message'].lower()
+    assert Order.query.count() == 0
+
+
+def test_create_order_allowed_inside_hours_regardless_of_toggle(client, db, order_payload):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    opens = _offset_time_str(-60)
+    closes = _offset_time_str(60)
+    _set_business_hours_for_today(db, opens, closes)
+    now = _offset_time_str(0)  # safely inside the window above, by construction
+
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], requestedTime=now))
+
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+
+
+def test_create_order_allowed_outside_hours_when_toggle_on(client, db, order_payload):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.accept_orders_outside_hours = True
+    opens = _offset_time_str(180)
+    closes = _offset_time_str(300)
+    _set_business_hours_for_today(db, opens, closes)
+    db.session.commit()
+
+    # The requested delivery slot still has to fall INSIDE the window - the toggle
+    # only lifts the "can't even submit right now" gate, not the delivery-time check.
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], requestedTime=opens))
+
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+
+
+def test_create_order_toggle_on_still_rejects_a_requested_time_outside_hours(client, db, order_payload):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.accept_orders_outside_hours = True
+    opens = _offset_time_str(180)
+    closes = _offset_time_str(300)
+    _set_business_hours_for_today(db, opens, closes)
+    db.session.commit()
+
+    # Submitting right now (outside the window) is fine with the toggle ON, but asking
+    # for a delivery slot that's ALSO outside the window must still fail - a separate,
+    # pre-existing check the toggle was never meant to touch.
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], requestedTime=_offset_time_str(0)))
+
+    assert resp.status_code == 400
+    assert Order.query.count() == 0
+
+
+def test_create_order_closed_day_rejects_regardless_of_toggle(client, db, order_payload):
+    # is_closed (opens_at/closes_at both None) is handled by an earlier, separate
+    # check - the new guard must not weaken or duplicate it.
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.accept_orders_outside_hours = True
+    # A day with real hours elsewhere in the week, so "nothing configured at all"
+    # (which resolve_hours_for_day treats as unrestricted) doesn't mask today's
+    # explicit is_closed row.
+    other_day = (datetime.now(BUSINESS_TZ).weekday() + 1) % 7
+    db.session.add(BusinessHours(day_of_week=other_day, opens_at='09:00', closes_at='18:00'))
+    _set_business_hours_for_today(db, None, None)
+    db.session.commit()
+
+    resp = client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 1}]))
+
+    assert resp.status_code == 400
+    assert 'no atendemos' in resp.get_json()['message'].lower()
+    assert Order.query.count() == 0
+
+
+def test_create_order_midnight_crossing_now_inside_hours_is_allowed(client, db, order_payload, monkeypatch):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    _set_business_hours_for_today(db, '18:00', '02:00')
+    _freeze_time_of_day(monkeypatch, hour=1, minute=0)  # 01:00 - inside 18:00-02:00
+
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], requestedTime='01:00'))
+
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+
+
+def test_create_order_midnight_crossing_now_outside_hours_is_blocked(client, db, order_payload, monkeypatch):
+    _register_owner(client)
+    product = _create_product(db, stock_quantity=None)
+    _set_business_hours_for_today(db, '18:00', '02:00')
+    _freeze_time_of_day(monkeypatch, hour=14, minute=0)  # 14:00 - outside 18:00-02:00
+
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 1}], requestedTime='19:00'))
+
+    assert resp.status_code == 400
+    assert Order.query.count() == 0

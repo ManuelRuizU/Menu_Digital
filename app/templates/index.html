@@ -135,11 +135,25 @@
             <label for="requested-time">Horario sugerido</label>
             <input id="requested-time" type="time"
               {% if opens_at and closes_at and opens_at <= closes_at %}min="{{ opens_at }}" max="{{ closes_at }}"{% endif %}
-              data-opens-at="{{ opens_at or '' }}" data-closes-at="{{ closes_at or '' }}">
+              data-opens-at="{{ opens_at or '' }}" data-closes-at="{{ closes_at or '' }}"
+              data-accept-outside-hours="{{ 'true' if accept_orders_outside_hours else 'false' }}"
+              data-whatsapp-number="{{ whatsapp_number or '' }}">
             <p id="business-hours-hint" class="hint">
               {% if opens_at and closes_at %}Horario sugerido debe estar entre las {{ opens_at }} y las {{ closes_at }}. {% endif %}Sujeto a disponibilidad.
             </p>
             <p id="prep-time-hint" class="hint" style="display:none;"></p>
+            {# Server-rendered initial state (correct on first paint); menu.js recalculates
+               this same thing client-side so it stays correct if the customer leaves the
+               page open across the opening/closing boundary. #}
+            <p id="outside-hours-hint" class="hint" data-variant="{{ 'blocked' if (outside_hours_now and not accept_orders_outside_hours) else 'warning' }}"
+               style="{{ '' if outside_hours_now else 'display:none;' }}">
+              {% if outside_hours_now and not accept_orders_outside_hours %}
+                Nuestro horario es de {{ opens_at }} a {{ closes_at }}.
+                {% if whatsapp_number %}<a href="https://wa.me/{{ whatsapp_number }}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a> para coordinar.{% else %}Escríbenos por WhatsApp para coordinar.{% endif %}
+              {% elif outside_hours_now %}
+                A esta hora solo puedes agendar. Nuestras entregas son de {{ opens_at }} a {{ closes_at }}.
+              {% endif %}
+            </p>
 
             <label id="address-label" for="address">Dirección</label>
             <input id="address" type="text" placeholder="Escribe tu dirección" autocomplete="street-address">

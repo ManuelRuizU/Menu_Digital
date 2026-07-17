@@ -73,6 +73,7 @@ const elements = {
   transferBlock: document.getElementById('transfer-block'),
   notes: document.getElementById('notes'),
   requestedTime: document.getElementById('requested-time'),
+  outsideHoursHint: document.getElementById('outside-hours-hint'),
   navToggle: document.getElementById('nav-toggle'),
   navClose: document.getElementById('nav-close'),
   navBackdrop: document.getElementById('nav-backdrop'),
@@ -111,11 +112,46 @@ const GIFT_PRODUCT_NAME = elements.giftInfo ? elements.giftInfo.dataset.productN
 
 const OPENS_AT = elements.requestedTime.dataset.opensAt || null
 const CLOSES_AT = elements.requestedTime.dataset.closesAt || null
+const ACCEPT_ORDERS_OUTSIDE_HOURS = elements.requestedTime.dataset.acceptOutsideHours === 'true'
+const OUTSIDE_HOURS_WHATSAPP = elements.requestedTime.dataset.whatsappNumber || null
 
 function isWithinBusinessHours(timeStr) {
   if (!OPENS_AT || !CLOSES_AT) return true
   if (OPENS_AT <= CLOSES_AT) return timeStr >= OPENS_AT && timeStr <= CLOSES_AT
   return timeStr >= OPENS_AT || timeStr <= CLOSES_AT
+}
+
+function getSantiagoTimeStr() {
+  // Independent of the visitor's own device timezone/clock - always Santiago's, to
+  // match what opens_at/closes_at and the server's own check are expressed in.
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date())
+}
+
+function isOutsideHoursNow() {
+  return Boolean(OPENS_AT && CLOSES_AT) && !isWithinBusinessHours(getSantiagoTimeStr())
+}
+
+function updateHoursGateHint() {
+  const outsideNow = isOutsideHoursNow()
+  elements.checkoutBtn.disabled = outsideNow && !ACCEPT_ORDERS_OUTSIDE_HOURS
+  if (!elements.outsideHoursHint) return
+  if (!outsideNow) {
+    elements.outsideHoursHint.style.display = 'none'
+    return
+  }
+  elements.outsideHoursHint.style.display = 'block'
+  if (ACCEPT_ORDERS_OUTSIDE_HOURS) {
+    elements.outsideHoursHint.dataset.variant = 'warning'
+    elements.outsideHoursHint.textContent = `A esta hora solo puedes agendar. Nuestras entregas son de ${OPENS_AT} a ${CLOSES_AT}.`
+  } else {
+    elements.outsideHoursHint.dataset.variant = 'blocked'
+    const contactLink = OUTSIDE_HOURS_WHATSAPP
+      ? `<a href="https://wa.me/${OUTSIDE_HOURS_WHATSAPP}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a> para coordinar.`
+      : 'Escríbenos por WhatsApp para coordinar.'
+    elements.outsideHoursHint.innerHTML = `Nuestro horario es de ${OPENS_AT} a ${CLOSES_AT}. ${contactLink}`
+  }
 }
 
 function openNav() {
@@ -1240,6 +1276,12 @@ function getMissingFields() {
 }
 
 async function handleCheckout() {
+  // Defense in depth - the button is already disabled while blocked, but this also
+  // covers a stale disabled state if the hour ticked over without a re-render.
+  if (isOutsideHoursNow() && !ACCEPT_ORDERS_OUTSIDE_HOURS) {
+    alert(`Nuestro horario es de ${OPENS_AT} a ${CLOSES_AT}. Escríbenos por WhatsApp para coordinar.`)
+    return
+  }
   if (!STATE.cart.length) {
     alert('Agrega al menos un producto al carrito antes de enviar.');
     return
@@ -1257,6 +1299,10 @@ window.addEventListener('load', () => {
   loadProducts()
   startMap()
   renderCart()
+  updateHoursGateHint()
+  // A customer can leave this tab open across the opening/closing boundary - re-check
+  // every minute so the gate (and its message) stay correct without a reload.
+  setInterval(updateHoursGateHint, 60000)
 
   document.querySelectorAll('input[name="delivery-mode"]').forEach((input) => {
     input.addEventListener('change', () => {

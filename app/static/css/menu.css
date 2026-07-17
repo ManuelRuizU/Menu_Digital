@@ -337,6 +337,10 @@ button, input { font: inherit; }
 .button-primary { background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; }
 .button-primary:disabled { background: var(--tint-2); color: var(--muted); cursor: not-allowed; }
 .hint { color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+/* Outside-hours: "warning" (toggle ON) is a plain muted hint, same weight as any
+   other .hint - "blocked" (toggle OFF) needs to explain why the button went gray. */
+#outside-hours-hint[data-variant="blocked"] { color: var(--accent); font-weight: 600; }
+#outside-hours-hint[data-variant="blocked"] a { color: inherit; text-decoration: underline; }
 .gift-hint { margin-top: 12px; padding: 10px 14px; border-radius: 14px; background: rgba(var(--primary-rgb),0.14); color: var(--primary); font-weight: 600; }
 .cart-close { display: none; border: none; background: var(--tint-2); color: var(--text-strong); width: 36px; height: 36px; border-radius: 50%; font-size: 1rem; cursor: pointer; flex-shrink: 0; }
 .cart-fab { display: none; }

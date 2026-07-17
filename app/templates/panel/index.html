@@ -74,6 +74,14 @@
         <input type="checkbox" name="accepts_card" {{ 'checked' if current_user.accepts_card else '' }}> Tarjeta al recibir
       </label>
 
+      <label class="checkbox-row">
+        <input type="checkbox" name="accept_orders_outside_hours" {{ 'checked' if current_user.accept_orders_outside_hours else '' }}> Aceptar pedidos fuera del horario de atención
+      </label>
+      <p class="muted">
+        Si está activado, el cliente puede pedir a cualquier hora, pero solo agendar entregas dentro de tu
+        horario. Si está desactivado, el carrito se bloquea fuera de horario.
+      </p>
+
       <label for="bank_details">Datos para transferencia</label>
       <textarea id="bank_details" name="bank_details" placeholder="Banco Estado, Cuenta Vista 123456789, Juan Pérez, RUT 12.345.678-9">{{ current_user.bank_details or '' }}</textarea>
       <p class="muted">Se muestran automáticamente a tus clientes cuando eligen pagar por transferencia.</p>
