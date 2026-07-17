@@ -1015,3 +1015,183 @@ def test_orders_view_shows_all_three_statuses_and_their_group_headers(client, db
     assert 'Por confirmar (1)' in html
     assert 'Confirmados (1)' in html
     assert 'Cancelados (1)' in html
+
+
+# --- orders() view as an accordion: level 1 (summary) scannable, level 2 (detail) full ---
+
+def test_orders_view_level1_summary_shows_scannable_fields_and_starts_collapsed(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=5990, name='California Roll')
+    order = _create_order_with_item(db, product, delivery_mode='retira')
+    order.daily_number = 3
+    order.requested_time = '19:30'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert f'<details class="order-card" id="order-{order.id}">' in html  # collapsed - no "open" attribute
+    assert '#3' in html
+    assert '19:30' in html
+    assert 'Retiro' in html
+    assert '$5990' in html
+    assert 'agenda-payment-pill unpaid' in html  # payment status pill, color+shape pattern reused from Agenda
+    assert '⚠ Sin pagar' in html
+
+
+def test_orders_view_detail_shows_phone_as_text_full_breakdown_coupon_and_change(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Producto')
+    coupon = _create_coupon(db, code='PROMO10', discount_percent=10, scope='order')
+    order = Order(customer_name='Cliente Test', phone='56911112222', delivery_mode='envio',
+                  address='Sevilla 632', payment_method='efectivo', shipping_cost=1500,
+                  cash_amount=10000, coupon_id=coupon.id, discount_amount=250,
+                  bundle_discount_amount=0, total_price=1000 + 1500 - 250, status='Pending')
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=1000))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    # Phone as readable text (not just buried in a wa.me href) and tappable via tel:.
+    assert '56911112222' in html
+    assert 'href="tel:56911112222"' in html
+    # Full Subtotal/Envío/Descuento breakdown, not just the final Total.
+    assert 'Subtotal: $1000' in html
+    assert 'Envío: $1500' in html
+    assert 'Descuento (PROMO10): -$250' in html
+    # Cash change, reusing the same formula _build_courier_message already uses.
+    change = order.cash_amount - order.total_price
+    assert f'Paga con $10000 · vuelto ${change}' in html
+
+
+def test_orders_view_bundle_discount_shown_in_breakdown_when_present(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Producto')
+    order = _create_order_with_item(db, product, shipping_cost=0)
+    order.bundle_discount_amount = 300
+    order.total_price = 1000 - 300
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert '2x1/3x2 aplicado: -$300' in html
+
+
+def test_orders_view_marks_gift_item_explicitly_not_as_a_plain_zero_dollar_item(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Plato Principal')
+    gift_product = _create_product(db, price=2000, name='Postre de Regalo')
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.gift_product_id = gift_product.id
+    db.session.commit()
+
+    order = _create_order_with_item(db, product)
+    db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
+                              product_name=gift_product.name, quantity=1, price=0))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'gift-badge' in html
+    assert '🎁 Regalo' in html
+    # Must not render as an unexplained $0 line item.
+    assert '1× Postre de Regalo — $0' not in html
+
+
+# --- orders() view: contextual actions appear only when their condition holds ---
+
+def test_orders_view_retiro_order_has_no_courier_dispatch_action(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product, delivery_mode='retira')
+    order.status = 'Confirmed'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'Enviar a repartidor' not in html
+    assert 'Incluir en el recorrido' not in html
+
+
+def test_orders_view_paid_order_shows_only_mark_unpaid(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product)
+    order.payment_status = 'paid'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert '>Marcar no pagado<' in html
+    assert '>Marcar pagado<' not in html
+
+
+def test_orders_view_confirmed_order_has_no_confirm_button_but_keeps_cancel(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product)
+    order.status = 'Confirmed'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert '>Confirmar<' not in html
+    assert '>Cancelar<' in html
+
+
+def test_orders_view_cancelled_order_has_neither_confirm_nor_cancel_button(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product)
+    order.status = 'Cancelled'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert '>Confirmar<' not in html
+    assert '>Cancelar<' not in html
+
+
+# --- accordion-state preservation across the POST-redirect every action does ---
+
+def test_confirm_order_redirect_includes_order_anchor_when_provided(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm', data={'anchor': f'order-{order.id}'})
+
+    assert resp.status_code == 302
+    assert resp.headers['Location'].endswith(f'#order-{order.id}')
+
+
+def test_confirm_order_redirect_ignores_malformed_anchor(client, db):
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm',
+                        data={'anchor': '"><script>alert(1)</script>'})
+
+    assert resp.status_code == 302
+    assert '#' not in resp.headers['Location']
+
+
+def test_confirm_order_redirect_has_no_anchor_when_not_provided(client, db):
+    # Agenda/order_history forms don't send an anchor field at all - must not 500 or
+    # produce a stray "#" with nothing after it.
+    _register_owner(client)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/confirm')
+
+    assert resp.status_code == 302
+    assert '#' not in resp.headers['Location']

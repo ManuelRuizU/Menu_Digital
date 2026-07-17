@@ -80,6 +80,22 @@
       /* Cercanía search result that's a real candidate to bundle together (< 1 km) -
          needs to jump out the same way a has-orders block does against free ones. */
       .agenda-card.agenda-card-near { background: #eef6ff; border-left: 3px solid #1d4ed8; padding-left: 8px; margin-left: -8px; }
+      /* Pedidos como acordeón: nivel 1 (summary) es lo escaneable para ELEGIR qué
+         pedido abrir; nivel 2 (el resto de <details>) es el detalle completo, oculto
+         hasta que se necesita - así una tarjeta no compite en densidad con otras 10. */
+      details.order-card { background: white; border-radius: 12px; border: 1px solid #e0e0e0; padding: 14px; margin-bottom: 12px; }
+      details.order-card > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+      details.order-card > summary::-webkit-details-marker { display: none; }
+      .order-summary-line { flex: 1; min-width: 200px; }
+      .order-caret { color: #667eea; font-size: 0.8rem; flex-shrink: 0; }
+      .order-detail { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0; }
+      .order-detail-block { padding: 10px 0; border-top: 1px solid #eee; }
+      .order-detail-block:first-child { border-top: none; padding-top: 0; }
+      .order-detail-label { margin: 0 0 6px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #8d97ad; }
+      .gift-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #ffe9c7; color: #9a5b00; font-size: 0.78rem; font-weight: 700; margin-right: 6px; }
+      /* Vuelto es plata que el repartidor tiene que llevar encima - se destaca a
+         propósito, es el tipo de dato que si se pasa por alto sale caro. */
+      .cash-change-highlight { background: #eef6ff; border: 1px solid #b9d6ff; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-weight: 700; }
     </style>
     {% block head %}{% endblock %}
   </head>

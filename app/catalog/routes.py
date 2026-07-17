@@ -1160,11 +1160,17 @@ def orders():
                            .order_by(Product.name).all())
     owner = User.query.filter_by(is_owner=True).first()
     printer_configured = bool(owner and owner.printer_ip)
+    # Subtotal isn't a stored column (only the final total_price is) - computed once
+    # here, per order, so the template can show a real Subtotal/Envío/Descuento
+    # breakdown instead of just the one collapsed Total it shows today.
+    order_subtotals = {order.id: sum(item.price * item.quantity for item in order.order_items)
+                        for order in todays_orders}
     return render_template('panel/orders.html', orders=todays_orders, pending_count=pending_count,
                             confirmed_count=confirmed_count, cancelled_count=cancelled_count,
                             courier_links=courier_links, couriers=couriers, available_products=available_products,
-                            printer_configured=printer_configured, ORDER_STATUS_LABELS=ORDER_STATUS_LABELS,
-                            PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)
+                            printer_configured=printer_configured, order_subtotals=order_subtotals,
+                            gift_product_id=(owner.gift_product_id if owner else None),
+                            ORDER_STATUS_LABELS=ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)
 
 
 @catalog.route('/orders/history')
@@ -1240,11 +1246,21 @@ def export_orders_csv():
     )
 
 
+ORDER_ANCHOR_RE = re.compile(r'^order-\d+$')
+
+
 def _redirect_back_to_orders():
+    # An optional #order-<id> anchor (set by orders.html on every action form) lands
+    # the owner back on the exact card they had open - without it, a full-page
+    # redirect collapses every <details> and they lose their place. Validated against
+    # a strict pattern since it becomes part of a Location header.
     next_url = request.form.get('next')
-    if next_url in (url_for('catalog.orders'), url_for('catalog.order_history'), url_for('catalog.agenda')):
-        return redirect(next_url)
-    return redirect(url_for('catalog.orders'))
+    if next_url not in (url_for('catalog.orders'), url_for('catalog.order_history'), url_for('catalog.agenda')):
+        next_url = url_for('catalog.orders')
+    anchor = request.form.get('anchor', '')
+    if ORDER_ANCHOR_RE.match(anchor):
+        next_url = f'{next_url}#{anchor}'
+    return redirect(next_url)
 
 
 CONFIRM_ORDER_MAX_ATTEMPTS = 5
