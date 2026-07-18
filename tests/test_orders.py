@@ -1,10 +1,12 @@
 import json
 import re
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from app.catalog.routes import _build_courier_message, _print_order_ticket, cash_payment_summary
 from app.main import routes as main_routes
 from app.models import BUSINESS_TZ, BundlePromo, BusinessHours, Category, Coupon, Courier, Order, OrderItem, Product, User
 from app.utils import day_range_utc
@@ -1348,3 +1350,252 @@ def test_create_order_midnight_crossing_now_outside_hours_is_blocked(client, db,
 
     assert resp.status_code == 400
     assert Order.query.count() == 0
+
+
+# --- cash_payment_summary(): the shared helper behind the three "vuelto" surfaces ---
+# (panel detail, courier WhatsApp message, printed ticket) - a cash shortfall must
+# never collapse into an indistinguishable "vuelto $0".
+
+def _cash_order(cash_amount, total_price, payment_method='efectivo', delivery_mode='retira', **overrides):
+    defaults = dict(customer_name='Cliente', phone='56911112222', delivery_mode=delivery_mode,
+                     payment_method=payment_method, cash_amount=cash_amount, total_price=total_price,
+                     status='Pending')
+    defaults.update(overrides)
+    return Order(**defaults)
+
+
+def test_cash_payment_summary_over_returns_vuelto():
+    order = _cash_order(cash_amount=10000, total_price=8000)
+    assert cash_payment_summary(order) == {'status': 'over', 'amount': 2000}
+
+
+def test_cash_payment_summary_exact_returns_zero_no_vuelto():
+    order = _cash_order(cash_amount=8000, total_price=8000)
+    assert cash_payment_summary(order) == {'status': 'exact', 'amount': 0}
+
+
+def test_cash_payment_summary_short_returns_the_shortfall_not_zero():
+    order = _cash_order(cash_amount=10000, total_price=11690)
+    assert cash_payment_summary(order) == {'status': 'short', 'amount': 1690}
+
+
+def test_cash_payment_summary_none_when_not_paying_cash():
+    order = _cash_order(cash_amount=None, total_price=1000, payment_method='transferencia')
+    assert cash_payment_summary(order) is None
+
+
+def test_cash_payment_summary_none_when_no_cash_amount_declared():
+    order = _cash_order(cash_amount=None, total_price=1000, payment_method='efectivo')
+    assert cash_payment_summary(order) is None
+
+
+# --- Bug 1 fix, panel detail: three distinct cash-payment states, not two ---
+
+def test_orders_view_shows_exact_cash_payment_as_justo_not_vuelto(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Producto')
+    order = _cash_order(cash_amount=1000, total_price=1000)
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=1000))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'Paga con $1000 · justo' in html
+    # Not a blanket "vuelto" absence check - a CSS comment elsewhere on the page
+    # legitimately contains that word. The precise positive assertion above is
+    # what actually proves the 'exact' branch rendered, not the 'over' one.
+    assert 'vuelto $' not in html.lower()
+
+
+def test_orders_view_shows_shortfall_warning_not_vuelto_zero(client, db):
+    # This is the exact reported scenario: total grew (a product added from the
+    # panel) past what the customer declared they'd pay with.
+    _register_owner(client)
+    product = _create_product(db, price=11690, name='Producto')
+    order = _cash_order(cash_amount=10000, total_price=11690)
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=11690))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'FALTAN $1690' in html
+    assert 'cash-change-warning' in html
+    assert 'vuelto $0' not in html.lower()
+
+
+# --- Bug 1 fix, courier WhatsApp message ---
+
+def test_courier_message_shows_vuelto_when_cash_exceeds_total(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _cash_order(cash_amount=10000, total_price=8000, delivery_mode='envio',
+                         daily_number=1, status='Confirmed')
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=8000))
+    db.session.commit()
+
+    message = _build_courier_message(order)
+
+    assert 'paga con $10000, lleva $2000 de vuelto' in message
+
+
+def test_courier_message_shows_justo_when_cash_equals_total(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _cash_order(cash_amount=8000, total_price=8000, delivery_mode='envio',
+                         daily_number=1, status='Confirmed')
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=8000))
+    db.session.commit()
+
+    message = _build_courier_message(order)
+
+    assert 'paga con $8000 justo' in message
+
+
+def test_courier_message_shows_shortfall_warning_not_vuelto_zero(client, db):
+    # The most critical of the three surfaces: this is what the courier reads on
+    # their phone right before knocking on the door.
+    _register_owner(client)
+    product = _create_product(db)
+    order = _cash_order(cash_amount=10000, total_price=11690, delivery_mode='envio',
+                         daily_number=1, status='Confirmed')
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=11690))
+    db.session.commit()
+
+    message = _build_courier_message(order)
+
+    assert 'OJO: dijo que pagaba con $10000 pero el total es $11690 - faltan $1690' in message
+    assert 'vuelto $0' not in message.lower()
+
+
+# --- Bug 1 fix, printed ticket ---
+
+def _owner_with_printer(db):
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.printer_ip = '192.168.1.50'
+    db.session.commit()
+    return owner
+
+
+def test_print_ticket_shows_vuelto_when_cash_exceeds_total(client, db):
+    _register_owner(client)
+    owner = _owner_with_printer(db)
+    product = _create_product(db)
+    order = _cash_order(cash_amount=10000, total_price=8000, daily_number=1, status='Confirmed')
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=8000))
+    db.session.commit()
+
+    mock_printer = MagicMock()
+    with patch('app.catalog.routes.Network', return_value=mock_printer):
+        ok, error = _print_order_ticket(order, owner)
+
+    assert ok is True
+    printed = ''.join(call.args[0] for call in mock_printer.text.call_args_list)
+    assert 'Vuelto: $2000' in printed
+
+
+def test_print_ticket_shows_shortfall_warning_not_vuelto_zero(client, db):
+    _register_owner(client)
+    owner = _owner_with_printer(db)
+    product = _create_product(db)
+    order = _cash_order(cash_amount=10000, total_price=11690, daily_number=1, status='Confirmed')
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=11690))
+    db.session.commit()
+
+    mock_printer = MagicMock()
+    with patch('app.catalog.routes.Network', return_value=mock_printer):
+        ok, error = _print_order_ticket(order, owner)
+
+    assert ok is True
+    printed = ''.join(call.args[0] for call in mock_printer.text.call_args_list)
+    assert 'OJO: dijo que pagaba con $10000 pero el total es $11690' in printed
+    assert 'FALTAN $1690' in printed
+    assert 'Vuelto: $0' not in printed
+
+
+# --- Bug 2 fix: gift badge requires product_id match AND price == 0 ---
+
+def test_orders_view_marks_real_gift_item_price_zero(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Plato Principal')
+    gift_product = _create_product(db, price=2000, name='Postre de Regalo')
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.gift_product_id = gift_product.id
+    db.session.commit()
+
+    order = _create_order_with_item(db, product)
+    db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
+                              product_name=gift_product.name, quantity=1, price=0))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'gift-badge' in html
+    assert '🎁 Regalo' in html
+
+
+def test_orders_view_does_not_mark_manually_added_item_of_gift_product_with_real_price(client, db):
+    # The exact reported bug: a Cafe americano added by hand from "Editar productos"
+    # (real catalog price) happens to be the product configured as the gift.
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Plato Principal')
+    gift_product = _create_product(db, price=4990, name='Cafe americano')
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.gift_product_id = gift_product.id
+    db.session.commit()
+
+    order = _create_order_with_item(db, product)
+    # Same product_id as the configured gift, but a REAL price - exactly what
+    # add_order_item() inserts when added by hand from the panel.
+    db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
+                              product_name=gift_product.name, quantity=1, price=4990))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'class="gift-badge"' not in html
+    assert '🎁' not in html
+    assert '1× Cafe americano — $4990' in html
+
+
+def test_orders_view_does_not_mark_unrelated_product_as_gift(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Plato Principal')
+    gift_product = _create_product(db, price=2000, name='Postre de Regalo')
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.gift_product_id = gift_product.id
+    db.session.commit()
+
+    # Only the unrelated product is in this order - the gift was never earned/added.
+    order = _create_order_with_item(db, product)
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'class="gift-badge"' not in html
+    assert '🎁' not in html

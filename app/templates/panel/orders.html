@@ -80,7 +80,7 @@
               {% for item in order.order_items %}
                 <li class="subitem">
                   <span>
-                    {% if gift_product_id is not none and item.product_id == gift_product_id %}
+                    {% if gift_product_id is not none and item.product_id == gift_product_id and item.price == 0 %}
                       <span class="gift-badge">🎁 Regalo</span> {{ item.product_name }}
                     {% else %}
                       {{ item.quantity }}× {{ item.product_name }} — ${{ '%.0f'|format(item.price * item.quantity) }}
@@ -122,11 +122,21 @@
               · Hora: {{ order.requested_time_label }}
               {% if order.payment_method %}· Pago: {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }}{% endif %}
             </p>
-            {% if order.payment_method == 'efectivo' and order.cash_amount %}
-              {% set change = order.cash_amount - order.total_price %}
-              <p class="cash-change-highlight">
-                Paga con ${{ '%.0f'|format(order.cash_amount) }} · vuelto ${{ '%.0f'|format(change if change > 0 else 0) }}
-              </p>
+            {% set cash_summary = cash_payment_summary(order) %}
+            {% if cash_summary %}
+              {% if cash_summary.status == 'over' %}
+                <p class="cash-change-highlight">
+                  Paga con ${{ '%.0f'|format(order.cash_amount) }} · vuelto ${{ '%.0f'|format(cash_summary.amount) }}
+                </p>
+              {% elif cash_summary.status == 'exact' %}
+                <p class="cash-change-highlight">
+                  Paga con ${{ '%.0f'|format(order.cash_amount) }} · justo
+                </p>
+              {% else %}
+                <p class="cash-change-highlight cash-change-warning">
+                  ⚠ Paga con ${{ '%.0f'|format(order.cash_amount) }} · FALTAN ${{ '%.0f'|format(cash_summary.amount) }}
+                </p>
+              {% endif %}
             {% endif %}
             {% if order.notes %}<p class="muted">Notas: {{ order.notes }}</p>{% endif %}
           </div>

@@ -33,6 +33,29 @@ PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia
 ORDER_STATUS_LABELS = {'Pending': 'Pendiente', 'Confirmed': 'Confirmado', 'Cancelled': 'Cancelado'}
 PAYMENT_STATUS_LABELS = {'pending': 'Pendiente', 'paid': 'Pagado'}
 
+
+def cash_payment_summary(order):
+    """How a cash-paying order's declared cash_amount compares to the final total -
+    three distinct outcomes, never collapsed into a single "vuelto" number that hides
+    a shortfall as "$0". cash_amount is frozen at checkout on purpose (it's what the
+    CUSTOMER declared, not a system value - _recalculate_order_total must never touch
+    it), so if the total grows afterward (a product added from the panel, say), the
+    gap between what they said and what they now owe has to stay visible everywhere
+    this is shown, not silently vanish.
+
+    Returns None when there's nothing cash-related to summarize (not paying cash, or
+    no amount was declared). Otherwise a dict: {'status': 'over'|'exact'|'short',
+    'amount': int} - 'amount' is the vuelto for 'over', 0 for 'exact', and the
+    shortfall (always positive) for 'short'."""
+    if order.payment_method != 'efectivo' or not order.cash_amount:
+        return None
+    difference = order.cash_amount - order.total_price
+    if difference > 0:
+        return {'status': 'over', 'amount': difference}
+    if difference == 0:
+        return {'status': 'exact', 'amount': 0}
+    return {'status': 'short', 'amount': -difference}
+
 # Groups orders() by what still needs action, not by delivery time: Pending (nothing
 # confirmed yet, the thing an encargado can't afford to miss) always on top, then
 # Confirmed, then Cancelled (needs no action at all) at the bottom.
@@ -73,9 +96,15 @@ def _build_courier_message(order):
     payment_label = PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method)
     if payment_label:
         payment_line = f'Pago: {payment_label}'
-        if order.payment_method == 'efectivo' and order.cash_amount:
-            change = order.cash_amount - order.total_price
-            payment_line += f' - paga con ${order.cash_amount:.0f}, lleva ${max(change, 0):.0f} de vuelto'
+        cash_summary = cash_payment_summary(order)
+        if cash_summary is not None:
+            if cash_summary['status'] == 'over':
+                payment_line += f" - paga con ${order.cash_amount:.0f}, lleva ${cash_summary['amount']:.0f} de vuelto"
+            elif cash_summary['status'] == 'exact':
+                payment_line += f' - paga con ${order.cash_amount:.0f} justo'
+            else:
+                payment_line += (f' - OJO: dijo que pagaba con ${order.cash_amount:.0f} pero el total es '
+                                  f"${order.total_price:.0f} - faltan ${cash_summary['amount']:.0f}")
         lines.append(payment_line)
 
     lines.append('')
@@ -172,10 +201,17 @@ def _print_order_ticket(order, owner):
             printer.text('YA PAGADO\n')
         else:
             printer.text('COBRAR EN LA ENTREGA\n')
-            if order.payment_method == 'efectivo' and order.cash_amount:
-                change = max(order.cash_amount - order.total_price, 0)
+            cash_summary = cash_payment_summary(order)
+            if cash_summary is not None:
                 printer.text(f'Paga con: ${order.cash_amount:.0f}\n')
-                printer.text(f'Vuelto: ${change:.0f}\n')
+                if cash_summary['status'] == 'over':
+                    printer.text(f"Vuelto: ${cash_summary['amount']:.0f}\n")
+                elif cash_summary['status'] == 'exact':
+                    printer.text('Paga justo\n')
+                else:
+                    printer.text(f'OJO: dijo que pagaba con ${order.cash_amount:.0f} pero el total es '
+                                  f"${order.total_price:.0f}\n")
+                    printer.text(f"FALTAN ${cash_summary['amount']:.0f}\n")
             elif order.payment_method == 'tarjeta':
                 printer.text('(llevar máquina)\n')
             elif order.payment_method == 'transferencia':
@@ -1170,6 +1206,7 @@ def orders():
                             courier_links=courier_links, couriers=couriers, available_products=available_products,
                             printer_configured=printer_configured, order_subtotals=order_subtotals,
                             gift_product_id=(owner.gift_product_id if owner else None),
+                            cash_payment_summary=cash_payment_summary,
                             ORDER_STATUS_LABELS=ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)
 
 

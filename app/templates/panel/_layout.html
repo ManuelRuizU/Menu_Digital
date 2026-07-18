@@ -96,6 +96,9 @@
       /* Vuelto es plata que el repartidor tiene que llevar encima - se destaca a
          propósito, es el tipo de dato que si se pasa por alto sale caro. */
       .cash-change-highlight { background: #eef6ff; border: 1px solid #b9d6ff; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-weight: 700; }
+      /* A cash shortfall is money the courier is about to lose if nobody notices -
+         needs to look distinctly alarming, not just another blue info box. */
+      .cash-change-highlight.cash-change-warning { background: #fdeaea; border: 2px solid #c0392b; color: #8a1f1f; }
     </style>
     {% block head %}{% endblock %}
   </head>
