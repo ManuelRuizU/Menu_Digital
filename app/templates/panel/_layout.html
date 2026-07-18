@@ -99,6 +99,29 @@
       /* A cash shortfall is money the courier is about to lose if nobody notices -
          needs to look distinctly alarming, not just another blue info box. */
       .cash-change-highlight.cash-change-warning { background: #fdeaea; border: 2px solid #c0392b; color: #8a1f1f; }
+      /* Detalle de pedido, acciones en 3 niveles: 1) principal (destacada, sola arriba -
+         la única cosa con color llamativo en todo el bloque), 2) frecuentes (mismo peso
+         entre sí, sin colores que griten, 2 por fila en móvil), 3) más acciones
+         (colapsado - lo destructivo/ocasional queda a un toque más lejos, no a mano). */
+      .order-action-primary { margin-bottom: 12px; }
+      .order-action-primary form { margin: 0; padding: 0; background: none; border: none; }
+      .order-action-primary button { width: 100%; min-height: 48px; font-size: 1rem; }
+      .order-actions-frequent { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+      .order-actions-frequent form { margin: 0; padding: 0; background: none; border: none; }
+      /* Shared look for anything acting as a level-2 action, whatever tag it really
+         is (<a>, <button>, or a <summary> standing in for "Editar productos") - same
+         weight, neutral colors, comfortable ~44px tap target. */
+      .action-btn { display: flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;
+        width: 100%; min-height: 44px; padding: 10px; border-radius: 10px; border: 1px solid #d8dae3;
+        background: white; color: #333; font-weight: 600; font-size: 0.86rem; text-align: center;
+        text-decoration: none; cursor: pointer; list-style: none; }
+      .action-btn::-webkit-details-marker { display: none; }
+      .order-actions-more { margin-top: 4px; }
+      .order-actions-more > summary { cursor: pointer; color: #667eea; font-weight: 600; font-size: 0.88rem;
+        padding: 12px 0; min-height: 44px; display: flex; align-items: center; list-style: none; }
+      .order-actions-more > summary::-webkit-details-marker { display: none; }
+      .order-actions-more-body { display: grid; gap: 10px; margin-top: 4px; padding-top: 8px; border-top: 1px solid #eee; }
+      .order-actions-more-body > details > summary { padding: 10px 0; min-height: 24px; }
     </style>
     {% block head %}{% endblock %}
   </head>

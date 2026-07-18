@@ -1147,8 +1147,8 @@ def test_orders_view_confirmed_order_has_no_confirm_button_but_keeps_cancel(clie
     resp = client.get('/admin/orders')
     html = resp.data.decode()
 
-    assert '>Confirmar<' not in html
-    assert '>Cancelar<' in html
+    assert '>Confirmar pedido<' not in html
+    assert '>Cancelar pedido<' in html
 
 
 def test_orders_view_cancelled_order_has_neither_confirm_nor_cancel_button(client, db):
@@ -1161,8 +1161,80 @@ def test_orders_view_cancelled_order_has_neither_confirm_nor_cancel_button(clien
     resp = client.get('/admin/orders')
     html = resp.data.decode()
 
-    assert '>Confirmar<' not in html
-    assert '>Cancelar<' not in html
+    assert '>Confirmar pedido<' not in html
+    assert '>Cancelar pedido<' not in html
+
+
+# --- 3-level action hierarchy: exactly one primary action per order, or none ---
+
+def test_orders_view_pending_order_shows_confirm_as_primary_action(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_order_with_item(db, product)  # starts Pending
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'class="order-action-primary"' in html
+    assert 'Confirmar pedido' in html
+
+
+def test_orders_view_confirmed_unpaid_order_shows_mark_paid_as_primary_action(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product)
+    order.status = 'Confirmed'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'class="order-action-primary"' in html
+    assert '<button type="submit">Marcar pagado</button>' in html
+    # Promoted to primary, not duplicated as a plain action-btn too.
+    assert html.count('Marcar pagado') == 1
+
+
+def test_orders_view_confirmed_paid_order_has_no_primary_action(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product)
+    order.status = 'Confirmed'
+    order.payment_status = 'paid'
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'class="order-action-primary"' not in html
+
+
+def test_orders_view_pending_unpaid_order_keeps_mark_paid_in_frequent_actions(client, db):
+    # The clarified rule: "Marcar pagado" keeps the exact same visibility condition
+    # as before (payment_status == 'pending', regardless of order.status) - venta y
+    # pago son ejes independientes. It just isn't promoted to primary unless the
+    # order is also Confirmed; here (Pending) it stays a normal action-btn instead.
+    _register_owner(client)
+    product = _create_product(db)
+    _create_order_with_item(db, product)  # Pending, payment_status defaults 'pending'
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'Confirmar pedido' in html  # this is the primary here
+    assert 'action-btn">Marcar pagado' in html  # still present, as a frequent action
+
+
+def test_orders_view_cancel_lives_inside_more_actions_not_the_frequent_row(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert html.index('order-actions-frequent') < html.index('order-actions-more')
+    assert html.index('order-actions-more') < html.index('Cancelar pedido')
 
 
 # --- accordion-state preservation across the POST-redirect every action does ---

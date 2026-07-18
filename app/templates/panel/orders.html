@@ -144,94 +144,128 @@
           <div class="order-detail-block">
             <p class="order-detail-label">Acciones</p>
 
-            {# "Editar productos" y "Ajustar hora" se reubican tal cual - mismos forms,
-               mismas rutas, mismo comportamiento. Quedan como <details> anidados
-               dentro del <details> del pedido: son acciones de edición que no hace
-               falta tener siempre desplegadas, a diferencia del resto del detalle
-               (cliente/productos/resumen/entrega), que es solo lectura. #}
-            <details>
-              <summary class="muted">Editar productos (agregó algo por WhatsApp)</summary>
-              <form method="post" action="{{ url_for('catalog.add_order_item', order_id=order.id) }}" style="margin-top:8px;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="next" value="{{ request.path }}">
-                <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                <label>Producto</label>
-                <select name="product_id" required>
-                  <option value="" disabled selected>Elige un producto...</option>
-                  {% for product in available_products %}
-                    <option value="{{ product.id }}">{{ product.name }} — ${{ '%.0f'|format(product.price) }}</option>
-                  {% endfor %}
-                </select>
-                <label>Cantidad</label>
-                <input type="number" name="quantity" min="1" value="1">
-                <button type="submit" class="secondary">Agregar al pedido</button>
-              </form>
-            </details>
+            {# Tres niveles, puramente de presentación - ningún form/ruta/condición de
+               visibilidad cambia respecto a antes, solo dónde y cómo se ve cada uno.
+               "Marcar pagado" es la única excepción de jerarquía: sigue visible con la
+               MISMA condición de siempre (payment_status == 'pending', sin mirar
+               status) - venta y pago son ejes independientes, un cliente puede
+               transferir antes de que se confirme la venta. Lo único que cambia es que
+               sube a acción principal cuando el pedido ya está Confirmed; si no, queda
+               en Acciones frecuentes como un botón más. #}
+            {% set primary_is_confirm = order.status == 'Pending' %}
+            {% set primary_is_mark_paid = order.status == 'Confirmed' and order.payment_status == 'pending' %}
 
-            <details>
-              <summary class="muted">Ajustar hora (sobrecupo / adelanto de producción)</summary>
-              <form method="post" action="{{ url_for('catalog.update_order_time', order_id=order.id) }}" style="margin-top:8px;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="next" value="{{ request.path }}">
-                <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                <label>Desde</label>
-                <input type="time" name="requested_time" value="{{ order.requested_time or '' }}" required>
-                <label>Hasta (opcional, para un rango)</label>
-                <input type="time" name="requested_time_end" value="{{ order.requested_time_end or '' }}">
-                <button type="submit" class="secondary">Guardar horario</button>
-              </form>
-            </details>
-
-            {% if order.delivery_mode == 'envio' %}
-              <label class="checkbox-row"><input type="checkbox" name="order_ids" value="{{ order.id }}" form="route-form"> Incluir en el recorrido</label>
+            {# NIVEL 1 - acción principal: la única cosa que probablemente el dueño
+               quiere hacer al abrir este pedido puntual. Sola, ancha, destacada. #}
+            {% if primary_is_confirm %}
+              <div class="order-action-primary">
+                <form method="post" action="{{ url_for('catalog.confirm_order', order_id=order.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="next" value="{{ request.path }}">
+                  <input type="hidden" name="anchor" value="order-{{ order.id }}">
+                  <button type="submit">Confirmar pedido</button>
+                </form>
+              </div>
+            {% elif primary_is_mark_paid %}
+              <div class="order-action-primary">
+                <form method="post" action="{{ url_for('catalog.mark_order_paid', order_id=order.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="next" value="{{ request.path }}">
+                  <input type="hidden" name="anchor" value="order-{{ order.id }}">
+                  <button type="submit">Marcar pagado</button>
+                </form>
+              </div>
             {% endif %}
 
-            <div class="inline-actions" style="margin-top:10px;">
-              <a class="whatsapp-link" style="padding:12px 16px;border-radius:8px;color:white;font-weight:600;" href="https://wa.me/{{ order.phone_digits }}" target="_blank" rel="noopener">📱 WhatsApp cliente</a>
+            {# NIVEL 2 - acciones frecuentes: mismo peso entre sí, sin colores que
+               griten (esos se reservan para la acción principal de arriba). #}
+            <div class="order-actions-frequent">
+              <a class="action-btn" href="https://wa.me/{{ order.phone_digits }}" target="_blank" rel="noopener">📱 WhatsApp cliente</a>
               {% for courier in courier_links[order.id] or [] %}
-                <a class="whatsapp-link" style="padding:12px 16px;border-radius:8px;color:white;font-weight:600;background:#0d2236;" href="{{ courier.url }}" target="_blank" rel="noopener">🛵 {{ courier.name or 'Enviar a repartidor' }}</a>
+                <a class="action-btn" href="{{ courier.url }}" target="_blank" rel="noopener">🛵 {{ courier.name or 'Enviar a repartidor' }}</a>
               {% endfor %}
               {% if printer_configured and order.status == 'Confirmed' %}
                 <form method="post" action="{{ url_for('catalog.print_order_ticket', order_id=order.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="next" value="{{ request.path }}">
                   <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                  <button type="submit" class="secondary">🖨️ Imprimir ticket</button>
+                  <button type="submit" class="action-btn">🖨️ Imprimir ticket</button>
                 </form>
               {% endif %}
-              {% if order.status == 'Pending' %}
-                <form method="post" action="{{ url_for('catalog.confirm_order', order_id=order.id) }}">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="next" value="{{ request.path }}">
-                  <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                  <button type="submit">Confirmar</button>
-                </form>
-              {% endif %}
-              {% if order.status in ('Pending', 'Confirmed') %}
-                <form method="post" action="{{ url_for('catalog.cancel_order', order_id=order.id) }}"
-                    onsubmit="return confirm('¿Cancelar este pedido? Esta acción no se puede deshacer.')">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="next" value="{{ request.path }}">
-                  <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                  <button type="submit" class="danger">Cancelar</button>
-                </form>
-              {% endif %}
-              {% if order.payment_status == 'pending' %}
+              {% if order.payment_status == 'pending' and not primary_is_mark_paid %}
                 <form method="post" action="{{ url_for('catalog.mark_order_paid', order_id=order.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="next" value="{{ request.path }}">
                   <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                  <button type="submit" class="secondary">Marcar pagado</button>
+                  <button type="submit" class="action-btn">Marcar pagado</button>
                 </form>
-              {% else %}
-                <form method="post" action="{{ url_for('catalog.mark_order_unpaid', order_id=order.id) }}">
+              {% endif %}
+              {# "Editar productos" se reubica tal cual - mismo form, misma ruta, mismo
+                 comportamiento. Sigue siendo un <details> por dentro (el <summary> se
+                 estila como botón); su rediseño con soporte de opciones queda aparte. #}
+              <details>
+                <summary class="action-btn">✏️ Editar productos</summary>
+                <form method="post" action="{{ url_for('catalog.add_order_item', order_id=order.id) }}" style="margin-top:8px;">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="next" value="{{ request.path }}">
                   <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                  <button type="submit" class="secondary">Marcar no pagado</button>
+                  <label>Producto</label>
+                  <select name="product_id" required>
+                    <option value="" disabled selected>Elige un producto...</option>
+                    {% for product in available_products %}
+                      <option value="{{ product.id }}">{{ product.name }} — ${{ '%.0f'|format(product.price) }}</option>
+                    {% endfor %}
+                  </select>
+                  <label>Cantidad</label>
+                  <input type="number" name="quantity" min="1" value="1">
+                  <button type="submit" class="secondary">Agregar al pedido</button>
                 </form>
-              {% endif %}
+              </details>
             </div>
+
+            {# NIVEL 3 - más acciones: ocasionales o destructivas, un toque más lejos
+               para que no compitan por espacio ni queden a un toque accidental. #}
+            <details class="order-actions-more">
+              <summary>Más acciones</summary>
+              <div class="order-actions-more-body">
+                <details>
+                  <summary class="muted">Ajustar hora (sobrecupo / adelanto de producción)</summary>
+                  <form method="post" action="{{ url_for('catalog.update_order_time', order_id=order.id) }}" style="margin-top:8px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <input type="hidden" name="anchor" value="order-{{ order.id }}">
+                    <label>Desde</label>
+                    <input type="time" name="requested_time" value="{{ order.requested_time or '' }}" required>
+                    <label>Hasta (opcional, para un rango)</label>
+                    <input type="time" name="requested_time_end" value="{{ order.requested_time_end or '' }}">
+                    <button type="submit" class="secondary">Guardar horario</button>
+                  </form>
+                </details>
+
+                {% if order.delivery_mode == 'envio' %}
+                  <label class="checkbox-row"><input type="checkbox" name="order_ids" value="{{ order.id }}" form="route-form"> Incluir en el recorrido</label>
+                {% endif %}
+
+                {% if order.status in ('Pending', 'Confirmed') %}
+                  <form method="post" action="{{ url_for('catalog.cancel_order', order_id=order.id) }}"
+                      onsubmit="return confirm('¿Cancelar este pedido? Esta acción no se puede deshacer.')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <input type="hidden" name="anchor" value="order-{{ order.id }}">
+                    <button type="submit" class="danger">Cancelar pedido</button>
+                  </form>
+                {% endif %}
+
+                {% if order.payment_status == 'paid' %}
+                  <form method="post" action="{{ url_for('catalog.mark_order_unpaid', order_id=order.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <input type="hidden" name="anchor" value="order-{{ order.id }}">
+                    <button type="submit" class="secondary">Marcar no pagado</button>
+                  </form>
+                {% endif %}
+              </div>
+            </details>
           </div>
         </div>
       </details>
