@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from sqlalchemy import event
 
 from app.catalog.routes import _build_courier_message, _print_order_ticket, cash_payment_summary
+from app.extensions import db as _db
 from app.main import routes as main_routes
-from app.models import BUSINESS_TZ, BundlePromo, BusinessHours, Category, Coupon, Courier, Order, OrderItem, Product, User
+from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Category, Coupon, Courier, Order, OrderItem,
+                         OrderItemOption, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.utils import day_range_utc
 
 
@@ -1671,3 +1674,325 @@ def test_orders_view_does_not_mark_unrelated_product_as_gift(client, db):
 
     assert 'class="gift-badge"' not in html
     assert '🎁' not in html
+
+
+# --- "Editar pedido" (merged Editar productos + Ajustar hora) + catalog picker ---
+
+def _create_product_with_category(db, name, category_name, price=1000, subcategory_name=None):
+    category = Category.query.filter_by(name=category_name).first()
+    if category is None:
+        category = Category(name=category_name)
+        db.session.add(category)
+        db.session.commit()
+    subcategory = None
+    if subcategory_name:
+        subcategory = Subcategory.query.filter_by(name=subcategory_name, category_id=category.id).first()
+        if subcategory is None:
+            subcategory = Subcategory(name=subcategory_name, category_id=category.id)
+            db.session.add(subcategory)
+            db.session.commit()
+    product = Product(name=name, description='Test', price=price, category_id=category.id,
+                       subcategory_id=(subcategory.id if subcategory else None))
+    db.session.add(product)
+    db.session.commit()
+    return product
+
+
+def _extract_catalog_json(html):
+    match = re.search(r'<script type="application/json" id="order-edit-catalog">(.*?)</script>', html, re.S)
+    assert match is not None, 'catalog JSON script tag not found'
+    return json.loads(match.group(1))
+
+
+def test_orders_view_catalog_json_embedded_once_regardless_of_order_count(client, db):
+    _register_owner(client)
+    product = _create_product_with_category(db, 'Café', 'Bebidas')
+    _create_order_with_item(db, product)
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    # Two orders on the page, but the catalog blob (and its <script> tag) must
+    # appear exactly once - not once per order's own "Editar pedido" section.
+    assert html.count('id="order-edit-catalog"') == 1
+
+
+def test_orders_view_catalog_json_includes_category_and_subcategory_names(client, db):
+    _register_owner(client)
+    product = _create_product_with_category(db, 'Roll California', 'Sushi', subcategory_name='Rolls fríos')
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    catalog = _extract_catalog_json(html)
+    entry = next(p for p in catalog if p['name'] == 'Roll California')
+    assert entry['categoryName'] == 'Sushi'
+    assert entry['subcategoryName'] == 'Rolls fríos'
+
+
+def test_orders_view_catalog_json_subcategory_name_is_none_when_product_has_none(client, db):
+    _register_owner(client)
+    product = _create_product_with_category(db, 'Bebida Suelta', 'Bebidas')
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    catalog = _extract_catalog_json(html)
+    entry = next(p for p in catalog if p['name'] == 'Bebida Suelta')
+    assert entry['subcategoryId'] is None
+    assert entry['subcategoryName'] is None
+
+
+def test_orders_view_catalog_serialization_does_not_n_plus_1_on_category(client, db):
+    """Regression guard: Product.category/subcategory are lazy='select' by default -
+    without joinedload, each distinct category fires its own query the first time
+    it's touched. With joinedload, the query count stays flat no matter how many
+    distinct categories the catalog spans."""
+    _register_owner(client)
+    _create_order_with_item(db, _create_product_with_category(db, 'Base', 'CategoriaBase'))
+
+    queries = []
+
+    def _log_query(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    engine = _db.engine
+
+    event.listen(engine, 'before_cursor_execute', _log_query)
+    try:
+        resp_few = client.get('/admin/orders')
+    finally:
+        event.remove(engine, 'before_cursor_execute', _log_query)
+    assert resp_few.status_code == 200
+    count_with_one_category = len(queries)
+
+    for i in range(10):
+        _create_product_with_category(db, f'Producto {i}', f'Categoria {i}', subcategory_name=f'Sub {i}')
+
+    queries.clear()
+    event.listen(engine, 'before_cursor_execute', _log_query)
+    try:
+        resp_many = client.get('/admin/orders')
+    finally:
+        event.remove(engine, 'before_cursor_execute', _log_query)
+    assert resp_many.status_code == 200
+    count_with_eleven_categories = len(queries)
+
+    # 10 more products, each in its own new category AND subcategory, must not add
+    # ~10-20 extra queries - joinedload folds category/subcategory into the same
+    # single products query via JOINs, regardless of how many distinct rows exist.
+    assert count_with_eleven_categories - count_with_one_category <= 1
+
+
+def test_orders_view_edit_order_groups_products_and_time_forms(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    order = _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'Editar pedido' in html
+    # The old, separate summaries are gone - merged into the one button above.
+    assert 'Editar productos' not in html
+    assert 'Ajustar hora (sobrecupo' not in html
+
+    edit_pedido_index = html.index('Editar pedido')
+    add_item_action = f'/admin/orders/{order.id}/items/add'
+    update_time_action = f'/admin/orders/{order.id}/update-time'
+    # Both forms' routes are nested inside "Editar pedido", not loose elsewhere.
+    assert html.index(add_item_action) > edit_pedido_index
+    assert html.index(update_time_action) > edit_pedido_index
+
+
+def test_orders_view_edit_order_has_no_plain_select_for_products(client, db):
+    # The flat <select> with the whole catalog is gone - replaced by the search+group
+    # picker fed from the embedded JSON.
+    _register_owner(client)
+    product = _create_product(db)
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert '<select name="product_id"' not in html
+    assert 'class="product-picker-search"' in html
+    assert 'name="product_id" class="product-picker-selected-id"' in html
+
+
+# --- add_order_item() with product options - reuses _resolve_selected_options from
+# main.routes (same function create_order() uses), not a reimplementation ---
+
+def _create_product_with_options(db, name='Café americano', price=4990):
+    category = Category(name='Bebidas')
+    db.session.add(category)
+    db.session.commit()
+    product = Product(name=name, description='Test', price=price, category_id=category.id)
+    db.session.add(product)
+    db.session.commit()
+    size_group = ProductOptionGroup(product_id=product.id, name='Tamaño', required=True, multi_select=False)
+    db.session.add(size_group)
+    db.session.commit()
+    mediano = ProductOption(group_id=size_group.id, name='Mediano', price_delta=0)
+    grande = ProductOption(group_id=size_group.id, name='Grande', price_delta=1790)
+    db.session.add_all([mediano, grande])
+    db.session.commit()
+    return product, size_group, mediano, grande
+
+
+def test_add_order_item_with_priced_option_charges_base_plus_delta(client, db):
+    # The reported bug, exactly: Cafe americano Grande added from the panel must cost
+    # base + delta ($4990 + $1790), not just the base price.
+    _register_owner(client)
+    product, size_group, mediano, grande = _create_product_with_options(db)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/items/add', data={
+        'product_id': product.id, 'quantity': 1, 'option_ids': [grande.id],
+    })
+
+    assert resp.status_code == 302
+    item = OrderItem.query.filter_by(order_id=order.id, product_id=product.id).first()
+    assert item is not None
+    assert item.price == 4990 + 1790
+    options = OrderItemOption.query.filter_by(order_item_id=item.id).all()
+    assert len(options) == 1
+    assert options[0].name == 'Grande'
+    assert options[0].price_delta == 1790
+
+
+def test_add_order_item_missing_required_option_is_rejected(client, db):
+    _register_owner(client)
+    product, size_group, mediano, grande = _create_product_with_options(db)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/items/add', data={
+        'product_id': product.id, 'quantity': 1,
+    }, follow_redirects=True)
+
+    assert resp.status_code == 200
+    assert 'Elige una opción para' in resp.data.decode()
+    assert OrderItem.query.filter_by(order_id=order.id, product_id=product.id).count() == 0
+
+
+def test_add_order_item_two_options_in_single_select_group_is_rejected(client, db):
+    _register_owner(client)
+    product, size_group, mediano, grande = _create_product_with_options(db)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/items/add', data={
+        'product_id': product.id, 'quantity': 1, 'option_ids': [mediano.id, grande.id],
+    }, follow_redirects=True)
+
+    assert resp.status_code == 200
+    assert 'Solo puedes elegir una opción para' in resp.data.decode()
+    assert OrderItem.query.filter_by(order_id=order.id, product_id=product.id).count() == 0
+
+
+def test_add_order_item_without_options_still_works_like_before(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Bebida Simple', stock_quantity=None)
+    order = _create_order_with_item(db, _create_product(db, stock_quantity=None))
+
+    resp = client.post(f'/admin/orders/{order.id}/items/add', data={
+        'product_id': product.id, 'quantity': 2,
+    })
+
+    assert resp.status_code == 302
+    item = OrderItem.query.filter_by(order_id=order.id, product_id=product.id).first()
+    assert item is not None
+    assert item.price == 1000
+    assert item.quantity == 2
+    assert OrderItemOption.query.filter_by(order_item_id=item.id).count() == 0
+
+
+def test_add_order_item_with_priced_option_recalculates_order_total(client, db):
+    _register_owner(client)
+    product, size_group, mediano, grande = _create_product_with_options(db)
+    order = _create_order_with_item(db, _create_product(db, price=1000, stock_quantity=None))  # total starts at 1000
+
+    client.post(f'/admin/orders/{order.id}/items/add', data={
+        'product_id': product.id, 'quantity': 1, 'option_ids': [grande.id],
+    })
+
+    db.session.refresh(order)
+    assert order.total_price == 1000 + 4990 + 1790
+
+
+# --- catalog JSON includes optionGroups, serialized without N+1 ---
+
+def test_orders_view_catalog_json_includes_option_groups(client, db):
+    _register_owner(client)
+    product, size_group, mediano, grande = _create_product_with_options(db)
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    catalog = _extract_catalog_json(html)
+    entry = next(p for p in catalog if p['name'] == 'Café americano')
+    assert len(entry['optionGroups']) == 1
+    group = entry['optionGroups'][0]
+    assert group['name'] == 'Tamaño'
+    assert group['required'] is True
+    assert group['multiSelect'] is False
+    option_deltas = {o['name']: o['priceDelta'] for o in group['options']}
+    assert option_deltas == {'Mediano': 0, 'Grande': 1790}
+
+
+def test_orders_view_catalog_json_option_groups_empty_for_product_without_options(client, db):
+    _register_owner(client)
+    product = _create_product(db, name='Sin Variantes')
+    _create_order_with_item(db, product)
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    catalog = _extract_catalog_json(html)
+    entry = next(p for p in catalog if p['name'] == 'Sin Variantes')
+    assert entry['optionGroups'] == []
+
+
+def test_orders_view_catalog_serialization_does_not_n_plus_1_on_option_groups(client, db):
+    """Regression guard: Product.option_groups (and each group's .options) are
+    lazy='select' by default - without selectinload, each product/group fires its own
+    query the first time it's touched. With selectinload, the query count stays flat
+    no matter how many products carry option groups."""
+    _register_owner(client)
+    product, _group, _mediano, _grande = _create_product_with_options(db)
+    _create_order_with_item(db, product)
+
+    queries = []
+
+    def _log_query(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    engine = _db.engine
+
+    event.listen(engine, 'before_cursor_execute', _log_query)
+    try:
+        resp_one = client.get('/admin/orders')
+    finally:
+        event.remove(engine, 'before_cursor_execute', _log_query)
+    assert resp_one.status_code == 200
+    count_with_one_product = len(queries)
+
+    for i in range(10):
+        _create_product_with_options(db, name=f'Producto {i}', price=1000)
+
+    queries.clear()
+    event.listen(engine, 'before_cursor_execute', _log_query)
+    try:
+        resp_many = client.get('/admin/orders')
+    finally:
+        event.remove(engine, 'before_cursor_execute', _log_query)
+    assert resp_many.status_code == 200
+    count_with_eleven_products = len(queries)
+
+    # 10 more products, each with its own option group and two options, must not add
+    # ~20+ extra queries - selectinload batches option_groups/options into a couple
+    # of extra queries total, regardless of how many products/groups exist.
+    assert count_with_eleven_products - count_with_one_product <= 2

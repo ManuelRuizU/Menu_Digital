@@ -200,37 +200,37 @@
                   <button type="submit" class="action-btn">Marcar pagado</button>
                 </form>
               {% endif %}
-              {# "Editar productos" se reubica tal cual - mismo form, misma ruta, mismo
-                 comportamiento. Sigue siendo un <details> por dentro (el <summary> se
-                 estila como botón); su rediseño con soporte de opciones queda aparte. #}
+              {# "Editar productos" y "Ajustar hora" quedan agrupados en un solo botón -
+                 antes vivían en niveles distintos (nivel 2 y escondido en "Más
+                 acciones"), cada uno con su propio <details>. Los dos forms de adentro
+                 son exactamente los mismos (misma ruta, mismos campos, misma lógica) -
+                 solo cambió el contenedor que los agrupa y, en Productos, cómo se
+                 elige el producto (buscador en vez de <select> plano). #}
               <details>
-                <summary class="action-btn">✏️ Editar productos</summary>
-                <form method="post" action="{{ url_for('catalog.add_order_item', order_id=order.id) }}" style="margin-top:8px;">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="next" value="{{ request.path }}">
-                  <input type="hidden" name="anchor" value="order-{{ order.id }}">
-                  <label>Producto</label>
-                  <select name="product_id" required>
-                    <option value="" disabled selected>Elige un producto...</option>
-                    {% for product in available_products %}
-                      <option value="{{ product.id }}">{{ product.name }} — ${{ '%.0f'|format(product.price) }}</option>
-                    {% endfor %}
-                  </select>
-                  <label>Cantidad</label>
-                  <input type="number" name="quantity" min="1" value="1">
-                  <button type="submit" class="secondary">Agregar al pedido</button>
-                </form>
-              </details>
-            </div>
+                <summary class="action-btn">✏️ Editar pedido</summary>
+                <div style="margin-top:8px;">
+                  <p class="order-detail-label">Productos</p>
+                  <form method="post" action="{{ url_for('catalog.add_order_item', order_id=order.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <input type="hidden" name="anchor" value="order-{{ order.id }}">
+                    <div class="product-picker">
+                      <input type="text" class="product-picker-search" placeholder="Buscar producto...">
+                      <div class="product-picker-results"></div>
+                      <input type="hidden" name="product_id" class="product-picker-selected-id">
+                      <p class="product-picker-selected-label muted" style="display:none;"></p>
+                      {# Se llena solo cuando el producto elegido tiene grupos de opciones -
+                         si no tiene ninguno, queda vacía y no se ve nada distinto a antes. #}
+                      <div class="product-picker-option-groups"></div>
+                      <p class="product-picker-total-price" style="display:none;"></p>
+                    </div>
+                    <label>Cantidad</label>
+                    <input type="number" name="quantity" min="1" value="1">
+                    <button type="submit" class="secondary">Agregar al pedido</button>
+                  </form>
 
-            {# NIVEL 3 - más acciones: ocasionales o destructivas, un toque más lejos
-               para que no compitan por espacio ni queden a un toque accidental. #}
-            <details class="order-actions-more">
-              <summary>Más acciones</summary>
-              <div class="order-actions-more-body">
-                <details>
-                  <summary class="muted">Ajustar hora (sobrecupo / adelanto de producción)</summary>
-                  <form method="post" action="{{ url_for('catalog.update_order_time', order_id=order.id) }}" style="margin-top:8px;">
+                  <p class="order-detail-label" style="margin-top:16px;">Hora</p>
+                  <form method="post" action="{{ url_for('catalog.update_order_time', order_id=order.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ request.path }}">
                     <input type="hidden" name="anchor" value="order-{{ order.id }}">
@@ -240,8 +240,15 @@
                     <input type="time" name="requested_time_end" value="{{ order.requested_time_end or '' }}">
                     <button type="submit" class="secondary">Guardar horario</button>
                   </form>
-                </details>
+                </div>
+              </details>
+            </div>
 
+            {# NIVEL 3 - más acciones: ocasionales o destructivas, un toque más lejos
+               para que no compitan por espacio ni queden a un toque accidental. #}
+            <details class="order-actions-more">
+              <summary>Más acciones</summary>
+              <div class="order-actions-more-body">
                 {% if order.delivery_mode == 'envio' %}
                   <label class="checkbox-row"><input type="checkbox" name="order_ids" value="{{ order.id }}" form="route-form"> Incluir en el recorrido</label>
                 {% endif %}
@@ -273,6 +280,12 @@
       <p class="muted">Todavía no ha llegado ningún pedido hoy.</p>
     {% endfor %}
 
+    {# El catálogo se serializa UNA sola vez acá, sin importar cuántos pedidos haya en
+       la página - antes available_products se volvía a iterar dentro de cada tarjeta
+       (un <select> con todo el catálogo × N pedidos). tojson escapa para contexto HTML
+       de forma segura (evita el problema clásico de "</script>" dentro del JSON). #}
+    <script type="application/json" id="order-edit-catalog">{{ catalog_json | tojson }}</script>
+
     <script>
       // Tras un POST-redirect, la página recarga completa y todo <details> vuelve a
       // colapsarse - si el form incluyó un ancla #order-N, esto reabre esa tarjeta
@@ -284,6 +297,191 @@
           target.open = true;
           target.scrollIntoView({ block: 'center' });
         }
+      })();
+    </script>
+
+    <script>
+      // Selector de productos con buscador, dentro de "Editar pedido" → Productos.
+      // Replica (no importa) la lógica de groupProducts()/renderProductGrid() de
+      // menu.js: buscador vacío -> agrupado por categoría/subcategoría; con texto ->
+      // lista plana filtrada por nombre (minúsculas + includes). El catálogo se lee
+      // una sola vez del <script type="application/json"> de arriba y se comparte
+      // entre todos los selectores de la página (uno por pedido).
+      (function () {
+        var catalogEl = document.getElementById('order-edit-catalog');
+        var catalog = catalogEl ? JSON.parse(catalogEl.textContent) : [];
+
+        function escapeHtml(value) {
+          return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+          });
+        }
+
+        function groupByCategory(products) {
+          var categories = [];
+          var categoryIndex = {};
+          products.forEach(function (product) {
+            var category = categoryIndex[product.categoryId];
+            if (!category) {
+              category = { name: product.categoryName, subcategories: [], subcategoryIndex: {} };
+              categoryIndex[product.categoryId] = category;
+              categories.push(category);
+            }
+            var subKey = product.subcategoryId || 'none';
+            var subcategory = category.subcategoryIndex[subKey];
+            if (!subcategory) {
+              subcategory = { name: product.subcategoryName, products: [] };
+              category.subcategoryIndex[subKey] = subcategory;
+              category.subcategories.push(subcategory);
+            }
+            subcategory.products.push(product);
+          });
+          return categories;
+        }
+
+        function productRowHtml(product) {
+          return '<div class="suggestion-item" data-product-id="' + product.id + '">' +
+            escapeHtml(product.name) + ' — $' + Math.round(product.price) + '</div>';
+        }
+
+        function renderResults(container, term) {
+          var normalized = term.trim().toLowerCase();
+          if (!normalized) {
+            var categories = groupByCategory(catalog);
+            container.innerHTML = categories.map(function (category) {
+              return '<p class="product-picker-group-label">' + escapeHtml(category.name) + '</p>' +
+                category.subcategories.map(function (sub) {
+                  return (sub.name ? '<p class="product-picker-subgroup-label muted">' + escapeHtml(sub.name) + '</p>' : '') +
+                    '<div class="suggestions-list">' + sub.products.map(productRowHtml).join('') + '</div>';
+                }).join('');
+            }).join('');
+            return;
+          }
+          var filtered = catalog.filter(function (product) {
+            return product.name.toLowerCase().indexOf(normalized) !== -1;
+          });
+          container.innerHTML = filtered.length
+            ? '<div class="suggestions-list">' + filtered.map(productRowHtml).join('') + '</div>'
+            : '<p class="muted">No se encontraron productos con ese nombre.</p>';
+        }
+
+        function optionGroupInputName(group) {
+          return 'opt-group-' + group.id;
+        }
+
+        function optionGroupHtml(group, basePrice) {
+          // Final price per option (base + delta), not the delta - the dueño thinks
+          // in final prices, same as the customer on the public menu never sees a
+          // delta either. price_delta stays the internal model; this is only a label.
+          var inputType = group.multiSelect ? 'checkbox' : 'radio';
+          return '<div class="product-picker-option-group">' +
+            '<p class="product-picker-option-group-title">' + escapeHtml(group.name) +
+            (group.required ? ' <span class="required-tag">obligatorio</span>' : '') + '</p>' +
+            group.options.map(function (option) {
+              return '<label class="product-picker-option">' +
+                '<input type="' + inputType + '" name="' + optionGroupInputName(group) + '" value="' + option.id +
+                '" data-price-delta="' + option.priceDelta + '">' +
+                escapeHtml(option.name) + ' — $' + Math.round(basePrice + option.priceDelta) +
+                '</label>';
+            }).join('') +
+            '</div>';
+        }
+
+        // Checked option inputs *within this picker's own option-groups box* only -
+        // each order card has its own <form>, so same-named radios in a different
+        // order's form never interfere with this one.
+        function checkedOptionInputs(optionGroupsBox) {
+          return Array.prototype.slice.call(optionGroupsBox.querySelectorAll('input:checked'));
+        }
+
+        function updateTotalPrice(picker, product) {
+          var optionGroupsBox = picker.querySelector('.product-picker-option-groups');
+          var totalPriceEl = picker.querySelector('.product-picker-total-price');
+          if (!product || !product.optionGroups || !product.optionGroups.length) {
+            totalPriceEl.style.display = 'none';
+            return;
+          }
+          var extra = checkedOptionInputs(optionGroupsBox).reduce(function (sum, input) {
+            return sum + (Number(input.dataset.priceDelta) || 0);
+          }, 0);
+          totalPriceEl.textContent = 'Precio del item: $' + Math.round(product.price + extra);
+          totalPriceEl.style.display = 'block';
+        }
+
+        function initPicker(picker) {
+          var search = picker.querySelector('.product-picker-search');
+          var results = picker.querySelector('.product-picker-results');
+          var hiddenInput = picker.querySelector('.product-picker-selected-id');
+          var selectedLabel = picker.querySelector('.product-picker-selected-label');
+          var optionGroupsBox = picker.querySelector('.product-picker-option-groups');
+          var form = picker.closest('form');
+          var selectedProduct = null;
+
+          renderResults(results, '');
+
+          search.addEventListener('input', function () {
+            renderResults(results, search.value);
+          });
+
+          results.addEventListener('click', function (event) {
+            var row = event.target.closest('[data-product-id]');
+            if (!row) return;
+            var product = catalog.filter(function (p) { return String(p.id) === row.dataset.productId; })[0];
+            if (!product) return;
+            selectedProduct = product;
+            hiddenInput.value = product.id;
+            selectedLabel.textContent = 'Elegiste: ' + product.name + ' — $' + Math.round(product.price);
+            selectedLabel.style.display = 'block';
+            search.value = '';
+            renderResults(results, '');
+            optionGroupsBox.innerHTML = (product.optionGroups || []).map(function (group) {
+              return optionGroupHtml(group, product.price);
+            }).join('');
+            updateTotalPrice(picker, product);
+          });
+
+          // Event delegation - one listener covers every option input, current and
+          // future (re-rendered each time a different product is picked).
+          optionGroupsBox.addEventListener('change', function () {
+            updateTotalPrice(picker, selectedProduct);
+          });
+
+          if (form) {
+            form.addEventListener('submit', function (event) {
+              if (!hiddenInput.value) {
+                event.preventDefault();
+                alert('Elige un producto de la lista antes de agregarlo.');
+                return;
+              }
+              if (selectedProduct) {
+                for (var i = 0; i < (selectedProduct.optionGroups || []).length; i++) {
+                  var group = selectedProduct.optionGroups[i];
+                  if (group.required && optionGroupsBox.querySelectorAll(
+                      'input[name="' + optionGroupInputName(group) + '"]:checked').length === 0) {
+                    event.preventDefault();
+                    alert('Elige una opción para "' + group.name + '".');
+                    return;
+                  }
+                }
+              }
+              // The server only reads a flat "option_ids" field (same as create_order's
+              // JSON payload) - inject one hidden input per checked option, regardless
+              // of which group it belongs to. Cleared and rebuilt each submit so
+              // switching products never leaves a stale selection behind.
+              Array.prototype.slice.call(form.querySelectorAll('input[name="option_ids"]'))
+                .forEach(function (input) { input.remove(); });
+              checkedOptionInputs(optionGroupsBox).forEach(function (input) {
+                var hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'option_ids';
+                hidden.value = input.value;
+                form.appendChild(hidden);
+              });
+            });
+          }
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll('.product-picker'), initPicker);
       })();
     </script>
 {% endblock %}

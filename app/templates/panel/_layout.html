@@ -109,7 +109,7 @@
       .order-actions-frequent { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
       .order-actions-frequent form { margin: 0; padding: 0; background: none; border: none; }
       /* Shared look for anything acting as a level-2 action, whatever tag it really
-         is (<a>, <button>, or a <summary> standing in for "Editar productos") - same
+         is (<a>, <button>, or a <summary> standing in for "Editar pedido") - same
          weight, neutral colors, comfortable ~44px tap target. */
       .action-btn { display: flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;
         width: 100%; min-height: 44px; padding: 10px; border-radius: 10px; border: 1px solid #d8dae3;
@@ -122,6 +122,25 @@
       .order-actions-more > summary::-webkit-details-marker { display: none; }
       .order-actions-more-body { display: grid; gap: 10px; margin-top: 4px; padding-top: 8px; border-top: 1px solid #eee; }
       .order-actions-more-body > details > summary { padding: 10px 0; min-height: 24px; }
+      /* Selector de productos con buscador, dentro de "Editar pedido" - resultados en
+         una lista con scroll propio para que un catálogo grande no infle la página. */
+      .product-picker-results { max-height: 260px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; margin-top: 6px; }
+      .product-picker-results .suggestions-list { margin: 0; border: none; border-radius: 0; }
+      .product-picker-results .suggestion-item { border-bottom: 1px solid #f0f0f0; }
+      .product-picker-results .suggestion-item:last-child { border-bottom: none; }
+      .product-picker-group-label { margin: 8px 10px 2px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #8d97ad; }
+      .product-picker-subgroup-label { margin: 2px 10px; font-size: 0.78rem; }
+      .product-picker-selected-label { margin-top: 6px; font-weight: 600; }
+      /* Grupos de opciones del producto elegido - mismo patrón visual que el modal de
+         variantes de la carta pública (menu.css .modal-option-group), para que se
+         sienta consistente aunque sea un archivo de CSS distinto. */
+      .product-picker-option-groups:empty { margin: 0; }
+      .product-picker-option-group { margin: 10px 0; padding: 8px 10px; background: #f8f9fb; border-radius: 8px; }
+      .product-picker-option-group-title { font-weight: 700; margin: 0 0 6px; font-size: 0.88rem; }
+      .required-tag { font-size: 0.7rem; font-weight: 600; color: #e15c5c; text-transform: uppercase; }
+      .product-picker-option { display: block; padding: 4px 0; font-size: 0.88rem; cursor: pointer; }
+      .product-picker-option input { margin-right: 8px; }
+      .product-picker-total-price { margin: 8px 0 0; font-weight: 700; }
     </style>
     {% block head %}{% endblock %}
   </head>

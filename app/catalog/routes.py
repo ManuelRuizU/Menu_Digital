@@ -16,16 +16,16 @@ from escpos.printer import Network
 from shapely.geometry import shape
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app import db, limiter
 from app.catalog import catalog
 from app.decorators import admin_required, owner_required
 from app.geocoding import geocode
 from app.main.routes import compute_bundle_discount, compute_coupon_discount, get_hours_for_today, \
-    _get_active_bundle_promos, _haversine_km
+    _get_active_bundle_promos, _haversine_km, _resolve_selected_options
 from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
-                         OrderItem, Product, ProductOption, ProductOptionGroup, Subcategory, User)
+                         OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup, Subcategory, User)
 from app.uploads import save_image
 from app.utils import day_range_utc, parse_money
 
@@ -1192,8 +1192,40 @@ def orders():
     cancelled_count = sum(1 for order in todays_orders if order.status == 'Cancelled')
     couriers = Courier.query.order_by(Courier.name).all()
     courier_links = {order.id: _build_courier_links(order, couriers) for order in todays_orders}
+    # joinedload for category/subcategory (to-one - one query, two extra JOINs) and
+    # selectinload for option_groups/options (one-to-many - a couple of batched
+    # queries total, not one per product/group the way a lazy access from inside a
+    # Jinja loop would be). Serialized once into plain dicts and embedded as a single
+    # JSON blob (see orders.html) instead of looping available_products inside every
+    # order card's own <select> - with a real catalog (dozens of products) that used
+    # to repeat the entire list once per order on the page.
     available_products = (Product.query.filter_by(is_active=True, sold_out=False)
+                           .options(joinedload(Product.category), joinedload(Product.subcategory),
+                                    selectinload(Product.option_groups).selectinload(ProductOptionGroup.options))
                            .order_by(Product.name).all())
+    catalog_json = [
+        {
+            'id': product.id,
+            'name': product.name,
+            'price': product.price,
+            'categoryId': product.category_id,
+            'categoryName': product.category.name,
+            'subcategoryId': product.subcategory_id,
+            'subcategoryName': product.subcategory.name if product.subcategory else None,
+            'optionGroups': [
+                {
+                    'id': group.id,
+                    'name': group.name,
+                    'required': group.required,
+                    'multiSelect': group.multi_select,
+                    'options': [{'id': option.id, 'name': option.name, 'priceDelta': option.price_delta}
+                                for option in group.options],
+                }
+                for group in product.option_groups
+            ],
+        }
+        for product in available_products
+    ]
     owner = User.query.filter_by(is_owner=True).first()
     printer_configured = bool(owner and owner.printer_ip)
     # Subtotal isn't a stored column (only the final total_price is) - computed once
@@ -1203,7 +1235,7 @@ def orders():
                         for order in todays_orders}
     return render_template('panel/orders.html', orders=todays_orders, pending_count=pending_count,
                             confirmed_count=confirmed_count, cancelled_count=cancelled_count,
-                            courier_links=courier_links, couriers=couriers, available_products=available_products,
+                            courier_links=courier_links, couriers=couriers, catalog_json=catalog_json,
                             printer_configured=printer_configured, order_subtotals=order_subtotals,
                             gift_product_id=(owner.gift_product_id if owner else None),
                             cash_payment_summary=cash_payment_summary,
@@ -1463,8 +1495,24 @@ def add_order_item(order_id):
         flash(f'Solo quedan {product.stock_quantity} unidades de {product.name}.')
         return _redirect_back_to_orders()
 
-    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
-                              quantity=quantity, price=product.price))
+    # Same resolution create_order() uses for a checkout item - reused, not
+    # reimplemented, so there's exactly one place that decides what a chosen option
+    # actually costs. Raw strings (not type=int on getlist) on purpose: the function's
+    # own int() conversion is what turns a bad id into an honest error message instead
+    # of Werkzeug silently dropping it.
+    option_ids = request.form.getlist('option_ids')
+    selected_options, error = _resolve_selected_options(product, option_ids)
+    if error:
+        flash(error)
+        return _redirect_back_to_orders()
+    unit_price = product.price + sum(option.price_delta for option in selected_options)
+
+    order_item = OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                            quantity=quantity, price=unit_price)
+    db.session.add(order_item)
+    db.session.flush()
+    for option in selected_options:
+        db.session.add(OrderItemOption(order_item_id=order_item.id, name=option.name, price_delta=option.price_delta))
     if product.stock_quantity is not None:
         product.stock_quantity = max(product.stock_quantity - quantity, 0)
         if product.stock_quantity == 0:
