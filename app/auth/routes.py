@@ -275,6 +275,7 @@ def update_business_profile():
 @owner_required
 def update_business_hours():
     _ensure_business_hours_rows()
+    invalid_days = []
     for hours in BusinessHours.query.all():
         day = hours.day_of_week
         if f'closed_{day}' in request.form:
@@ -284,6 +285,11 @@ def update_business_hours():
         opens_at = _parse_time(request.form.get(f'opens_{day}', '').strip())
         closes_at = _parse_time(request.form.get(f'closes_{day}', '').strip())
         if opens_at and closes_at:
+            # opens_at > closes_at is a legitimate overnight schedule (18:00-02:00) -
+            # only reject the one case that's never valid: a zero-minute window.
+            if opens_at == closes_at:
+                invalid_days.append(hours.day_name)
+                continue
             hours.opens_at = opens_at
             hours.closes_at = closes_at
         else:
@@ -291,6 +297,9 @@ def update_business_hours():
             hours.closes_at = None
 
     db.session.commit()
+    if invalid_days:
+        flash('La apertura no puede ser igual al cierre - no se guardó el horario de '
+              + ', '.join(invalid_days) + '.')
     flash('Horario de atención actualizado')
     return redirect(url_for('auth.admin_panel'))
 

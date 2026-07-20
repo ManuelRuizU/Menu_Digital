@@ -997,8 +997,8 @@ def _build_agenda_blocks(confirmed_orders, block_minutes, opens_at, closes_at, n
     """Groups today's confirmed orders into fixed-size time blocks between opens_at
     and closes_at. Everything is done in "minutes since opens_at" so a range that
     crosses midnight (opens_at > closes_at) is handled the same way as a normal one -
-    closes_at, and any order/now time earlier than opens_at, gets +1440 to land in
-    the following day's segment of the same timeline.
+    closes_at, and any order/now time in the early-morning TAIL of that range, gets
+    +1440 to land in the following day's segment of the same timeline.
 
     Returns (blocks, unscheduled_orders): blocks is a list of dicts (start/end in
     "HH:MM", is_past, orders, unpaid_count), in chronological order. unscheduled_orders
@@ -1006,11 +1006,27 @@ def _build_agenda_blocks(confirmed_orders, block_minutes, opens_at, closes_at, n
     outside [opens_at, closes_at) - nothing with status='Confirmed' is ever dropped."""
     opens_minutes = _parse_time_to_minutes(opens_at)
     closes_minutes_raw = _parse_time_to_minutes(closes_at)
+
+    if opens_minutes == closes_minutes_raw:
+        # apertura == cierre is a zero-minute window - invalid input, not a real
+        # schedule. Building a grid for it would be either empty or (worse) a full
+        # 24h of phantom blocks depending on how the wrap math below reads it.
+        # Nothing gets placed anywhere, but every confirmed order still has to
+        # surface - same "never silently dropped" rule as any other unscheduled case.
+        unscheduled = sorted(confirmed_orders, key=lambda order: (order.requested_time is None, order.requested_time or ''))
+        return [], unscheduled
+
     wraps = closes_minutes_raw <= opens_minutes
     closes_minutes = closes_minutes_raw + 1440 if wraps else closes_minutes_raw
 
     def _to_timeline(minutes):
-        return minutes + 1440 if (wraps and minutes < opens_minutes) else minutes
+        # Only the early-morning TAIL of a genuinely wrapping schedule belongs to
+        # "later" on this timeline - a time before opens_at but NOT in that tail
+        # (e.g. 12:21 in an 18:00-02:00 day, or ANY time before opens_at when
+        # closes_at is exactly '00:00' and there's no tail at all) simply hasn't
+        # happened yet today. Shifting it too would push it past every block and
+        # make the whole day read as already over.
+        return minutes + 1440 if (wraps and minutes < closes_minutes_raw) else minutes
 
     now_minutes = _to_timeline(_parse_time_to_minutes(now_str))
 
@@ -1074,6 +1090,11 @@ def agenda():
     else:
         opens_at, closes_at = hours_today.opens_at, hours_today.closes_at
 
+    schedule_warning = None
+    if opens_at == closes_at:
+        schedule_warning = ('El horario de hoy no está bien configurado (apertura = cierre). '
+                             'Revísalo en Perfil del negocio.')
+
     now_str = datetime.now(BUSINESS_TZ).strftime('%H:%M')
     blocks, unscheduled_orders = _build_agenda_blocks(confirmed_orders, block_minutes, opens_at, closes_at, now_str)
 
@@ -1082,6 +1103,7 @@ def agenda():
     return render_template('panel/agenda.html', today=datetime.now(BUSINESS_TZ).date(),
                             block_minutes=block_minutes, blocks=blocks, unscheduled_orders=unscheduled_orders,
                             confirmed_count=len(confirmed_orders), unpaid_count=unpaid_count,
+                            schedule_warning=schedule_warning,
                             PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS=PAYMENT_STATUS_LABELS)
 
 

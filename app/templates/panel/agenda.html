@@ -41,6 +41,10 @@
     </p>
     <p><strong>{{ confirmed_count }}</strong> confirmados · <strong>{{ unpaid_count }}</strong> sin pagar</p>
 
+    {% if schedule_warning %}
+      <p class="schedule-warning">⚠ {{ schedule_warning }}</p>
+    {% endif %}
+
     <div class="card">
       <label for="cercania-direccion">¿Dónde va el pedido nuevo?</label>
       <div class="inline-actions">
@@ -72,7 +76,9 @@
       {# A past, empty block has nothing worth showing - it can't be agendado
          anymore and it hides no debt, so it renders nothing at all. #}
     {% else %}
-      <p class="muted">No hay horario de agenda configurado para hoy.</p>
+      {% if not schedule_warning %}
+        <p class="muted">No hay horario de agenda configurado para hoy.</p>
+      {% endif %}
     {% endfor %}
 
     {% if unscheduled_orders %}

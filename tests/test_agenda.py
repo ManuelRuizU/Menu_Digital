@@ -161,6 +161,69 @@ def test_is_past_at_19_00_no_post_midnight_block_has_happened_yet():
     assert late_block['is_past'] is False
 
 
+# --- three cases that look numerically identical (closes_minutes <= opens_minutes)
+# but need different treatment: real midnight crossing, closes-at-exactly-00:00
+# (no early-morning tail at all), and a degenerate zero-minute window ---
+
+def test_closes_at_midnight_before_opening_no_blocks_marked_past():
+    """The exact bug reported: 18:00-00:00 (closes at midnight - NOT a real crossing,
+    there's no early-morning tail) checked at 12:21, before the day even opens. All 18
+    blocks must exist and none can be past - the whole day hasn't started yet."""
+    blocks, unscheduled = _build_agenda_blocks([], block_minutes=20,
+                                                opens_at='18:00', closes_at='00:00', now_str='12:21')
+
+    assert len(blocks) == 18
+    assert unscheduled == []
+    assert all(not block['is_past'] for block in blocks)
+
+
+def test_closes_at_midnight_after_opening_behaves_normally():
+    """Same 18:00-00:00 schedule, checked at 20:00 (after opening) - blocks before
+    20:00 are past, blocks at/after are not, same as any normal (non-wrapping) day."""
+    blocks, _ = _build_agenda_blocks([], block_minutes=20,
+                                      opens_at='18:00', closes_at='00:00', now_str='20:00')
+
+    early_block = next(b for b in blocks if (b['label_start'], b['label_end']) == ('18:00', '18:20'))
+    late_block = next(b for b in blocks if (b['label_start'], b['label_end']) == ('20:00', '20:20'))
+    assert early_block['is_past'] is True
+    assert late_block['is_past'] is False
+
+
+def test_real_midnight_crossing_at_00_45_is_inside_and_marks_past_blocks_correctly():
+    """The operation that must never break: 18:00-02:00, checked at 00:45 - inside the
+    early-morning tail. The evening block already happened (past); the post-midnight
+    block still hasn't (not past)."""
+    blocks, _ = _build_agenda_blocks([], block_minutes=30,
+                                      opens_at='18:00', closes_at='02:00', now_str='00:45')
+
+    evening_block = next(b for b in blocks if (b['label_start'], b['label_end']) == ('20:00', '20:30'))
+    post_midnight_block = next(b for b in blocks if (b['label_start'], b['label_end']) == ('01:00', '01:30'))
+    assert evening_block['is_past'] is True
+    assert post_midnight_block['is_past'] is False
+
+
+def test_real_midnight_crossing_before_opening_no_blocks_marked_past():
+    """Same 18:00-02:00 schedule, checked at 12:21 (before opening - NOT the
+    early-morning tail of last night) - nothing has happened yet, nothing is past."""
+    blocks, _ = _build_agenda_blocks([], block_minutes=30,
+                                      opens_at='18:00', closes_at='02:00', now_str='12:21')
+
+    assert all(not block['is_past'] for block in blocks)
+
+
+def test_degenerate_window_opens_equals_closes_returns_no_blocks():
+    """opens_at == closes_at (a zero-minute window) is invalid input - must not
+    generate a full day of phantom blocks, and confirmed orders must still surface
+    somewhere instead of vanishing."""
+    order = _order(requested_time='19:30')
+
+    blocks, unscheduled = _build_agenda_blocks([order], block_minutes=20,
+                                                opens_at='19:00', closes_at='19:00', now_str='12:21')
+
+    assert blocks == []
+    assert unscheduled == [order]
+
+
 # --- /admin/agenda route ---
 
 def _register_owner(client):
@@ -196,6 +259,21 @@ def _set_business_hours_for_today(db, opens_at='09:00', closes_at='23:00'):
     today_weekday = datetime.now(BUSINESS_TZ).weekday()
     db.session.add(BusinessHours(day_of_week=today_weekday, opens_at=opens_at, closes_at=closes_at))
     db.session.commit()
+
+
+def test_agenda_route_shows_warning_for_degenerate_schedule_not_empty_state(client, db):
+    _register_owner(client)
+    _set_business_hours_for_today(db, opens_at='19:00', closes_at='19:00')
+
+    resp = client.get('/admin/agenda')
+    html = resp.data.decode()
+
+    assert resp.status_code == 200
+    assert 'no está bien configurado' in html
+    assert 'apertura = cierre' in html
+    # Must not ALSO show the generic "nothing configured" message - that would
+    # contradict the specific warning and confuse which one is actually true.
+    assert 'No hay horario de agenda configurado para hoy.' not in html
 
 
 def test_agenda_route_only_shows_confirmed_orders(client, db):

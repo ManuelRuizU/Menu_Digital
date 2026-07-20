@@ -141,6 +141,9 @@
       .product-picker-option { display: block; padding: 4px 0; font-size: 0.88rem; cursor: pointer; }
       .product-picker-option input { margin-right: 8px; }
       .product-picker-total-price { margin: 8px 0 0; font-weight: 700; }
+      /* Horario del día degenerado (apertura = cierre) - dato de entrada inválido, no
+         un bug de la Agenda; se avisa igual de fuerte que un faltante de plata. */
+      .schedule-warning { background: #fdeaea; border: 2px solid #c0392b; color: #8a1f1f; border-radius: 8px; padding: 10px 12px; font-weight: 600; margin-bottom: 12px; }
     </style>
     {% block head %}{% endblock %}
   </head>
