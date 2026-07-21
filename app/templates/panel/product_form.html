@@ -6,11 +6,6 @@
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-      {% if product and product.image_filename %}
-        <img src="{{ url_for('static', filename='uploads/products/' + product.image_filename) }}"
-             alt="{{ product.name }}" style="max-width:140px;max-height:140px;border-radius:12px;">
-      {% endif %}
-
       <label for="name">Nombre</label>
       <input id="name" name="name" required value="{{ product.name if product else '' }}">
 
@@ -49,6 +44,18 @@
 
       <label for="image">Foto del producto</label>
       <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp">
+      <p class="muted">
+        El centro de la foto es lo que se ve siempre - encuadra el plato al medio. Fotos horizontales
+        o cuadradas funcionan mejor que las verticales, que pueden perder el borde de arriba y abajo.
+        Usa fotos propias, no bajadas de internet (derechos de autor). Peso máximo: 12 MB.
+      </p>
+
+      <div id="image-preview-block" style="{{ '' if (product and product.image_filename) else 'display:none;' }}">
+        <p class="muted" style="margin-bottom:6px;">Así se verá en tu carta:</p>
+        <img id="image-preview" class="image-preview"
+             {% if product and product.image_filename %}src="{{ url_for('static', filename='uploads/products/' + product.image_filename) }}"{% endif %}
+             alt="Vista previa de la foto en la carta">
+      </div>
 
       <label for="stock_quantity">Stock disponible (opcional)</label>
       <input id="stock_quantity" name="stock_quantity" type="number" step="1" min="0"
@@ -147,6 +154,42 @@
 
         categorySelect.addEventListener('change', filterSubcategories);
         filterSubcategories();
+      })();
+    </script>
+
+    <script>
+      // Vista previa del recorte real de la carta pública - lee el archivo local con
+      // FileReader, sin tocar el backend. #image-preview usa las mismas reglas exactas
+      // de .product-photo (menu.css) para que lo que se ve acá sea lo que se ve allá.
+      (function () {
+        const fileInput = document.getElementById('image');
+        const previewBlock = document.getElementById('image-preview-block');
+        const previewImg = document.getElementById('image-preview');
+        if (!fileInput || !previewImg) return;
+
+        // Snapshot of the product's current photo (if any) at page load - what we
+        // revert to if the owner opens the file picker and cancels.
+        const existingSrc = previewImg.getAttribute('src') || '';
+
+        fileInput.addEventListener('change', () => {
+          const file = fileInput.files && fileInput.files[0];
+          if (!file) {
+            if (existingSrc) {
+              previewImg.src = existingSrc;
+              previewBlock.style.display = '';
+            } else {
+              previewImg.removeAttribute('src');
+              previewBlock.style.display = 'none';
+            }
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            previewImg.src = event.target.result;
+            previewBlock.style.display = '';
+          };
+          reader.readAsDataURL(file);
+        });
       })();
     </script>
 {% endblock %}

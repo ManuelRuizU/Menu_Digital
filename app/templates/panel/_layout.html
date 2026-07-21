@@ -151,6 +151,15 @@
       .onboarding-progress-fill { background: #1c7a3d; height: 100%; border-radius: 999px; transition: width 0.2s ease; }
       .onboarding-task { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #eee; }
       .onboarding-task-suggestion { border-top: 1px dashed #ccc; }
+      /* Vista previa de la foto de producto - reglas COPIADAS LITERAL de .product-photo
+         en app/static/css/menu.css (mismo width/height/object-fit/border-radius, mismo
+         breakpoint). Si esas reglas cambian allá, hay que cambiarlas acá también o la
+         previa deja de mostrar el recorte real de la carta - ver Paso "aviso de
+         encuadre + vista previa". */
+      .image-preview { width: 100%; height: 140px; object-fit: cover; border-radius: 14px; display: block; }
+      @media (max-width: 640px) {
+        .image-preview { height: 100px; }
+      }
     </style>
     {% block head %}{% endblock %}
   </head>

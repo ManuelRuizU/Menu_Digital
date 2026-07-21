@@ -97,3 +97,41 @@ def test_products_api_includes_prep_minutes(client, db):
     # A product without prep_minutes must still serialize fine, just with null - not
     # missing the key entirely (the front-end checks for a falsy value, not a missing one).
     assert payload['Bebida']['prepMinutes'] is None
+
+
+# --- product photo: framing warning + live crop preview (product_form.html, pure HTML/JS) ---
+
+def test_create_product_form_shows_photo_framing_help_text(client, db):
+    _register_owner(client)
+
+    resp = client.get('/admin/products/new')
+    html = resp.data.decode()
+
+    assert resp.status_code == 200
+    assert 'encuadra el plato al medio' in html
+    assert 'Peso máximo: 12 MB' in html
+
+
+def test_create_product_form_has_preview_container_hidden_when_no_photo_yet(client, db):
+    _register_owner(client)
+
+    resp = client.get('/admin/products/new')
+    html = resp.data.decode()
+
+    assert 'id="image-preview-block" style="display:none;"' in html
+    assert 'id="image-preview" class="image-preview"' in html
+
+
+def test_edit_product_form_shows_preview_of_existing_photo(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+    product = Product(name='Roll', description='Test', price=1000, category_id=category.id,
+                       image_filename='product_1.jpg')
+    db.session.add(product)
+    db.session.commit()
+
+    resp = client.get(f'/admin/products/{product.id}/edit')
+    html = resp.data.decode()
+
+    assert 'id="image-preview-block" style="">' in html  # visible - there's already a photo
+    assert 'src="/static/uploads/products/product_1.jpg"' in html
