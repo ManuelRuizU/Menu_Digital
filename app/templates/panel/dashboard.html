@@ -3,6 +3,51 @@
 {% block content %}
     <h1>Dashboard</h1>
 
+    {% if onboarding_checklist %}
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-row">
+          <strong>Primeros pasos</strong>
+          <span class="muted">{{ onboarding_checklist.done_count }} de {{ onboarding_checklist.total }} completadas</span>
+        </div>
+        <div class="onboarding-progress-track">
+          <div class="onboarding-progress-fill" style="width:{{ onboarding_checklist.progress_percent }}%;"></div>
+        </div>
+
+        {% for task in onboarding_checklist.tasks %}
+          <div class="onboarding-task">
+            <div>
+              <span class="status-pill {{ 'confirmed' if task.done else 'pending' }}">
+                {{ '✓ Hecho' if task.done else 'Pendiente' }}
+              </span>
+              <strong>{{ task.title }}</strong>
+              <p class="muted" style="margin:2px 0 0;">{{ task.help }}</p>
+            </div>
+            {% if not task.done %}
+              <a href="{{ task.url }}"><button type="button" class="secondary">{{ task.cta }}</button></a>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        {% if onboarding_checklist.show_delivery_suggestion %}
+          <div class="onboarding-task onboarding-task-suggestion">
+            <div>
+              <strong>¿Haces despacho a domicilio?</strong>
+              <p class="muted" style="margin:2px 0 0;">
+                Configura tus zonas de reparto para calcular el costo de envío automáticamente.
+                Si solo trabajas con retiro, puedes ignorar esto.
+              </p>
+            </div>
+            <a href="{{ url_for('catalog.delivery') }}"><button type="button" class="secondary">Configurar zonas</button></a>
+          </div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('catalog.dismiss_onboarding_checklist') }}" style="margin-top:12px;padding-top:0;background:none;border:none;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="secondary">Ocultar</button>
+        </form>
+      </div>
+    {% endif %}
+
     {% if owner %}
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;{{ 'border-color:#ff6b6b;' if owner.is_closed_temporarily }}">
         <div>

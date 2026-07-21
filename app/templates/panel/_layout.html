@@ -144,6 +144,13 @@
       /* Horario del día degenerado (apertura = cierre) - dato de entrada inválido, no
          un bug de la Agenda; se avisa igual de fuerte que un faltante de plata. */
       .schedule-warning { background: #fdeaea; border: 2px solid #c0392b; color: #8a1f1f; border-radius: 8px; padding: 10px 12px; font-weight: 600; margin-bottom: 12px; }
+      /* Checklist de primeros pasos del Dashboard - el contenedor y las píldoras de
+         estado reutilizan .card/.status-pill tal cual; esto es solo la barra de
+         progreso y el layout de cada fila, que no existían antes. */
+      .onboarding-progress-track { background: #eee; border-radius: 999px; height: 8px; margin: 10px 0 4px; overflow: hidden; }
+      .onboarding-progress-fill { background: #1c7a3d; height: 100%; border-radius: 999px; transition: width 0.2s ease; }
+      .onboarding-task { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #eee; }
+      .onboarding-task-suggestion { border-top: 1px dashed #ccc; }
     </style>
     {% block head %}{% endblock %}
   </head>

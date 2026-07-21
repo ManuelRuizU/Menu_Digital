@@ -23,9 +23,10 @@ from app.catalog import catalog
 from app.decorators import admin_required, owner_required
 from app.geocoding import geocode
 from app.main.routes import compute_bundle_discount, compute_coupon_discount, get_hours_for_today, \
-    _get_active_bundle_promos, _haversine_km, _resolve_selected_options
-from app.models import (BUSINESS_TZ, BundlePromo, Category, Coupon, Courier, DeliveryRadiusTier, DeliveryZone, Order,
-                         OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup, Subcategory, User)
+    has_delivery_configured, _get_active_bundle_promos, _haversine_km, _resolve_selected_options
+from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Category, Coupon, Courier, DeliveryRadiusTier,
+                         DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup,
+                         Subcategory, User)
 from app.uploads import save_image
 from app.utils import day_range_utc, parse_money
 
@@ -880,6 +881,91 @@ def delete_bundle_promo(promo_id):
     return redirect(url_for('catalog.bundle_promos'))
 
 
+def _onboarding_checklist_tasks():
+    """Detected automatically from real data, never a manual checkbox - same principle
+    as the rest of this app: a flag can go stale, the data it's asking about can't."""
+    has_hours = db.session.query(
+        BusinessHours.query.filter(BusinessHours.opens_at.isnot(None)).exists()
+    ).scalar()
+    has_category = db.session.query(Category.query.exists()).scalar()
+    has_active_product = db.session.query(Product.query.filter_by(is_active=True).exists()).scalar()
+    has_product_photo = db.session.query(
+        Product.query.filter(Product.image_filename.isnot(None)).exists()
+    ).scalar()
+    owner = User.query.filter_by(is_owner=True).first()
+    has_whatsapp = bool(owner and owner.whatsapp_number)
+
+    return [
+        {
+            'title': 'Configura tu horario de atención',
+            'help': 'Sin horario, el sistema no sabe cuándo puede recibir pedidos ni la Agenda puede armar los bloques del día.',
+            'done': has_hours,
+            'url': url_for('auth.admin_panel'),
+            'cta': 'Configurar horario',
+        },
+        {
+            'title': 'Crea tu primera categoría',
+            'help': 'Los productos necesitan una categoría para poder ordenarse en tu carta.',
+            'done': has_category,
+            'url': url_for('catalog.categories'),
+            'cta': 'Crear categoría',
+        },
+        {
+            'title': 'Agrega tu primer producto',
+            'help': 'Sin productos no hay nada que un cliente pueda pedir todavía.',
+            'done': has_active_product,
+            'url': url_for('catalog.create_product'),
+            'cta': 'Agregar producto',
+        },
+        {
+            'title': 'Súbele una foto a un producto',
+            'help': 'Una carta con fotos vende más que una lista de nombres - es lo primero que ve el cliente.',
+            'done': has_product_photo,
+            'url': url_for('catalog.products'),
+            'cta': 'Subir foto',
+        },
+        {
+            'title': 'Configura tu WhatsApp',
+            'help': 'Es el número al que llegan los pedidos - sin esto, el cliente no tiene cómo cerrar la compra.',
+            'done': has_whatsapp,
+            'url': url_for('auth.admin_panel'),
+            'cta': 'Configurar WhatsApp',
+        },
+    ]
+
+
+def _onboarding_checklist_context():
+    """None means "don't show the card at all" - covers all three reasons at once:
+    no owner yet, the owner already hid it, or every task is already done. The
+    delivery-zone suggestion is deliberately kept OUT of the X-of-N count - a
+    retiro-only business can never "complete" it and must never see it as required."""
+    owner = User.query.filter_by(is_owner=True).first()
+    if not owner or owner.onboarding_checklist_dismissed:
+        return None
+    tasks = _onboarding_checklist_tasks()
+    done_count = sum(1 for task in tasks if task['done'])
+    if done_count == len(tasks):
+        return None
+    return {
+        'tasks': tasks,
+        'done_count': done_count,
+        'total': len(tasks),
+        'progress_percent': round(done_count / len(tasks) * 100),
+        'show_delivery_suggestion': not has_delivery_configured(),
+    }
+
+
+@catalog.route('/onboarding-checklist/dismiss', methods=['POST'])
+@login_required
+@admin_required
+def dismiss_onboarding_checklist():
+    owner = User.query.filter_by(is_owner=True).first()
+    if owner:
+        owner.onboarding_checklist_dismissed = True
+        db.session.commit()
+    return redirect(url_for('catalog.dashboard'))
+
+
 @catalog.route('/dashboard')
 @login_required
 @admin_required
@@ -941,6 +1027,7 @@ def dashboard():
         top_products=top_products,
         menu_url=menu_url,
         menu_share_url=f'https://wa.me/?text={quote(f"Mira nuestro menú: {menu_url}")}',
+        onboarding_checklist=_onboarding_checklist_context(),
     )
 
 
