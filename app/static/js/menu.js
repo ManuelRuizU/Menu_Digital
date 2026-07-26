@@ -88,6 +88,7 @@ const elements = {
   productModalPrice: document.getElementById('product-modal-price'),
   productModalAdd: document.getElementById('product-modal-add'),
   productModalOptions: document.getElementById('product-modal-options'),
+  productModalError: document.getElementById('product-modal-error'),
   deliveryModeOptions: document.getElementById('delivery-mode-options'),
   minOrderHint: document.getElementById('min-order-hint'),
   prepTimeHint: document.getElementById('prep-time-hint'),
@@ -243,6 +244,7 @@ function openProductModal(productId) {
   elements.productModalDescription.textContent = product.description || ''
   renderModalOptions(product)
   updateModalPrice()
+  hideModalError()
   if (product.soldOut) {
     elements.productModalAdd.disabled = true
     elements.productModalAdd.textContent = 'Agotado'
@@ -261,15 +263,51 @@ function openProductModal(productId) {
   document.body.classList.add('modal-open')
 }
 
+function getMissingRequiredGroups() {
+  if (!currentModalProduct) return []
+  return (currentModalProduct.optionGroups || []).filter((group) => {
+    const chosen = elements.productModalOptions.querySelectorAll(`input[name="${optionInputName(group)}"]:checked`)
+    return group.required && chosen.length === 0
+  })
+}
+
+function hideModalError() {
+  elements.productModalError.hidden = true
+}
+
+function missingGroupsMessage(missingGroups) {
+  const names = missingGroups.map((group) => group.name).join(', ')
+  return missingGroups.length === 1 ? `Falta elegir: ${names}.` : `Faltan opciones por elegir: ${names}.`
+}
+
+// Reusable across every product with option groups: opens each unresolved required
+// group, re-triggers its shake highlight, and points the customer at the first one -
+// no blocking browser alert(), and no per-product wiring needed.
+function flashMissingGroups(missingGroups) {
+  elements.productModalError.textContent = missingGroupsMessage(missingGroups)
+  elements.productModalError.hidden = false
+
+  let firstEl = null
+  missingGroups.forEach((group) => {
+    const groupEl = elements.productModalOptions.querySelector(`[data-group-id="${group.id}"]`)
+    if (!groupEl) return
+    groupEl.open = true
+    groupEl.classList.remove('option-group-invalid')
+    void groupEl.offsetWidth // restart the shake animation even if it already played once
+    groupEl.classList.add('option-group-invalid')
+    if (!firstEl) firstEl = groupEl
+  })
+  if (firstEl) firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
 function handleModalAddClick() {
   if (!currentModalProduct || currentModalProduct.soldOut) return
-  for (const group of currentModalProduct.optionGroups || []) {
-    const chosen = elements.productModalOptions.querySelectorAll(`input[name="${optionInputName(group)}"]:checked`)
-    if (group.required && chosen.length === 0) {
-      alert(`Elige una opción para "${group.name}".`)
-      return
-    }
+  const missingGroups = getMissingRequiredGroups()
+  if (missingGroups.length) {
+    flashMissingGroups(missingGroups)
+    return
   }
+  hideModalError()
   addToCart(currentModalProduct.id, getModalSelectedOptions())
   openCart()
   closeProductModal()
@@ -1371,7 +1409,20 @@ window.addEventListener('load', () => {
     const group = currentModalProduct && groupEl
       ? currentModalProduct.optionGroups.find((g) => g.id === Number(groupEl.dataset.groupId))
       : null
-    if (groupEl && group) updateModalGroupSummary(groupEl, group)
+    if (groupEl && group) {
+      updateModalGroupSummary(groupEl, group)
+      if (groupEl.querySelectorAll('input:checked').length) {
+        groupEl.classList.remove('option-group-invalid')
+      }
+    }
+    if (!elements.productModalError.hidden) {
+      const stillMissing = getMissingRequiredGroups()
+      if (stillMissing.length === 0) {
+        hideModalError()
+      } else {
+        elements.productModalError.textContent = missingGroupsMessage(stillMissing)
+      }
+    }
   })
 
   elements.confirmModalClose.addEventListener('click', closeConfirmModal)
