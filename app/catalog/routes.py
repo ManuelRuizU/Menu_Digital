@@ -528,7 +528,11 @@ def create_option(product_id, group_id):
         flash('Completa el nombre y el precio adicional de la opción (puede ser 0).')
         return redirect(url_for('catalog.edit_product', product_id=product_id))
 
-    db.session.add(ProductOption(group_id=group.id, name=name, price_delta=price_delta))
+    is_default = 'is_default' in request.form
+    if is_default and not group.multi_select:
+        ProductOption.query.filter_by(group_id=group.id, is_default=True).update({'is_default': False})
+
+    db.session.add(ProductOption(group_id=group.id, name=name, price_delta=price_delta, is_default=is_default))
     db.session.commit()
     flash('Opción agregada')
     return redirect(url_for('catalog.edit_product', product_id=product_id))

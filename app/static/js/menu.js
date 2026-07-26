@@ -172,25 +172,47 @@ function optionInputName(group) {
   return `modal-option-group-${group.id}`
 }
 
+function groupSummaryHtml(group, selectedNames) {
+  const label = escapeHtml(group.name)
+  if (selectedNames.length) {
+    return `${label}: ${selectedNames.map(escapeHtml).join(', ')}`
+  }
+  // Closed by default means a required-without-default group can hide out of sight -
+  // this alert style is what lets the customer spot "still needs a choice" without opening it.
+  if (group.required) {
+    return `${label}: <span class="option-group-alert">Elige una opción</span>`
+  }
+  return `${label}: <span class="option-group-hint">opcional</span>`
+}
+
 function renderModalOptions(product) {
   if (!hasOptionGroups(product)) {
     elements.productModalOptions.innerHTML = ''
     return
   }
-  elements.productModalOptions.innerHTML = product.optionGroups.map((group) => `
-    <div class="modal-option-group">
-      <p class="modal-option-group-title">
-        ${escapeHtml(group.name)} ${group.required ? '<span class="required-tag">obligatorio</span>' : ''}
-      </p>
-      ${group.options.map((option) => `
-        <label class="modal-option">
-          <input type="${group.multiSelect ? 'checkbox' : 'radio'}" name="${optionInputName(group)}"
-                 value="${option.id}" data-price-delta="${option.priceDelta}">
-          ${escapeHtml(option.name)} ${option.priceDelta ? `(+${formatPrice(option.priceDelta)})` : ''}
-        </label>
-      `).join('')}
-    </div>
-  `).join('')
+  elements.productModalOptions.innerHTML = product.optionGroups.map((group) => {
+    const defaultNames = group.options.filter((option) => option.isDefault).map((option) => option.name)
+    return `
+    <details class="modal-option-group accordion-section" data-group-id="${group.id}">
+      <summary class="modal-option-group-title">${groupSummaryHtml(group, defaultNames)}</summary>
+      <div class="accordion-body">
+        ${group.options.map((option) => `
+          <label class="modal-option">
+            <input type="${group.multiSelect ? 'checkbox' : 'radio'}" name="${optionInputName(group)}"
+                   value="${option.id}" data-price-delta="${option.priceDelta}" ${option.isDefault ? 'checked' : ''}>
+            ${escapeHtml(option.name)} ${option.priceDelta ? `(+${formatPrice(option.priceDelta)})` : ''}
+          </label>
+        `).join('')}
+      </div>
+    </details>
+  `
+  }).join('')
+}
+
+function updateModalGroupSummary(groupEl, group) {
+  const selectedNames = Array.from(groupEl.querySelectorAll('input:checked'))
+    .map((input) => input.closest('.modal-option').textContent.trim().replace(/\s*\(\+.*\)$/, ''))
+  groupEl.querySelector('summary').innerHTML = groupSummaryHtml(group, selectedNames)
 }
 
 function getModalSelectedOptions() {
@@ -1343,7 +1365,14 @@ window.addEventListener('load', () => {
   elements.productModalClose.addEventListener('click', closeProductModal)
   elements.productModalBackdrop.addEventListener('click', closeProductModal)
   elements.productModalAdd.addEventListener('click', handleModalAddClick)
-  elements.productModalOptions.addEventListener('change', updateModalPrice)
+  elements.productModalOptions.addEventListener('change', (event) => {
+    updateModalPrice()
+    const groupEl = event.target.closest('.modal-option-group')
+    const group = currentModalProduct && groupEl
+      ? currentModalProduct.optionGroups.find((g) => g.id === Number(groupEl.dataset.groupId))
+      : null
+    if (groupEl && group) updateModalGroupSummary(groupEl, group)
+  })
 
   elements.confirmModalClose.addEventListener('click', closeConfirmModal)
   elements.confirmModalBackdrop.addEventListener('click', closeConfirmModal)

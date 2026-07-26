@@ -102,7 +102,7 @@
           <ul>
             {% for option in group.options %}
               <li style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <span>{{ option.name }} {% if option.price_delta %}(+${{ '%.0f'|format(option.price_delta) }}){% endif %}</span>
+                <span>{{ option.name }} {% if option.price_delta %}(+${{ '%.0f'|format(option.price_delta) }}){% endif %}{% if option.is_default %} · <strong>por defecto</strong>{% endif %}</span>
                 <form method="post" action="{{ url_for('catalog.delete_option', product_id=product.id, group_id=group.id, option_id=option.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit">Quitar</button>
@@ -115,6 +115,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input name="name" placeholder="Nombre de la opción (ej. Familiar)" required>
             <input name="price_delta" type="number" step="1" placeholder="Precio adicional (0 si no cambia)" required>
+            <label><input type="checkbox" name="is_default"> Marcar como opción por defecto</label>
             <button type="submit">Agregar opción</button>
           </form>
         </div>

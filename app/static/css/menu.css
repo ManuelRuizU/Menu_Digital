@@ -549,6 +549,10 @@ body.nav-open { overflow: hidden; }
 .modal .price { font-size: 1.2rem; color: var(--primary); font-weight: 700; margin: 14px 0; }
 .modal-option-group { margin-bottom: 14px; }
 .modal-option-group-title { font-weight: 700; margin-bottom: 6px; }
+.modal-option-group summary::after { content: '⌄'; display: inline-block; font-size: 1.3rem; line-height: 1; transition: transform 0.2s ease; }
+.modal-option-group[open] summary::after { content: '⌄'; transform: rotate(180deg); }
+.option-group-alert { color: var(--accent); font-weight: 700; }
+.option-group-hint { color: var(--muted); font-weight: 400; }
 .required-tag { font-size: 0.7rem; font-weight: 600; color: var(--accent); text-transform: uppercase; }
 .modal-option { display: block; padding: 6px 0; color: var(--text); cursor: pointer; }
 .modal-option input { margin-right: 8px; }

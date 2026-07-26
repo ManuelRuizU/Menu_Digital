@@ -200,7 +200,8 @@ def products_api():
                     'name': group.name,
                     'required': group.required,
                     'multiSelect': group.multi_select,
-                    'options': [{'id': option.id, 'name': option.name, 'priceDelta': option.price_delta}
+                    'options': [{'id': option.id, 'name': option.name, 'priceDelta': option.price_delta,
+                                 'isDefault': option.is_default}
                                 for option in group.options],
                 }
                 for group in product.option_groups

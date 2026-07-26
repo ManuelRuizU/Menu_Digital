@@ -147,6 +147,7 @@ class ProductOption(db.Model):
     group_id = db.Column(db.Integer, db.ForeignKey('product_option_group.id'), nullable=False)
     name = db.Column(db.String(80), nullable=False)
     price_delta = db.Column(db.Integer, nullable=False, default=0)
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
 
     def __repr__(self):
         return f'<ProductOption {self.name}>'
