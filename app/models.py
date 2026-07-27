@@ -135,6 +135,8 @@ class ProductOptionGroup(db.Model):
     name = db.Column(db.String(80), nullable=False)
     required = db.Column(db.Boolean, nullable=False, default=False)
     multi_select = db.Column(db.Boolean, nullable=False, default=False)
+    min_select = db.Column(db.Integer, nullable=True)
+    max_select = db.Column(db.Integer, nullable=True)
     options = db.relationship('ProductOption', backref='group', lazy=True,
                                cascade='all, delete-orphan', order_by='ProductOption.id')
 

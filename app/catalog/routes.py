@@ -485,6 +485,21 @@ def toggle_product_featured(product_id):
     return redirect(url_for('catalog.products'))
 
 
+def _parse_group_select_limits(form, multi_select):
+    """min_select/max_select solo aplican a grupos multi_select - en single-select el tope
+    ya lo da required/el propio radio, así que cualquier valor mandado se ignora (NULL).
+    Devuelve (min_select, max_select, error_message)."""
+    if not multi_select:
+        return None, None, None
+    min_select = form.get('min_select', type=int)
+    max_select = form.get('max_select', type=int)
+    min_select = min_select if min_select and min_select > 0 else None
+    max_select = max_select if max_select and max_select > 0 else None
+    if min_select is not None and max_select is not None and max_select < min_select:
+        return None, None, 'El máximo no puede ser menor que el mínimo.'
+    return min_select, max_select, None
+
+
 @catalog.route('/products/<int:product_id>/option-groups/new', methods=['POST'])
 @login_required
 @admin_required
@@ -495,15 +510,59 @@ def create_option_group(product_id):
         flash('Ponle un nombre al grupo de variantes (ej. "Tamaño", "Extras").')
         return redirect(url_for('catalog.edit_product', product_id=product.id))
 
+    multi_select = 'multi_select' in request.form
+    min_select, max_select, error = _parse_group_select_limits(request.form, multi_select)
+    if error:
+        flash(error)
+        return redirect(url_for('catalog.edit_product', product_id=product.id))
+
     db.session.add(ProductOptionGroup(
         product_id=product.id,
         name=name,
         required='required' in request.form,
-        multi_select='multi_select' in request.form,
+        multi_select=multi_select,
+        min_select=min_select,
+        max_select=max_select,
     ))
     db.session.commit()
     flash('Grupo de variantes agregado')
     return redirect(url_for('catalog.edit_product', product_id=product.id))
+
+
+@catalog.route('/products/<int:product_id>/option-groups/<int:group_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def update_option_group(product_id, group_id):
+    group = ProductOptionGroup.query.filter_by(id=group_id, product_id=product_id).first_or_404()
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash('Ponle un nombre al grupo de variantes (ej. "Tamaño", "Extras").')
+        return redirect(url_for('catalog.edit_product', product_id=product_id))
+
+    multi_select = 'multi_select' in request.form
+    min_select, max_select, error = _parse_group_select_limits(request.form, multi_select)
+    if error:
+        flash(error)
+        return redirect(url_for('catalog.edit_product', product_id=product_id))
+
+    group.name = name
+    group.required = 'required' in request.form
+    group.multi_select = multi_select
+    group.min_select = min_select
+    group.max_select = max_select
+
+    # Bajar de multi-select a single-select convierte los checkbox en radio - si quedaba
+    # más de una opción marcada como default, el navegador solo respetaría la última de
+    # todas formas. Misma resolución que ya hace create_option: se deja solo una.
+    if not multi_select:
+        defaults = ProductOption.query.filter_by(group_id=group.id, is_default=True) \
+            .order_by(ProductOption.id).all()
+        for option in defaults[1:]:
+            option.is_default = False
+
+    db.session.commit()
+    flash('Grupo de variantes actualizado')
+    return redirect(url_for('catalog.edit_product', product_id=product_id))
 
 
 @catalog.route('/products/<int:product_id>/option-groups/<int:group_id>/delete', methods=['POST'])

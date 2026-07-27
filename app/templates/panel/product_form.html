@@ -97,7 +97,37 @@
           <p class="muted">
             {{ 'Obligatorio' if group.required else 'Opcional' }} ·
             {{ 'Puede elegir varias opciones' if group.multi_select else 'Elige solo una opción' }}
+            {%- if group.multi_select and group.min_select %} · mínimo {{ group.min_select }}{% endif %}
+            {%- if group.multi_select and group.max_select %} · máximo {{ group.max_select }}{% endif %}
           </p>
+          {% if group.multi_select and group.min_select and group.min_select > group.options|length %}
+            <p class="muted">
+              <strong>⚠ pide elegir {{ group.min_select }} pero solo tiene {{ group.options|length }} opciones
+              — agrega más o baja el mínimo</strong>
+            </p>
+          {% endif %}
+
+          <details>
+            <summary>Editar grupo</summary>
+            <form method="post" action="{{ url_for('catalog.update_option_group', product_id=product.id, group_id=group.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label for="group_name_{{ group.id }}">Nombre del grupo</label>
+              <input id="group_name_{{ group.id }}" name="name" value="{{ group.name }}" required>
+              <label><input type="checkbox" name="required" {{ 'checked' if group.required else '' }}>
+                El cliente debe elegir algo de este grupo</label>
+              <label><input type="checkbox" name="multi_select" {{ 'checked' if group.multi_select else '' }}>
+                El cliente puede elegir más de una opción</label>
+              <label for="min_select_{{ group.id }}">Mínimo a elegir (vacío = sin mínimo; solo aplica si puede
+                elegir varias)</label>
+              <input id="min_select_{{ group.id }}" name="min_select" type="number" min="1" step="1"
+                     value="{{ group.min_select if group.min_select is not none else '' }}">
+              <label for="max_select_{{ group.id }}">Máximo a elegir (vacío = sin tope; solo aplica si puede
+                elegir varias)</label>
+              <input id="max_select_{{ group.id }}" name="max_select" type="number" min="1" step="1"
+                     value="{{ group.max_select if group.max_select is not none else '' }}">
+              <button type="submit">Guardar cambios</button>
+            </form>
+          </details>
 
           <ul>
             {% for option in group.options %}

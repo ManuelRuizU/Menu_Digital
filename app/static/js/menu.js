@@ -175,15 +175,36 @@ function optionInputName(group) {
 
 function groupSummaryHtml(group, selectedNames) {
   const label = escapeHtml(group.name)
-  if (selectedNames.length) {
-    return `${label}: ${selectedNames.map(escapeHtml).join(', ')}`
+  const count = selectedNames.length
+  const counter = group.multiSelect && group.maxSelect ? ` (${count}/${group.maxSelect})` : ''
+  const belowMin = group.multiSelect && !!group.minSelect && count < group.minSelect
+
+  // Closed by default means an unresolved required (or under-the-minimum) group can hide
+  // out of sight - this alert style is what lets the customer spot it without opening it.
+  if (belowMin) {
+    return `${label}${counter}: <span class="option-group-alert">Elige al menos ${group.minSelect} opciones</span>`
   }
-  // Closed by default means a required-without-default group can hide out of sight -
-  // this alert style is what lets the customer spot "still needs a choice" without opening it.
+  if (count) {
+    return `${label}${counter}: ${selectedNames.map(escapeHtml).join(', ')}`
+  }
   if (group.required) {
-    return `${label}: <span class="option-group-alert">Elige una opción</span>`
+    return `${label}${counter}: <span class="option-group-alert">Elige una opción</span>`
+  }
+  if (group.multiSelect && group.maxSelect) {
+    return `${label}${counter}: <span class="option-group-hint">elige hasta ${group.maxSelect}</span>`
   }
   return `${label}: <span class="option-group-hint">opcional</span>`
+}
+
+// Reusable for every multi-select group with a max_select cap: once the cap is reached,
+// the unchecked boxes in that same group go disabled so the customer can't even attempt
+// to pick a 4th - re-enabled the moment they uncheck something to drop below the cap.
+function enforceGroupMaxSelect(groupEl, group) {
+  if (!group.multiSelect || !group.maxSelect) return
+  const atCap = groupEl.querySelectorAll('input:checked').length >= group.maxSelect
+  groupEl.querySelectorAll('input').forEach((input) => {
+    if (!input.checked) input.disabled = atCap
+  })
 }
 
 function renderModalOptions(product) {
@@ -208,6 +229,10 @@ function renderModalOptions(product) {
     </details>
   `
   }).join('')
+  product.optionGroups.forEach((group) => {
+    const groupEl = elements.productModalOptions.querySelector(`[data-group-id="${group.id}"]`)
+    if (groupEl) enforceGroupMaxSelect(groupEl, group)
+  })
 }
 
 function updateModalGroupSummary(groupEl, group) {
@@ -266,8 +291,13 @@ function openProductModal(productId) {
 function getMissingRequiredGroups() {
   if (!currentModalProduct) return []
   return (currentModalProduct.optionGroups || []).filter((group) => {
-    const chosen = elements.productModalOptions.querySelectorAll(`input[name="${optionInputName(group)}"]:checked`)
-    return group.required && chosen.length === 0
+    const chosen = elements.productModalOptions.querySelectorAll(`input[name="${optionInputName(group)}"]:checked`).length
+    if (group.required && chosen === 0) return true
+    // A multi-select group's min_select is a hard floor regardless of `required` - same
+    // rule the server enforces in _resolve_selected_options, mirrored here so "Agregar"
+    // catches it before the customer ever reaches checkout.
+    if (group.multiSelect && group.minSelect && chosen < group.minSelect) return true
+    return false
   })
 }
 
@@ -1410,6 +1440,7 @@ window.addEventListener('load', () => {
       ? currentModalProduct.optionGroups.find((g) => g.id === Number(groupEl.dataset.groupId))
       : null
     if (groupEl && group) {
+      enforceGroupMaxSelect(groupEl, group)
       updateModalGroupSummary(groupEl, group)
       if (groupEl.querySelectorAll('input:checked').length) {
         groupEl.classList.remove('option-group-invalid')

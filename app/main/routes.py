@@ -200,6 +200,8 @@ def products_api():
                     'name': group.name,
                     'required': group.required,
                     'multiSelect': group.multi_select,
+                    'minSelect': group.min_select,
+                    'maxSelect': group.max_select,
                     'options': [{'id': option.id, 'name': option.name, 'priceDelta': option.price_delta,
                                  'isDefault': option.is_default}
                                 for option in group.options],
@@ -302,6 +304,11 @@ def _resolve_selected_options(product, selected_option_ids):
             return [], f'Elige una opción para "{group.name}".'
         if not group.multi_select and len(chosen) > 1:
             return [], f'Solo puedes elegir una opción para "{group.name}".'
+        if group.multi_select:
+            if group.min_select and len(chosen) < group.min_select:
+                return [], f'Elige al menos {group.min_select} opciones para "{group.name}".'
+            if group.max_select and len(chosen) > group.max_select:
+                return [], f'Puedes elegir como máximo {group.max_select} opciones para "{group.name}".'
 
     return selected_options, None
 
