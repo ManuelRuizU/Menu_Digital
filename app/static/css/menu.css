@@ -568,6 +568,7 @@ body.nav-open { overflow: hidden; }
 .option-group-alert { color: var(--danger); font-weight: 700; }
 .option-group-hint { color: var(--muted); font-weight: 400; }
 .option-group-invalid { border-color: var(--danger); background: rgba(var(--danger-rgb), 0.08); animation: option-group-shake 0.4s ease; }
+.accordion-body input.field-invalid { border-color: var(--danger); animation: option-group-shake 0.4s ease; }
 @keyframes option-group-shake {
   10%, 90% { transform: translateX(-1px); }
   20%, 80% { transform: translateX(2px); }

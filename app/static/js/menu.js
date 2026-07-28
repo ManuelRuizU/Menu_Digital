@@ -56,6 +56,7 @@ const elements = {
   name: document.getElementById('customer-name'),
   phone: document.getElementById('phone'),
   checkoutBtn: document.getElementById('checkout-btn'),
+  checkoutError: document.getElementById('checkout-error'),
   addressHint: document.getElementById('address-hint'),
   cartPanel: document.getElementById('cart-panel'),
   cartBackdrop: document.getElementById('cart-backdrop'),
@@ -1365,22 +1366,62 @@ function getMissingFields() {
   return missing
 }
 
+function hideCheckoutError() {
+  elements.checkoutError.hidden = true
+}
+
+function showCheckoutError(message) {
+  elements.checkoutError.textContent = message
+  elements.checkoutError.hidden = false
+}
+
+// Mirrors (without duplicating) the conditions in getMissingFields, just to know which
+// visible inputs to point the customer at - the min-order-shortfall case has no single
+// field to blame, so it's left out on purpose (the inline message alone covers it).
+function getInvalidCheckoutFields() {
+  const invalid = []
+  if (!elements.name.value.trim()) invalid.push(elements.name)
+  if (!elements.phone.value.trim()) invalid.push(elements.phone)
+  if (getDeliveryMode() === 'envio' && (!STATE.selectedLocation || !STATE.deliveryCovered)) {
+    invalid.push(elements.address)
+  }
+  if (!elements.requestedTime.value || !isWithinBusinessHours(elements.requestedTime.value)) {
+    invalid.push(elements.requestedTime)
+  }
+  return invalid
+}
+
+// Same shake+scroll pattern as flashMissingGroups in the product modal, applied to
+// plain <input> fields instead of option groups.
+function flashInvalidFields(fieldEls) {
+  let firstEl = null
+  fieldEls.forEach((fieldEl) => {
+    fieldEl.classList.remove('field-invalid')
+    void fieldEl.offsetWidth // restart the shake animation even if it already played once
+    fieldEl.classList.add('field-invalid')
+    if (!firstEl) firstEl = fieldEl
+  })
+  if (firstEl) firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
 async function handleCheckout() {
   // Defense in depth - the button is already disabled while blocked, but this also
   // covers a stale disabled state if the hour ticked over without a re-render.
   if (isOutsideHoursNow() && !ACCEPT_ORDERS_OUTSIDE_HOURS) {
-    alert(`Nuestro horario es de ${OPENS_AT} a ${CLOSES_AT}. Escríbenos por WhatsApp para coordinar.`)
+    showCheckoutError(`Nuestro horario es de ${OPENS_AT} a ${CLOSES_AT}. Escríbenos por WhatsApp para coordinar.`)
     return
   }
   if (!STATE.cart.length) {
-    alert('Agrega al menos un producto al carrito antes de enviar.');
+    showCheckoutError('Agrega al menos un producto al carrito antes de enviar.')
     return
   }
   const missing = getMissingFields()
   if (missing.length) {
-    alert(`Antes de enviar, completa: ${missing.join(', ')}.`)
+    showCheckoutError(`Antes de enviar, completa: ${missing.join(', ')}.`)
+    flashInvalidFields(getInvalidCheckoutFields())
     return
   }
+  hideCheckoutError()
   openConfirmModal()
 }
 
@@ -1530,6 +1571,19 @@ window.addEventListener('load', () => {
   })
 
   elements.checkoutBtn.addEventListener('click', handleCheckout)
+
+  // Clears that field's own highlight and the banner the moment the customer starts
+  // fixing it, instead of leaving the error up until they hit "Enviar" again.
+  ;[elements.name, elements.phone, elements.address].forEach((fieldEl) => {
+    fieldEl.addEventListener('input', () => {
+      fieldEl.classList.remove('field-invalid')
+      hideCheckoutError()
+    })
+  })
+  elements.requestedTime.addEventListener('change', () => {
+    elements.requestedTime.classList.remove('field-invalid')
+    hideCheckoutError()
+  })
 
   elements.productSearch.addEventListener('input', () => {
     renderProductGrid(elements.productSearch.value)
