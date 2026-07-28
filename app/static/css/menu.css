@@ -577,6 +577,11 @@ body.nav-open { overflow: hidden; }
 }
 .modal-error { color: var(--danger); font-weight: 600; font-size: 0.85rem; margin: 10px 0 0; }
 .modal-error[hidden] { display: none; }
+.tomorrow-confirm { background: var(--tint-2); border: 1px solid var(--border-accent); border-radius: 16px; padding: 14px 16px; margin: 10px 0 0; }
+.tomorrow-confirm[hidden] { display: none; }
+.tomorrow-confirm p { margin: 0 0 12px; font-weight: 600; color: var(--text-strong); }
+.tomorrow-confirm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.tomorrow-confirm-actions .button { flex: 1; min-width: 140px; }
 .required-tag { font-size: 0.7rem; font-weight: 600; color: var(--accent); text-transform: uppercase; }
 .modal-option { display: block; padding: 6px 0; color: var(--text); cursor: pointer; }
 .modal-option input { margin-right: 8px; }

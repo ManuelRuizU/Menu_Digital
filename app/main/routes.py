@@ -485,6 +485,7 @@ def create_order():
     payment_method = data.get('paymentMethod')
     notes = (data.get('notes') or '').strip()[:500] or None
     requested_time = data.get('requestedTime')
+    requested_for_tomorrow = bool(data.get('requestedForTomorrow'))
 
     if not items:
         return jsonify({'ok': False, 'message': 'Faltan datos del pedido.'}), 400
@@ -579,6 +580,7 @@ def create_order():
             cash_amount=cash_amount,
             notes=notes,
             requested_time=requested_time,
+            requested_for_tomorrow=requested_for_tomorrow,
             latitude=lat,
             longitude=lng,
             shipping_cost=shipping_cost,

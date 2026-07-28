@@ -1228,7 +1228,7 @@ def agenda():
     confirmed_orders = (Order.query
                         .options(selectinload(Order.order_items).selectinload(OrderItem.selected_options))
                         .filter(Order.created_at >= start_utc, Order.created_at < end_utc,
-                                Order.status == 'Confirmed')
+                                Order.status == 'Confirmed', Order.requested_for_tomorrow.isnot(True))
                         .all())
 
     owner = User.query.filter_by(is_owner=True).first()
@@ -1297,7 +1297,8 @@ def agenda_cercania():
     start_utc, end_utc = day_range_utc(datetime.now(BUSINESS_TZ).date())
     despachos = (Order.query
                  .filter(Order.created_at >= start_utc, Order.created_at < end_utc,
-                         Order.status == 'Confirmed', Order.delivery_mode == 'envio')
+                         Order.status == 'Confirmed', Order.delivery_mode == 'envio',
+                         Order.requested_for_tomorrow.isnot(True))
                  .all())
 
     # The detour math needs the local's own coordinates - the pin on the business

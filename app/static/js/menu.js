@@ -15,7 +15,7 @@ function loadSavedCart() {
   }
 }
 
-const STATE = { products: [], bannerCoupons: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null }
+const STATE = { products: [], bannerCoupons: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, requestedForTomorrow: false }
 
 function loadSavedCustomer() {
   try {
@@ -57,6 +57,10 @@ const elements = {
   phone: document.getElementById('phone'),
   checkoutBtn: document.getElementById('checkout-btn'),
   checkoutError: document.getElementById('checkout-error'),
+  tomorrowConfirm: document.getElementById('tomorrow-confirm'),
+  tomorrowConfirmText: document.getElementById('tomorrow-confirm-text'),
+  tomorrowConfirmYes: document.getElementById('tomorrow-confirm-yes'),
+  tomorrowConfirmNo: document.getElementById('tomorrow-confirm-no'),
   addressHint: document.getElementById('address-hint'),
   cartPanel: document.getElementById('cart-panel'),
   cartBackdrop: document.getElementById('cart-backdrop'),
@@ -496,6 +500,14 @@ function toggleDeliveryFields() {
 
 function getRequestedTime() {
   return elements.requestedTime.value || null
+}
+
+// Client-side mirror of Order.requested_time_label (app/models.py) - doesn't share code
+// with it (different runtime), so the "mañana " prefix has to be applied here too.
+function getRequestedTimeLabel() {
+  const time = getRequestedTime()
+  if (!time) return null
+  return STATE.requestedForTomorrow ? `mañana ${time}` : time
 }
 
 function togglePaymentFields() {
@@ -1182,7 +1194,7 @@ function buildWhatsAppText() {
     const cash = Number(elements.cashAmount.value)
     lines.push(cash >= total ? `Paga con: ${formatPrice(cash)} (vuelto ${formatPrice(cash - total)})` : `Paga con: ${formatPrice(cash)}`)
   }
-  lines.push(`Hora sugerida: ${getRequestedTime() || 'No indicada'}`)
+  lines.push(`Hora sugerida: ${getRequestedTimeLabel() || 'No indicada'}`)
   if (notes) lines.push(`Notas: ${notes}`)
   lines.push('', 'Productos:')
   STATE.cart.forEach((item) => {
@@ -1232,7 +1244,7 @@ function buildConfirmSummaryHtml() {
     <div class="confirm-row"><span>Teléfono</span><span>${escapeHtml(phone)}</span></div>
     <div class="confirm-row"><span>Entrega</span><span>${deliveryMode === 'envio' ? 'Despacho' : 'Retiro'}</span></div>
     ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Dirección</span><span>${escapeHtml(address || 'No definida')}</span></div>` : ''}
-    <div class="confirm-row"><span>Horario sugerido</span><span>${escapeHtml(getRequestedTime() || 'No indicada')}</span></div>
+    <div class="confirm-row"><span>Horario sugerido</span><span>${escapeHtml(getRequestedTimeLabel() || 'No indicada')}</span></div>
     ${notes ? `<div class="confirm-row"><span>Notas</span><span>${escapeHtml(notes)}</span></div>` : ''}
     <p class="confirm-section-title">Productos</p>
     ${itemsHtml}
@@ -1268,6 +1280,7 @@ function resetCartAfterOrder() {
   // no matter what happens next (WhatsApp opening, etc), or a second "Enviar" tap
   // creates a duplicate Order the encargado has to notice and cancel by hand.
   STATE.cart = []
+  STATE.requestedForTomorrow = false
   // Null it out before saveCart() so its own clearAppliedCoupon() call becomes a
   // no-op (it early-returns when there's nothing applied) instead of overwriting the
   // UI with a "tu carrito cambió, vuelve a aplicar el cupón" message that makes no
@@ -1331,6 +1344,7 @@ async function saveOrder() {
         cashAmount: getPaymentMethod() === 'efectivo' ? Number(elements.cashAmount.value) || null : null,
         notes: elements.notes.value.trim(),
         requestedTime: getRequestedTime(),
+        requestedForTomorrow: STATE.requestedForTomorrow,
         lat: STATE.selectedLocation ? STATE.selectedLocation.lat : null,
         lng: STATE.selectedLocation ? STATE.selectedLocation.lng : null,
         couponCode: STATE.appliedCoupon ? STATE.appliedCoupon.code : null,
@@ -1404,6 +1418,23 @@ function flashInvalidFields(fieldEls) {
   if (firstEl) firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
+// "14:00" read at 20:00 is only valid if it's for tomorrow - plain string comparison is
+// enough (same trick isWithinBusinessHours already uses), no minutes parser needed,
+// because both sides are the same zero-padded "HH:MM" shape.
+function hasRequestedTimeAlreadyPassed() {
+  const value = elements.requestedTime.value
+  return Boolean(value) && value < getSantiagoTimeStr()
+}
+
+function hideTomorrowConfirm() {
+  elements.tomorrowConfirm.hidden = true
+}
+
+function showTomorrowConfirm() {
+  elements.tomorrowConfirmText.textContent = `Son las ${getSantiagoTimeStr()}. ¿Este pedido es para mañana?`
+  elements.tomorrowConfirm.hidden = false
+}
+
 async function handleCheckout() {
   // Defense in depth - the button is already disabled while blocked, but this also
   // covers a stale disabled state if the hour ticked over without a re-render.
@@ -1422,6 +1453,12 @@ async function handleCheckout() {
     return
   }
   hideCheckoutError()
+  // Already answered "sí" for this same time value - don't ask again on a second tap.
+  if (!STATE.requestedForTomorrow && hasRequestedTimeAlreadyPassed()) {
+    showTomorrowConfirm()
+    return
+  }
+  hideTomorrowConfirm()
   openConfirmModal()
 }
 
@@ -1583,6 +1620,22 @@ window.addEventListener('load', () => {
   elements.requestedTime.addEventListener('change', () => {
     elements.requestedTime.classList.remove('field-invalid')
     hideCheckoutError()
+    // A new time value invalidates any earlier "sí, es para mañana" answer - re-check
+    // from scratch next time "Enviar" is pressed instead of trusting a stale flag.
+    STATE.requestedForTomorrow = false
+    hideTomorrowConfirm()
+  })
+
+  elements.tomorrowConfirmYes.addEventListener('click', () => {
+    STATE.requestedForTomorrow = true
+    hideTomorrowConfirm()
+    hideCheckoutError()
+    openConfirmModal()
+  })
+  elements.tomorrowConfirmNo.addEventListener('click', () => {
+    hideTomorrowConfirm()
+    elements.requestedTime.focus()
+    elements.requestedTime.scrollIntoView({ behavior: 'smooth', block: 'center' })
   })
 
   elements.productSearch.addEventListener('input', () => {

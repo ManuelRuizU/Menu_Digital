@@ -164,7 +164,7 @@
         <p class="muted">
           {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
           {% if order.delivery_mode == 'envio' and order.address %}· {{ order.address }}{% endif %}
-          · Hora: {{ order.requested_time or 'Lo antes posible' }}
+          · Hora: {{ order.requested_time_label }}
           {% if order.payment_method %}· Pago: {{ PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method) }}{% endif %}
         </p>
         {% if order.notes %}<p class="muted">Notas: {{ order.notes }}</p>{% endif %}

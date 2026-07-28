@@ -182,6 +182,7 @@ class Order(db.Model):
     cash_amount = db.Column(db.Integer, nullable=True)
     requested_time = db.Column(db.String(5), nullable=True)
     requested_time_end = db.Column(db.String(5), nullable=True)
+    requested_for_tomorrow = db.Column(db.Boolean, nullable=False, default=False)
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
 
@@ -209,9 +210,8 @@ class Order(db.Model):
     def requested_time_label(self):
         if not self.requested_time:
             return 'Lo antes posible'
-        if self.requested_time_end:
-            return f'{self.requested_time} - {self.requested_time_end}'
-        return self.requested_time
+        label = f'{self.requested_time} - {self.requested_time_end}' if self.requested_time_end else self.requested_time
+        return f'mañana {label}' if self.requested_for_tomorrow else label
 
     def __repr__(self):
         return f'<Order {self.id}>'
