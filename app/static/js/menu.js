@@ -635,13 +635,16 @@ function productCardHtml(product) {
     : (product.featured ? '<span class="featured-badge">⭐ Recomendado</span>' : '')
   const safeName = escapeHtml(product.name)
   const bundlePromo = !soldOut ? findBundlePromoForProduct(product) : null
+  // Always reserve the same square, whether or not there's a real photo - otherwise a
+  // no-photo card's text starts flush at the top, out of line with its photo-having
+  // neighbors in the same grid row.
+  const photo = product.imageUrl
+    ? `<img src="${product.imageUrl}" alt="${safeName}" class="product-photo">`
+    : `<div class="product-photo product-photo-placeholder" role="img" aria-label="${safeName}">🍽️</div>`
   return `
     <article class="product-card${soldOut ? ' sold-out' : ''}">
-      ${product.imageUrl
-        ? `<div class="product-photo-wrap"><img src="${product.imageUrl}" alt="${safeName}" class="product-photo">${badge}</div>`
-        : ''}
+      <div class="product-photo-wrap">${photo}${badge}</div>
       <div>
-        ${!product.imageUrl ? badge : ''}
         <strong>${safeName}</strong>
         <div class="price">${priceHtml(product)}</div>
         ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
