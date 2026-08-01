@@ -259,8 +259,21 @@ def create_category():
         flash('El nombre de la categoría es obligatorio.')
         return redirect(url_for('catalog.categories'))
 
+    if Category.query.filter_by(name=name).first():
+        flash('Ya existe una categoría con ese nombre.')
+        return redirect(url_for('catalog.categories'))
+
     db.session.add(Category(name=name))
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Safety net for two simultaneous requests both passing the check above before
+        # either commits - the UniqueConstraint is the real guarantee, this is just
+        # keeping the failure a clean flash instead of a 500 page.
+        db.session.rollback()
+        flash('Ya existe una categoría con ese nombre.')
+        return redirect(url_for('catalog.categories'))
+
     flash('Categoría creada')
     return redirect(url_for('catalog.categories'))
 
@@ -292,8 +305,21 @@ def create_subcategory():
         flash('Completa el nombre y la categoría de la subcategoría.')
         return redirect(url_for('catalog.categories'))
 
+    if Subcategory.query.filter_by(name=name, category_id=category.id).first():
+        flash('Ya existe una subcategoría con ese nombre en esta categoría.')
+        return redirect(url_for('catalog.categories'))
+
     db.session.add(Subcategory(name=name, category_id=category.id))
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Same safety net as create_category - the UniqueConstraint on
+        # (name, category_id) is the real guarantee against a race between two
+        # simultaneous requests.
+        db.session.rollback()
+        flash('Ya existe una subcategoría con ese nombre en esta categoría.')
+        return redirect(url_for('catalog.categories'))
+
     flash('Subcategoría creada')
     return redirect(url_for('catalog.categories'))
 

@@ -20,9 +20,11 @@ def _set_owner_location(db, lat, lng):
 
 
 def _create_product(db, price=1000, name='Producto'):
-    category = Category(name='Categoria')
-    db.session.add(category)
-    db.session.commit()
+    category = Category.query.filter_by(name='Categoria').first()
+    if category is None:
+        category = Category(name='Categoria')
+        db.session.add(category)
+        db.session.commit()
     product = Product(name=name, description='Test', price=price, category_id=category.id)
     db.session.add(product)
     db.session.commit()

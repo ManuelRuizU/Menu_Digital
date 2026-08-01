@@ -22,9 +22,11 @@ def _register_owner(client):
 
 
 def _create_product(db, stock_quantity=None, price=1000, name='Bebida'):
-    category = Category(name='Bebidas')
-    db.session.add(category)
-    db.session.commit()
+    category = Category.query.filter_by(name='Bebidas').first()
+    if category is None:
+        category = Category(name='Bebidas')
+        db.session.add(category)
+        db.session.commit()
     product = Product(name=name, description='Test', price=price,
                        category_id=category.id, stock_quantity=stock_quantity)
     db.session.add(product)
@@ -1827,9 +1829,11 @@ def test_orders_view_edit_order_has_no_plain_select_for_products(client, db):
 # main.routes (same function create_order() uses), not a reimplementation ---
 
 def _create_product_with_options(db, name='Café americano', price=4990):
-    category = Category(name='Bebidas')
-    db.session.add(category)
-    db.session.commit()
+    category = Category.query.filter_by(name='Bebidas').first()
+    if category is None:
+        category = Category(name='Bebidas')
+        db.session.add(category)
+        db.session.commit()
     product = Product(name=name, description='Test', price=price, category_id=category.id)
     db.session.add(product)
     db.session.commit()

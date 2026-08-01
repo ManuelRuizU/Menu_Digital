@@ -10,9 +10,11 @@ def _register_owner(client):
 
 
 def _create_category(db, name='Categoria'):
-    category = Category(name=name)
-    db.session.add(category)
-    db.session.commit()
+    category = Category.query.filter_by(name=name).first()
+    if category is None:
+        category = Category(name=name)
+        db.session.add(category)
+        db.session.commit()
     return category
 
 

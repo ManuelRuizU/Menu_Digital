@@ -2,9 +2,11 @@ from app.models import Category, Product, ProductOption, ProductOptionGroup
 
 
 def _create_pizza(db):
-    category = Category(name='Pizzas')
-    db.session.add(category)
-    db.session.commit()
+    category = Category.query.filter_by(name='Pizzas').first()
+    if category is None:
+        category = Category(name='Pizzas')
+        db.session.add(category)
+        db.session.commit()
     product = Product(name='Pizza', description='Test', price=6000, category_id=category.id)
     db.session.add(product)
     db.session.commit()
