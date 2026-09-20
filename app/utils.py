@@ -20,6 +20,18 @@ def day_range_utc(local_date):
     return start_utc, end_utc
 
 
+HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+
+def hex_to_rgb(value):
+    """'#rrggbb' -> 'r, g, b' (para usar en rgba(var(--x-rgb), alpha) en CSS).
+    None o un hex mal formado -> None, para que el caller decida el fallback."""
+    if not value or not HEX_COLOR_RE.match(value):
+        return None
+    r, g, b = (int(value[i:i + 2], 16) for i in (1, 3, 5))
+    return f'{r}, {g}, {b}'
+
+
 def parse_money(data, field, default=None):
     """Lee un monto CLP desde un form o un dict JSON.
     Acepta '7200', '7200.0', 7200 y 7200.0. Devuelve int o default."""

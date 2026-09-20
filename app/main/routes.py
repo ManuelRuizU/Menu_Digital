@@ -11,7 +11,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
-from app.utils import parse_money, validate_order_fields
+from app.utils import hex_to_rgb, parse_money, validate_order_fields
 
 
 def get_owner():
@@ -102,6 +102,8 @@ def index():
     logo_url = url_for('static', filename='uploads/logos/' + owner.logo_filename) if owner and owner.logo_filename else None
     theme = owner.theme if owner and owner.theme in THEMES else 'oscuro'
     theme_defaults = THEMES[theme]
+    primary_color = owner.primary_color if owner and owner.primary_color else theme_defaults['primary']
+    accent_color = owner.accent_color if owner and owner.accent_color else theme_defaults['accent']
 
     hours_today = get_hours_for_today()
     closed_by_schedule = hours_today is not None and hours_today.is_closed
@@ -136,8 +138,10 @@ def index():
         maps_url=(f'https://www.google.com/maps/search/?api=1&query={owner.latitude},{owner.longitude}'
                    if owner and owner.latitude is not None and owner.longitude is not None else None),
         logo_url=logo_url,
-        primary_color=(owner.primary_color if owner and owner.primary_color else theme_defaults['primary']),
-        accent_color=(owner.accent_color if owner and owner.accent_color else theme_defaults['accent']),
+        primary_color=primary_color,
+        primary_rgb=(hex_to_rgb(primary_color) or hex_to_rgb(theme_defaults['primary'])),
+        accent_color=accent_color,
+        accent_rgb=(hex_to_rgb(accent_color) or hex_to_rgb(theme_defaults['accent'])),
         accepts_cash=(owner.accepts_cash if owner else True),
         accepts_transfer=(owner.accepts_transfer if owner else True),
         accepts_card=(owner.accepts_card if owner else True),
