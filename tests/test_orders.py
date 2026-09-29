@@ -251,6 +251,29 @@ def test_bundle_promo_appears_and_disappears_as_items_are_edited(client, db):
     assert order.total_price == 1000 + 1500  # subtotal(1 unit) + shipping, no promo
 
 
+def test_gift_item_does_not_inflate_bundle_discount_when_order_is_edited(client, db):
+    # A $0 gift of a product that's also in a "3x1" (2 free per group) used to enter
+    # the recalculation as the cheapest unit and complete a trailing group, freeing
+    # a real unit alongside it. Creating the order never counted the gift - editing
+    # must calculate the same way.
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Sushi', stock_quantity=None)
+    other = _create_product(db, price=500, name='Bebida', stock_quantity=None)
+    _create_promo(db, [product], buy_quantity=3, pay_quantity=1)
+    order = _create_order_with_item(db, product, quantity=5)
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                              quantity=1, price=0, is_gift=True))
+    db.session.commit()
+
+    client.post(f'/admin/orders/{order.id}/items/add', data={'product_id': other.id, 'quantity': 1})
+
+    db.session.refresh(order)
+    # 5 paid units -> one full group of 3 -> 2 free units at $1000. The gift must not
+    # complete a second group [1000, 1000, 0].
+    assert order.bundle_discount_amount == 2000
+    assert order.total_price == 5000 + 500 - 2000
+
+
 def test_removing_last_applicable_product_zeroes_products_scope_coupon_without_error(client, db):
     _register_owner(client)
     target = _create_product(db, price=1000, name='Target', stock_quantity=None)
@@ -1100,7 +1123,7 @@ def test_orders_view_marks_gift_item_explicitly_not_as_a_plain_zero_dollar_item(
 
     order = _create_order_with_item(db, product)
     db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
-                              product_name=gift_product.name, quantity=1, price=0))
+                              product_name=gift_product.name, quantity=1, price=0, is_gift=True))
     db.session.commit()
 
     resp = client.get('/admin/orders')
@@ -1612,12 +1635,34 @@ def test_print_ticket_shows_shortfall_warning_not_vuelto_zero(client, db):
     assert 'Vuelto: $0' not in printed
 
 
-# --- Bug 2 fix: gift badge requires product_id match AND price == 0 ---
+# --- Gift badge: driven by OrderItem.is_gift, not by guessing from price/product ---
 
 def test_orders_view_marks_real_gift_item_price_zero(client, db):
     _register_owner(client)
     product = _create_product(db, price=1000, name='Plato Principal')
     gift_product = _create_product(db, price=2000, name='Postre de Regalo')
+    owner = User.query.filter_by(is_owner=True).first()
+    owner.gift_product_id = gift_product.id
+    db.session.commit()
+
+    order = _create_order_with_item(db, product)
+    db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
+                              product_name=gift_product.name, quantity=1, price=0, is_gift=True))
+    db.session.commit()
+
+    resp = client.get('/admin/orders')
+    html = resp.data.decode()
+
+    assert 'gift-badge' in html
+    assert '🎁 Regalo' in html
+
+
+def test_orders_view_does_not_mark_zero_price_item_of_gift_product_without_is_gift(client, db):
+    # The old heuristic (product_id == gift product AND price == 0) would have shown
+    # the badge here. Only is_gift decides now.
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Plato Principal')
+    gift_product = _create_product(db, price=4990, name='Cafe americano')
     owner = User.query.filter_by(is_owner=True).first()
     owner.gift_product_id = gift_product.id
     db.session.commit()
@@ -1630,33 +1675,9 @@ def test_orders_view_marks_real_gift_item_price_zero(client, db):
     resp = client.get('/admin/orders')
     html = resp.data.decode()
 
-    assert 'gift-badge' in html
-    assert '🎁 Regalo' in html
-
-
-def test_orders_view_does_not_mark_manually_added_item_of_gift_product_with_real_price(client, db):
-    # The exact reported bug: a Cafe americano added by hand from "Editar productos"
-    # (real catalog price) happens to be the product configured as the gift.
-    _register_owner(client)
-    product = _create_product(db, price=1000, name='Plato Principal')
-    gift_product = _create_product(db, price=4990, name='Cafe americano')
-    owner = User.query.filter_by(is_owner=True).first()
-    owner.gift_product_id = gift_product.id
-    db.session.commit()
-
-    order = _create_order_with_item(db, product)
-    # Same product_id as the configured gift, but a REAL price - exactly what
-    # add_order_item() inserts when added by hand from the panel.
-    db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
-                              product_name=gift_product.name, quantity=1, price=4990))
-    db.session.commit()
-
-    resp = client.get('/admin/orders')
-    html = resp.data.decode()
-
     assert 'class="gift-badge"' not in html
     assert '🎁' not in html
-    assert '1× Cafe americano — $4990' in html
+    assert '1× Cafe americano — $0' in html
 
 
 def test_orders_view_does_not_mark_unrelated_product_as_gift(client, db):
@@ -1676,6 +1697,88 @@ def test_orders_view_does_not_mark_unrelated_product_as_gift(client, db):
 
     assert 'class="gift-badge"' not in html
     assert '🎁' not in html
+
+
+def _confirmed_order_with_gift(db, paid_name='Plato Principal', gift_name='Postre de Regalo'):
+    product = _create_product(db, price=1000, name=paid_name)
+    gift_product = _create_product(db, price=2000, name=gift_name)
+    order = _create_order_with_item(db, product)
+    order.status = 'Confirmed'
+    order.daily_number = 1
+    db.session.add(OrderItem(order_id=order.id, product_id=gift_product.id,
+                              product_name=gift_product.name, quantity=1, price=0, is_gift=True))
+    db.session.commit()
+    return order
+
+
+def test_courier_message_marks_gift_item(client, db):
+    _register_owner(client)
+    order = _confirmed_order_with_gift(db)
+    order.delivery_mode = 'envio'  # the courier message only exists for deliveries
+    order.address = 'Calle 123'
+    db.session.commit()
+
+    message = _build_courier_message(order)
+
+    assert '• 1x Postre de Regalo (regalo)' in message
+    assert '• 1x Plato Principal\n' in message
+
+
+def test_print_ticket_marks_gift_item(client, db):
+    _register_owner(client)
+    owner = _owner_with_printer(db)
+    order = _confirmed_order_with_gift(db)
+
+    mock_printer = MagicMock()
+    with patch('app.catalog.routes.Network', return_value=mock_printer):
+        ok, error = _print_order_ticket(order, owner)
+
+    assert ok is True
+    printed = ''.join(call.args[0] for call in mock_printer.text.call_args_list)
+    assert '1x Postre de Regalo (regalo)\n' in printed
+    assert '1x Plato Principal\n' in printed
+
+
+def test_csv_export_marks_gift_item(client, db):
+    _register_owner(client)
+    _confirmed_order_with_gift(db)
+
+    resp = client.get('/admin/orders/export.csv')
+    csv_text = resp.data.decode('utf-8-sig')
+
+    assert '1x Postre de Regalo (regalo)' in csv_text
+    assert '1x Plato Principal (regalo)' not in csv_text
+
+
+@pytest.mark.parametrize('path', ['/admin/orders/history', '/admin/dashboard'])
+def test_history_and_dashboard_show_gift_badge_not_zero_dollar_line(client, db, path):
+    _register_owner(client)
+    _confirmed_order_with_gift(db)
+
+    html = client.get(path).data.decode()
+
+    assert '<span class="gift-badge">🎁 Regalo</span> Postre de Regalo' in html
+    assert 'Postre de Regalo — $0' not in html
+
+
+def test_agenda_marks_gift_item(client, db):
+    _register_owner(client)
+    _confirmed_order_with_gift(db)
+
+    html = client.get('/admin/agenda').data.decode()
+
+    assert '🎁 1x Postre de Regalo (regalo)' in html
+
+
+def test_dashboard_best_sellers_exclude_gift_units(client, db):
+    _register_owner(client)
+    # Only ever given away, never sold - must not appear in the best-sellers table.
+    _confirmed_order_with_gift(db, paid_name='Plato Principal', gift_name='Solo Regalado')
+
+    html = client.get('/admin/dashboard').data.decode()
+
+    assert '<td style="padding:8px 6px;">Plato Principal</td>' in html
+    assert '<td style="padding:8px 6px;">Solo Regalado</td>' not in html
 
 
 # --- "Editar pedido" (merged Editar productos + Ajustar hora) + catalog picker ---

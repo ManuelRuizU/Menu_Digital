@@ -115,7 +115,8 @@ def _build_courier_message(order):
         options_text = ''
         if item.selected_options:
             options_text = ' (' + ', '.join(option.name for option in item.selected_options) + ')'
-        lines.append(f'• {item.quantity}x {product_name}{options_text}')
+        gift_text = ' (regalo)' if item.is_gift else ''
+        lines.append(f'• {item.quantity}x {product_name}{options_text}{gift_text}')
 
     if order.notes:
         lines.append('')
@@ -181,7 +182,9 @@ def _print_order_ticket(order, owner):
 
         for item in order.order_items:
             product_name = item.product_name
-            printer.text(f'{item.quantity}x {product_name}\n')
+            # Plain text, no emoji - thermal printers' code pages can't print it.
+            gift_text = ' (regalo)' if item.is_gift else ''
+            printer.text(f'{item.quantity}x {product_name}{gift_text}\n')
             for option in item.selected_options:
                 printer.text(f'   + {option.name}\n')
         if order.notes:
@@ -1094,7 +1097,7 @@ def dashboard():
         )
         .join(OrderItem, OrderItem.product_id == Product.id)
         .join(Order, Order.id == OrderItem.order_id)
-        .filter(Order.status == 'Confirmed')
+        .filter(Order.status == 'Confirmed', OrderItem.is_gift.is_(False))  # a gift isn't a sale
         .group_by(Product.id, Product.name)
         .order_by(func.sum(OrderItem.quantity).desc())
         .limit(10)
@@ -1436,7 +1439,6 @@ def orders():
                             confirmed_count=confirmed_count, cancelled_count=cancelled_count,
                             courier_links=courier_links, couriers=couriers, catalog_json=catalog_json,
                             printer_configured=printer_configured, order_subtotals=order_subtotals,
-                            gift_product_id=(owner.gift_product_id if owner else None),
                             cash_payment_summary=cash_payment_summary,
                             ORDER_STATUS_LABELS=ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS=PAYMENT_METHOD_LABELS)
 
@@ -1483,6 +1485,8 @@ def export_orders_csv():
             label = f'{item.quantity}x {product_name}'
             if options:
                 label += f' ({options})'
+            if item.is_gift:
+                label += ' (regalo)'
             item_lines.append(label)
 
         writer.writerow([
@@ -1660,12 +1664,14 @@ def _recalculate_order_total(order):
     productos por el panel puede cambiar qué aplica). unit_price siempre viene del
     snapshot en OrderItem.price, nunca del catálogo actual. Ítems huérfanos
     (product_id NULL) suman al subtotal pero se excluyen de promos y cupón, porque
-    compute_bundle_discount/compute_coupon_discount asumen product no-None."""
+    compute_bundle_discount/compute_coupon_discount asumen product no-None. Los
+    regalos (is_gift) también se excluyen, igual que en create_order: un $0 en un
+    "3x1" completaría un grupo y liberaría una unidad pagada."""
     items = OrderItem.query.filter_by(order_id=order.id).all()
     subtotal = sum(item.price * item.quantity for item in items)
 
     order_lines = [(item.product, item.quantity, [], item.price)
-                    for item in items if item.product is not None]
+                    for item in items if item.product is not None and not item.is_gift]
 
     bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
 

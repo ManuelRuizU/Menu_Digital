@@ -157,7 +157,11 @@
 
         <ul class="order-items">
           {% for item in order.order_items %}
-            <li>{{ item.quantity }}× {{ item.product_name }} — ${{ '%.0f'|format(item.price * item.quantity) }}</li>
+            {% if item.is_gift %}
+              <li><span class="gift-badge">🎁 Regalo</span> {{ item.product_name }}</li>
+            {% else %}
+              <li>{{ item.quantity }}× {{ item.product_name }} — ${{ '%.0f'|format(item.price * item.quantity) }}</li>
+            {% endif %}
           {% endfor %}
         </ul>
 

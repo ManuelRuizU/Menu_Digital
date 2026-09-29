@@ -15,7 +15,7 @@
 
     <p class="muted" style="margin:4px 0 0;">
       {%- for item in order.order_items -%}
-        {{ item.quantity }}x {{ item.product_name }}{% if item.selected_options %} ({{ item.selected_options|map(attribute='name')|join(', ') }}){% endif %}{% if not loop.last %}, {% endif %}
+        {% if item.is_gift %}🎁 {% endif %}{{ item.quantity }}x {{ item.product_name }}{% if item.selected_options %} ({{ item.selected_options|map(attribute='name')|join(', ') }}){% endif %}{% if item.is_gift %} (regalo){% endif %}{% if not loop.last %}, {% endif %}
       {%- endfor -%}
     </p>
 

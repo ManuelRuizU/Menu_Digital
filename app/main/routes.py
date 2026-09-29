@@ -84,15 +84,29 @@ def compute_shipping_cost(lat, lng):
     return tier.price, True
 
 
-def _gift_is_available(owner):
-    if not owner or not owner.gift_threshold_amount or not owner.gift_product_id:
-        return False
-    product = owner.gift_product
+def _gift_product_is_available(product):
     if not product or not product.is_active or product.sold_out:
         return False
     if product.stock_quantity is not None and product.stock_quantity < 1:
         return False
     return True
+
+
+def _gift_is_available(owner):
+    if not owner or not owner.gift_threshold_amount or not owner.gift_product_id:
+        return False
+    return _gift_product_is_available(owner.gift_product)
+
+
+def _add_gift_item(order, product):
+    """Add one unit of product to order for free, marked is_gift, and take it out of
+    stock like any dispatched item. Caller is responsible for checking availability."""
+    db.session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name,
+                             quantity=1, price=0, is_gift=True))
+    if product.stock_quantity is not None:
+        product.stock_quantity = max(product.stock_quantity - 1, 0)
+        if product.stock_quantity == 0:
+            product.sold_out = True
 
 
 @main.route('/')
@@ -610,14 +624,7 @@ def create_order():
 
         effective_total = subtotal + shipping_cost - bundle_discount - discount_amount
         if _gift_is_available(owner) and effective_total >= owner.gift_threshold_amount:
-            gift_product = owner.gift_product
-            gift_item = OrderItem(order_id=order.id, product_id=gift_product.id, product_name=gift_product.name,
-                                   quantity=1, price=0)
-            db.session.add(gift_item)
-            if gift_product.stock_quantity is not None:
-                gift_product.stock_quantity = max(gift_product.stock_quantity - 1, 0)
-                if gift_product.stock_quantity == 0:
-                    gift_product.sold_out = True
+            _add_gift_item(order, owner.gift_product)
 
         if coupon:
             db.session.add(CouponRedemption(coupon_id=coupon.id, order_id=order.id, phone_digits=normalize_phone(phone)))

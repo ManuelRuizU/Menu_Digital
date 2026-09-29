@@ -43,7 +43,11 @@ def test_gift_added_when_total_reaches_threshold(client, db, order_payload):
     gift_item = OrderItem.query.filter_by(order_id=order.id, product_id=gift.id).first()
     assert gift_item is not None
     assert gift_item.price == 0
+    assert gift_item.is_gift is True
     assert order.total_price == 10000  # gift doesn't change the total
+
+    paid_item = OrderItem.query.filter_by(order_id=order.id, product_id=main_product.id).first()
+    assert paid_item.is_gift is False
 
     db.session.refresh(gift)
     assert gift.stock_quantity == 4  # decremented like any dispatched item

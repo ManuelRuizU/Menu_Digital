@@ -231,6 +231,9 @@ class OrderItem(db.Model):
     product_name = db.Column(db.String(100), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Integer, nullable=False)  # per-unit price, already including any selected options
+    # Added for free by a promotion - never a sale: excluded from promo recalculation
+    # and the best-sellers ranking, and flagged as a gift to the courier/ticket/CSV.
+    is_gift = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text('0'))
     selected_options = db.relationship('OrderItemOption', backref='order_item', lazy=True,
                                         cascade='all, delete-orphan')
 

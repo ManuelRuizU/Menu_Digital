@@ -250,6 +250,7 @@ button, input { font: inherit; }
 .products-list { display: block; }
 .products-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .product-card { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid rgba(var(--primary-rgb), 0.3); box-shadow: var(--shadow-soft); border-radius: 22px; padding: 16px; }
+.product-card-main { display: flex; flex-direction: column; gap: 12px; cursor: pointer; }
 .product-photo { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 14px; }
 .product-photo-placeholder { display: flex; align-items: center; justify-content: center; background: var(--tint-1); font-size: 2rem; color: var(--muted); }
 .product-card strong { display: block; font-size: 1rem; color: var(--text-strong); }
@@ -258,8 +259,10 @@ button, input { font: inherit; }
 .card-actions { margin-top: auto; display: flex; gap: 8px; }
 .card-actions .add-btn { flex: 1; border: none; border-radius: 14px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; padding: 12px 14px; font-size: 1.4rem; font-weight: 700; line-height: 1; cursor: pointer; transition: transform 0.2s ease, opacity 0.2s ease; }
 .card-actions .add-btn:hover { transform: translateY(-1px); opacity: 0.95; }
-.details-btn { flex-shrink: 0; width: 44px; border: 1px solid var(--border); border-radius: 14px; background: var(--tint-1); color: var(--muted); font-size: 1.1rem; cursor: pointer; }
+.details-btn { flex-shrink: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--tint-1); color: var(--muted); font-size: 0.85rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .details-btn:hover { color: var(--text-strong); border-color: var(--tint-3); }
+.description-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.description-list li { line-height: 1.5; }
 .product-card.sold-out { opacity: 0.6; }
 .product-card.sold-out .product-photo { filter: grayscale(0.6); }
 .product-photo-wrap { position: relative; }

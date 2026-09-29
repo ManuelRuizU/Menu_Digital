@@ -32,7 +32,11 @@
         <ul class="order-items">
           {% for item in order.order_items %}
             <li>
-              {{ item.quantity }}× {{ item.product_name }} — ${{ '%.0f'|format(item.price * item.quantity) }}
+              {% if item.is_gift %}
+                <span class="gift-badge">🎁 Regalo</span> {{ item.product_name }}
+              {% else %}
+                {{ item.quantity }}× {{ item.product_name }} — ${{ '%.0f'|format(item.price * item.quantity) }}
+              {% endif %}
               {% if item.selected_options %}
                 <br><small class="muted">{{ item.selected_options|map(attribute='name')|join(', ') }}</small>
               {% endif %}

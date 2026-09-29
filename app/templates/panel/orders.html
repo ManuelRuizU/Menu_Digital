@@ -80,7 +80,7 @@
               {% for item in order.order_items %}
                 <li class="subitem">
                   <span>
-                    {% if gift_product_id is not none and item.product_id == gift_product_id and item.price == 0 %}
+                    {% if item.is_gift %}
                       <span class="gift-badge">🎁 Regalo</span> {{ item.product_name }}
                     {% else %}
                       {{ item.quantity }}× {{ item.product_name }} — ${{ '%.0f'|format(item.price * item.quantity) }}

@@ -266,12 +266,32 @@ function updateModalPrice() {
     : formatPrice(currentModalProduct.price + extra)
 }
 
+function renderProductDescription(description) {
+  const container = elements.productModalDescription
+  container.textContent = ''
+  // El dueño separa renglones tecleando "·" a mano (no es un salto de línea real),
+  // por eso partimos por ese caracter en vez de usar white-space: pre-line.
+  const segments = (description || '').split('·').map((segment) => segment.trim()).filter(Boolean)
+  if (segments.length < 2) {
+    container.textContent = segments[0] || ''
+    return
+  }
+  const list = document.createElement('ul')
+  list.className = 'description-list'
+  segments.forEach((segment) => {
+    const item = document.createElement('li')
+    item.textContent = segment
+    list.appendChild(item)
+  })
+  container.appendChild(list)
+}
+
 function openProductModal(productId) {
   const product = STATE.products.find((item) => item.id === Number(productId))
   if (!product) return
   currentModalProduct = product
   elements.productModalName.textContent = product.name
-  elements.productModalDescription.textContent = product.description || ''
+  renderProductDescription(product.description)
   renderModalOptions(product)
   updateModalPrice()
   hideModalError()
@@ -643,15 +663,17 @@ function productCardHtml(product) {
     : `<div class="product-photo product-photo-placeholder" role="img" aria-label="${safeName}">🍽️</div>`
   return `
     <article class="product-card${soldOut ? ' sold-out' : ''}">
-      <div class="product-photo-wrap">${photo}${badge}</div>
-      <div>
-        <strong>${safeName}</strong>
-        <div class="price">${priceHtml(product)}</div>
-        ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
-        ${bundlePromo ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
+      <div class="product-card-main" data-details="${product.id}">
+        <div class="product-photo-wrap">${photo}${badge}</div>
+        <div>
+          <strong>${safeName}</strong>
+          <div class="price">${priceHtml(product)}</div>
+          ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
+          ${bundlePromo ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
+        </div>
       </div>
       <div class="card-actions">
-        <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">ⓘ</button>
+        <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">Ver</button>
         ${soldOut
           ? '<button type="button" class="sold-out-btn" disabled>Agotado</button>'
           : hasOptionGroups(product)
