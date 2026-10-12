@@ -796,6 +796,7 @@ def _save_coupon(coupon):
     product_ids = request.form.getlist('product_ids', type=int)
     show_in_banner = request.form.get('show_in_banner') == 'on'
     applies_to_shipping = request.form.get('applies_to_shipping') == 'on'
+    min_order_amount = parse_money(request.form, 'min_order_amount')
 
     def _redisplay():
         return render_template('panel/coupon_form.html', **_coupon_form_context(coupon if coupon.id else None))
@@ -817,6 +818,12 @@ def _save_coupon(coupon):
         flash('La fecha "desde" no puede ser posterior a la fecha "hasta".')
         return _redisplay()
 
+    # Empty means no minimum; anything typed must parse to a positive amount
+    # (parse_money returns None for garbage too, which mustn't silently mean "none").
+    if (request.form.get('min_order_amount') or '').strip() and (min_order_amount is None or min_order_amount <= 0):
+        flash('La compra mínima debe ser un monto mayor a 0, o déjala vacía para no exigir mínimo.')
+        return _redisplay()
+
     is_new = coupon.id is None
     coupon.code = code
     coupon.discount_percent = discount_percent
@@ -828,6 +835,7 @@ def _save_coupon(coupon):
     coupon.products = Product.query.filter(Product.id.in_(product_ids)).all() if scope == 'products' else []
     coupon.show_in_banner = show_in_banner
     coupon.applies_to_shipping = applies_to_shipping
+    coupon.min_order_amount = min_order_amount
     if is_new:
         coupon.is_active = True
 

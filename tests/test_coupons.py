@@ -1,7 +1,7 @@
 import json
 from datetime import date, timedelta
 
-from app.models import Category, Coupon, CouponRedemption, DeliveryZone, Order, Product
+from app.models import BundlePromo, Category, Coupon, CouponRedemption, DeliveryZone, Order, Product
 
 
 def _create_product(db, price=1000, name='Producto'):
@@ -244,3 +244,126 @@ def test_create_order_enforces_per_customer_limit_across_two_orders(client, db, 
         items=[{'id': product.id, 'quantity': 1}], phone=PHONE, couponCode='UNAVEZ'))
     assert second.status_code == 400
     assert second.get_json()['ok'] is False
+
+
+# --- Minimum purchase (min_order_amount): compared against products minus 2x1, never shipping ---
+
+def _apply(client, product, quantity, delivery_mode='retira', **extra):
+    return client.post('/api/apply-coupon', json={
+        'code': 'primeracompra', 'phone': PHONE, 'deliveryMode': delivery_mode,
+        'items': [{'id': product.id, 'quantity': quantity}], **extra,
+    })
+
+
+def test_apply_coupon_rejects_below_min_order_amount(client, db):
+    product = _create_product(db, price=1000)
+    _create_coupon(db, discount_percent=10, min_order_amount=3000)
+
+    resp = _apply(client, product, quantity=2)  # 2000 < 3000
+
+    assert resp.status_code == 400
+    assert resp.get_json()['message'] == 'Este cupón requiere una compra mínima de $3000.'
+
+
+def test_apply_coupon_accepts_exactly_at_min_order_amount(client, db):
+    product = _create_product(db, price=1000)
+    _create_coupon(db, discount_percent=10, min_order_amount=2000)
+
+    resp = _apply(client, product, quantity=2)  # 2000 == 2000
+
+    data = resp.get_json()
+    assert data['ok'] is True
+    assert data['discountAmount'] == 200
+
+
+def test_min_order_amount_is_compared_after_the_2x1(client, db):
+    product = _create_product(db, price=1000)
+    promo = BundlePromo(label='2x1', buy_quantity=2, pay_quantity=1, is_active=True)
+    db.session.add(promo)
+    db.session.flush()
+    promo.products = [product]
+    db.session.commit()
+    _create_coupon(db, discount_percent=10, min_order_amount=1500)
+
+    resp = _apply(client, product, quantity=2)  # 2000 - 1000 (2x1) = 1000 < 1500
+
+    assert resp.status_code == 400
+    assert 'compra mínima' in resp.get_json()['message']
+
+
+def test_min_order_amount_does_not_count_shipping(client, db):
+    product = _create_product(db, price=1000)
+    _create_coupon(db, discount_percent=10, min_order_amount=3000)
+    _create_delivery_zone(db, price=1500)
+
+    # 2000 of products + 1500 of shipping = 3500 - only reaches the minimum through shipping.
+    resp = _apply(client, product, quantity=2, delivery_mode='envio', lat=-33.5, lng=-70.5)
+
+    assert resp.status_code == 400
+    assert 'compra mínima' in resp.get_json()['message']
+
+
+def test_coupon_without_min_order_amount_has_no_minimum(client, db):
+    product = _create_product(db, price=100)
+    _create_coupon(db, discount_percent=10)
+
+    resp = _apply(client, product, quantity=1)
+
+    data = resp.get_json()
+    assert data['ok'] is True
+    assert data['discountAmount'] == 10
+
+
+def test_create_order_enforces_min_order_amount_without_creating_order(client, db, order_payload):
+    # The cart preview isn't the only gate - a direct POST must be rejected too.
+    product = _create_product(db, price=1000)
+    coupon = _create_coupon(db, discount_percent=10, min_order_amount=3000)
+
+    resp = client.post('/api/orders', json=order_payload(
+        items=[{'id': product.id, 'quantity': 2}], phone=PHONE, couponCode='primeracompra'))
+
+    assert resp.status_code == 400
+    assert 'compra mínima' in resp.get_json()['message']
+    assert Order.query.count() == 0
+    assert CouponRedemption.query.filter_by(coupon_id=coupon.id).count() == 0
+
+
+# --- Panel: min_order_amount field ---
+
+def _register_owner(client):
+    client.post('/register', data={
+        'username': 'dueno', 'email': 'dueno@test.com', 'password': 'secret123',
+    })
+
+
+def _post_coupon_form(client, **overrides):
+    data = {'code': 'MINIMO', 'discount_percent': '10', 'scope': 'order'}
+    data.update(overrides)
+    return client.post('/admin/coupons/new', data=data, follow_redirects=True)
+
+
+def test_panel_saves_min_order_amount(client, db):
+    _register_owner(client)
+
+    _post_coupon_form(client, min_order_amount='15000')
+
+    coupon = Coupon.query.filter_by(code='MINIMO').one()
+    assert coupon.min_order_amount == 15000
+    assert coupon.kind == 'percent'
+
+
+def test_panel_empty_min_order_amount_means_no_minimum(client, db):
+    _register_owner(client)
+
+    _post_coupon_form(client, min_order_amount='')
+
+    assert Coupon.query.filter_by(code='MINIMO').one().min_order_amount is None
+
+
+def test_panel_rejects_non_positive_min_order_amount(client, db):
+    _register_owner(client)
+
+    for bad in ('0', '-500', 'abc'):
+        resp = _post_coupon_form(client, min_order_amount=bad)
+        assert 'La compra mínima debe ser un monto mayor a 0'.encode() in resp.data
+    assert Coupon.query.filter_by(code='MINIMO').count() == 0

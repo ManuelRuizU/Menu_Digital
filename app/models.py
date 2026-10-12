@@ -267,11 +267,22 @@ class Coupon(db.Model):
     applies_to_shipping is set - off by default, since shipping is a pass-through to
     the courier, not the business's own margin); scope='products' discounts only the
     line total of the specific products attached below and never touches shipping.
-    All limits (max_total_uses, max_uses_per_customer, valid_from/valid_until) are
-    independent and optional - a coupon can use any combination, or none at all."""
+    All limits (max_total_uses, max_uses_per_customer, valid_from/valid_until,
+    min_order_amount) are independent and optional - a coupon can use any
+    combination, or none at all.
+
+    kind is what the coupon gives: 'percent' (discount_percent), 'fixed'
+    (fixed_amount) or 'product' (gift_product at $0). Only the field of its own kind
+    is set - discount_percent is NULL for the other two."""
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(30), unique=True, nullable=False)
-    discount_percent = db.Column(db.Float, nullable=False)
+    kind = db.Column(db.String(10), nullable=False, default='percent', server_default='percent')
+    discount_percent = db.Column(db.Float, nullable=True)
+    fixed_amount = db.Column(db.Integer, nullable=True)
+    gift_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
+    # Not Product.coupons - that backref is already the scope='products' M2M below.
+    gift_product = db.relationship('Product', foreign_keys=[gift_product_id], backref='gift_coupons')
+    min_order_amount = db.Column(db.Integer, nullable=True)
     scope = db.Column(db.String(10), nullable=False, default='order')
     applies_to_shipping = db.Column(db.Boolean, nullable=False, default=False)
     products = db.relationship('Product', secondary=coupon_product, lazy='joined', backref='coupons')

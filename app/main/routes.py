@@ -423,7 +423,9 @@ def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
 
 
 def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
-    """Returns (discount_amount, error_message) - error_message is None on success.
+    """subtotal must already have the 2x1 discount taken out (it's what the minimum
+    purchase is compared against).
+    Returns (discount_amount, error_message) - error_message is None on success.
     Re-checks every limit against the database (redemption rows), never a client-sent number."""
     if coupon is None or not coupon.is_active:
         return 0, 'Ese cupón no existe o ya no está activo.'
@@ -446,6 +448,12 @@ def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
         customer_used = CouponRedemption.query.filter_by(coupon_id=coupon.id, phone_digits=phone_digits).count()
         if customer_used >= coupon.max_uses_per_customer:
             return 0, 'Ya usaste este cupón antes.'
+
+    # subtotal here is already products minus the 2x1 (both callers pass it that way).
+    # Shipping doesn't count - it's a service, not a purchase - and neither does this
+    # coupon's own discount, which would make the minimum circular.
+    if coupon.min_order_amount is not None and subtotal < coupon.min_order_amount:
+        return 0, f'Este cupón requiere una compra mínima de ${coupon.min_order_amount:.0f}.'
 
     return compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines)
 
