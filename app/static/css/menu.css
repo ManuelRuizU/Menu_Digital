@@ -229,6 +229,8 @@ button, input { font: inherit; }
   background: linear-gradient(135deg, var(--primary), var(--accent));
   color: white; font-size: 1.4rem; font-weight: 800;
 }
+/* "-$10.000" is twice as long as "-15%" - smaller type so it fits the same square. */
+.coupon-slide-badge-amount { font-size: 1rem; padding: 0 4px; text-align: center; }
 .featured-slide-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .featured-slide-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); }
 .featured-slide-info strong { font-size: 1.15rem; color: var(--text-strong); }
@@ -288,6 +290,11 @@ button, input { font: inherit; }
 .cart-item-controls .qty-value { min-width: 18px; text-align: center; color: var(--text-strong); font-weight: 600; }
 .cart-item-controls > div { display: flex; align-items: center; gap: 6px; }
 .cart-item-controls .remove-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
+/* Derived gift line (never part of STATE.cart): dashed accent border instead of the
+   solid product border, no quantity controls, "GRATIS" where the controls would be. */
+.cart-item-gift { border-style: dashed; border-color: var(--accent); background: rgba(var(--accent-rgb), 0.08); box-shadow: none; }
+.cart-item-gift small { color: var(--text-strong); }
+.cart-item-gift-price { align-self: center; font-weight: 800; font-size: 0.85rem; color: var(--accent); letter-spacing: 0.04em; }
 .coupon-box { margin-top: 16px; }
 .coupon-inputs { display: flex; gap: 8px; }
 .coupon-inputs input { flex: 1; border-radius: 14px; border: 1px solid var(--border); background: var(--tint-1); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
@@ -524,6 +531,7 @@ body.nav-open { overflow: hidden; }
   .featured-slide { grid-template-columns: 72px 1fr; gap: 12px; padding: 14px; }
   .featured-slide-photo, .coupon-slide-badge { width: 72px; height: 72px; }
   .coupon-slide-badge { font-size: 1.1rem; border-radius: 14px; }
+  .coupon-slide-badge-amount { font-size: 0.8rem; }
   .featured-slide-info strong { font-size: 1rem; }
   .featured-slide-price { font-size: 0.95rem; }
 }
@@ -595,6 +603,8 @@ body.nav-open { overflow: hidden; }
 .confirm-summary .confirm-row { display: flex; justify-content: space-between; gap: 10px; }
 .confirm-summary .confirm-section-title { font-weight: 700; margin: 10px 0 4px; color: var(--text-strong); }
 .confirm-summary .confirm-section-title:first-child { margin-top: 0; }
+.confirm-summary .confirm-row-gift small { color: var(--muted); }
+.confirm-summary .confirm-row-gift > span:last-child { font-weight: 700; color: var(--accent); }
 .confirm-summary .confirm-total { font-weight: 700; color: var(--primary); border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
 .confirm-error { color: var(--accent); font-size: 0.9rem; margin: -4px 0 12px; }
 #confirm-modal-edit { background: var(--tint-2); color: var(--text-strong); margin-top: 10px; }

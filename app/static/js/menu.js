@@ -465,8 +465,10 @@ async function applyCoupon() {
       elements.couponMessage.textContent = data.message || 'No se pudo aplicar el cupón.'
       elements.couponMessage.className = 'coupon-message coupon-message-error'
     } else {
-      STATE.appliedCoupon = { code: data.code, discountPercent: data.discountPercent, scope: data.scope, discountAmount: data.discountAmount }
-      elements.couponMessage.textContent = `Cupón ${data.code} aplicado: -${formatPrice(data.discountAmount)}`
+      STATE.appliedCoupon = { code: data.code, kind: data.kind, discountPercent: data.discountPercent, fixedAmount: data.fixedAmount, giftProductName: data.giftProductName, scope: data.scope, discountAmount: data.discountAmount }
+      elements.couponMessage.textContent = data.kind === 'product'
+        ? `Cupón ${data.code} aplicado: te llevas ${data.giftProductName} de regalo`
+        : `Cupón ${data.code} aplicado: -${formatPrice(data.discountAmount)}`
       elements.couponMessage.className = 'coupon-message coupon-message-ok'
     }
   } catch (error) {
@@ -817,6 +819,13 @@ function couponSlideHtml(coupon) {
   const validityText = coupon.validUntil ? `Válido hasta ${formatDateDMY(coupon.validUntil)}` : ''
   const scopeText = coupon.scope === 'order' ? 'En toda tu compra' : 'En productos seleccionados'
   const safeCode = escapeHtml(coupon.code)
+  const discountText = coupon.kind === 'fixed' ? formatPrice(coupon.fixedAmount) : `${coupon.discountPercent}%`
+  const isGift = coupon.kind === 'product'
+  const safeGiftName = isGift ? escapeHtml(coupon.giftProductName) : ''
+  const headline = isGift ? `🎁 ${safeGiftName} gratis con ${safeCode}` : `${discountText} OFF con ${safeCode}`
+  const minOrderText = coupon.minOrderAmount ? `Con compra sobre ${formatPrice(coupon.minOrderAmount)}` : ''
+  const detailText = [isGift ? `${safeGiftName} de regalo` : scopeText, minOrderText, validityText]
+    .filter(Boolean).join(' · ')
 
   if (coupon.bannerImageUrl) {
     return `
@@ -824,7 +833,7 @@ function couponSlideHtml(coupon) {
         <img src="${coupon.bannerImageUrl}" alt="${safeCode}" class="featured-slide-photo">
         <div class="featured-slide-info">
           <span class="featured-slide-label">🏷️ Cupón</span>
-          <strong>${coupon.discountPercent}% OFF con ${safeCode}</strong>
+          <strong>${headline}</strong>
           ${validityText ? `<div class="featured-slide-price">${validityText}</div>` : ''}
         </div>
       </button>
@@ -832,11 +841,11 @@ function couponSlideHtml(coupon) {
   }
   return `
     <button type="button" class="featured-slide featured-slide-coupon-auto" data-coupon-code="${safeCode}">
-      <div class="coupon-slide-badge">-${coupon.discountPercent}%</div>
+      <div class="coupon-slide-badge${coupon.kind === 'fixed' ? ' coupon-slide-badge-amount' : ''}">${isGift ? '🎁' : `-${discountText}`}</div>
       <div class="featured-slide-info">
         <span class="featured-slide-label">🏷️ Usa el código</span>
         <strong>${safeCode}</strong>
-        <div class="featured-slide-price">${scopeText}${validityText ? ' · ' + validityText : ''}</div>
+        <div class="featured-slide-price">${detailText}</div>
       </div>
     </button>
   `
@@ -933,23 +942,59 @@ function renderCart() {
   updateSummary()
 }
 
+// The applied coupon, only when it's a gift coupon - it replaces the automatic
+// threshold gift (one gift per order, same rule create_order enforces).
+function appliedGiftCoupon() {
+  return STATE.appliedCoupon && STATE.appliedCoupon.kind === 'product' ? STATE.appliedCoupon : null
+}
+
 function giftIsReached(total) {
+  if (appliedGiftCoupon()) return false
   return Boolean(GIFT_THRESHOLD && GIFT_PRODUCT_NAME && STATE.cart.length && total >= GIFT_THRESHOLD)
 }
 
+// The single source of truth for "which gift does this order get" - shown as a
+// product line in the cart, the confirm summary and the WhatsApp text. Display only:
+// it never enters STATE.cart, so it can't touch any total, the 2x1, the delivery
+// minimum, or what saveOrder sends (create_order adds the real gift item itself).
+function currentGift(total) {
+  if (!STATE.cart.length) return null
+  const giftCoupon = appliedGiftCoupon()
+  if (giftCoupon) return { name: giftCoupon.giftProductName, reason: `cupón ${giftCoupon.code}` }
+  if (giftIsReached(total)) return { name: GIFT_PRODUCT_NAME, reason: `por compra sobre ${formatPrice(GIFT_THRESHOLD)}` }
+  return null
+}
+
+// Lives inside #cart-items but is (re)drawn from updateSummary, not renderCart: the
+// gift depends on the total, which also changes without the cart changing (coupon
+// applied, delivery mode/address switched) - all of which go through updateSummary.
+function renderCartGiftLine(gift) {
+  const existing = elements.cartItems.querySelector('.cart-item-gift')
+  if (existing) existing.remove()
+  if (!gift) return
+  elements.cartItems.insertAdjacentHTML('beforeend', `
+    <article class="cart-item cart-item-gift">
+      <div>
+        <strong>${escapeHtml(gift.name)}</strong>
+        <small>🎁 De regalo · ${escapeHtml(gift.reason)}</small>
+      </div>
+      <div class="cart-item-gift-price">GRATIS</div>
+    </article>
+  `)
+}
+
+// Only the "add $N more" nudge toward the automatic gift. A gift already earned
+// (threshold reached, or a gift coupon applied) is shown as a card in the cart list by
+// renderCartGiftLine - repeating it here would show the same gift twice. A gift coupon
+// also hides the nudge: it replaces the automatic gift, so there's nothing to reach.
 function updateGiftHint(total) {
-  if (!elements.giftHint || !GIFT_THRESHOLD || !GIFT_PRODUCT_NAME) return
-  if (!STATE.cart.length) {
-    elements.giftHint.hidden = true
-    return
-  }
-  if (total >= GIFT_THRESHOLD) {
-    elements.giftHint.textContent = `🎁 ¡Llevas de regalo: ${GIFT_PRODUCT_NAME}!`
-    elements.giftHint.hidden = false
-  } else {
+  if (!elements.giftHint) return
+  const showNudge = Boolean(GIFT_THRESHOLD && GIFT_PRODUCT_NAME && STATE.cart.length
+    && !appliedGiftCoupon() && total < GIFT_THRESHOLD)
+  if (showNudge) {
     elements.giftHint.textContent = `Agrega ${formatPrice(GIFT_THRESHOLD - total)} más y llévate de regalo: ${GIFT_PRODUCT_NAME}`
-    elements.giftHint.hidden = false
   }
+  elements.giftHint.hidden = !showNudge
 }
 
 function updateSummary() {
@@ -968,6 +1013,7 @@ function updateSummary() {
   if (elements.discountRow) elements.discountRow.hidden = !discount
   if (elements.discount) elements.discount.textContent = `-${formatPrice(discount)}`
   elements.total.textContent = outOfCoverage ? '—' : formatPrice(total)
+  renderCartGiftLine(currentGift(total))
   updateGiftHint(total)
 
   const itemCount = STATE.cart.reduce((sum, item) => sum + item.quantity, 0)
@@ -1228,12 +1274,14 @@ function buildWhatsAppText() {
       : ''
     lines.push(`• ${item.quantity}× ${item.name}${optionsText} - ${formatPrice(item.price * item.quantity)}`)
   })
+  const gift = currentGift(total)
+  if (gift) lines.push(`• 1× ${gift.name} - de regalo 🎁 (${gift.reason})`)
   lines.push('', `Subtotal: ${formatPrice(STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}`)
   if (deliveryMode === 'envio') lines.push(`Envío: ${formatPrice(shipping)}`)
   const bundleDiscount = computeBundleDiscount()
   if (bundleDiscount) lines.push(`2x1/3x2 aplicado: -${formatPrice(bundleDiscount)}`)
-  if (STATE.appliedCoupon) lines.push(`Descuento (${STATE.appliedCoupon.code}): -${formatPrice(STATE.appliedCoupon.discountAmount)}`)
-  if (giftIsReached(total)) lines.push(`Regalo: ${GIFT_PRODUCT_NAME} (por compra sobre ${formatPrice(GIFT_THRESHOLD)})`)
+  // A gift coupon has no discount line - its gift is listed under "Productos:" above.
+  if (STATE.appliedCoupon && !appliedGiftCoupon()) lines.push(`Descuento (${STATE.appliedCoupon.code}): -${formatPrice(STATE.appliedCoupon.discountAmount)}`)
   lines.push(`Total: ${formatPrice(total)}`)
   lines.push('', 'Gracias!')
   return encodeURIComponent(lines.join('\n'))
@@ -1256,6 +1304,10 @@ function buildConfirmSummaryHtml() {
       : ''
     return `<div class="confirm-row"><span>${item.quantity}× ${escapeHtml(item.name)}${optionsText}</span><span>${formatPrice(item.price * item.quantity)}</span></div>`
   }).join('')
+  const gift = currentGift(total)
+  const giftHtml = gift
+    ? `<div class="confirm-row confirm-row-gift"><span>1× ${escapeHtml(gift.name)} <small>🎁 de regalo · ${escapeHtml(gift.reason)}</small></span><span>GRATIS</span></div>`
+    : ''
 
   let paymentLine = PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod
   if (paymentMethod === 'efectivo' && Number(elements.cashAmount.value) > 0) {
@@ -1273,13 +1325,13 @@ function buildConfirmSummaryHtml() {
     ${notes ? `<div class="confirm-row"><span>Notas</span><span>${escapeHtml(notes)}</span></div>` : ''}
     <p class="confirm-section-title">Productos</p>
     ${itemsHtml}
+    ${giftHtml}
     <p class="confirm-section-title">Pago</p>
     <div class="confirm-row"><span>Forma de pago</span><span>${escapeHtml(paymentLine)}</span></div>
     <div class="confirm-row"><span>Subtotal</span><span>${formatPrice(subtotal)}</span></div>
     ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Envío</span><span>${formatPrice(shipping)}</span></div>` : ''}
     ${computeBundleDiscount() ? `<div class="confirm-row"><span>2x1/3x2 aplicado</span><span>-${formatPrice(computeBundleDiscount())}</span></div>` : ''}
-    ${STATE.appliedCoupon ? `<div class="confirm-row"><span>Descuento (${escapeHtml(STATE.appliedCoupon.code)})</span><span>-${formatPrice(STATE.appliedCoupon.discountAmount)}</span></div>` : ''}
-    ${giftIsReached(total) ? `<div class="confirm-row"><span>🎁 Regalo</span><span>${escapeHtml(GIFT_PRODUCT_NAME)}</span></div>` : ''}
+    ${STATE.appliedCoupon && !appliedGiftCoupon() ? `<div class="confirm-row"><span>Descuento (${escapeHtml(STATE.appliedCoupon.code)})</span><span>-${formatPrice(STATE.appliedCoupon.discountAmount)}</span></div>` : ''}
     <div class="confirm-row confirm-total"><span>Total</span><span>${formatPrice(total)}</span></div>
   `
 }

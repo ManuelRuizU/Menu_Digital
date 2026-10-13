@@ -109,7 +109,9 @@
             {% if order.bundle_discount_amount %}
               <p class="muted">2x1/3x2 aplicado: -${{ '%.0f'|format(order.bundle_discount_amount) }}</p>
             {% endif %}
-            {% if order.coupon %}
+            {% if order.coupon and order.coupon.kind == 'product' %}
+              <p class="muted">Cupón {{ order.coupon.code }} (regalo)</p>
+            {% elif order.coupon %}
               <p class="muted">Descuento ({{ order.coupon.code }}): -${{ '%.0f'|format(order.discount_amount) }}</p>
             {% endif %}
             <p><strong>Total: ${{ '%.0f'|format(order.total_price) }}</strong></p>

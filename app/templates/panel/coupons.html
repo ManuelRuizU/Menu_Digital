@@ -12,12 +12,21 @@
           <div>
             <strong>{{ coupon.code }}</strong>
             <span class="muted">
-              — {{ coupon.discount_percent|int }}% de descuento
-              {% if coupon.scope == 'products' %}
-                en {{ coupon.products|map(attribute='name')|join(', ') }}
+              {% if coupon.kind == 'product' %}
+                — Regala: {{ coupon.gift_product.name }}
               {% else %}
-                en el total de la compra
+                {% if coupon.kind == 'fixed' %}
+                  — ${{ '%.0f'|format(coupon.fixed_amount) }} de descuento
+                {% else %}
+                  — {{ coupon.discount_percent|int }}% de descuento
+                {% endif %}
+                {% if coupon.scope == 'products' %}
+                  en {{ coupon.products|map(attribute='name')|join(', ') }}
+                {% else %}
+                  en el total de la compra
+                {% endif %}
               {% endif %}
+              {% if coupon.min_order_amount %}· compra mínima ${{ '%.0f'|format(coupon.min_order_amount) }}{% endif %}
               {% if not coupon.is_active %}· inactivo{% endif %}
               {% if coupon.show_in_banner %}· en el banner{% endif %}
             </span>

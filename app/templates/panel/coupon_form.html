@@ -10,15 +10,47 @@
       <input id="code" name="code" required value="{{ coupon.code if coupon else '' }}"
              placeholder="Ej. PRIMERACOMPRA" style="text-transform:uppercase;">
 
-      <label for="discount_percent">% de descuento</label>
-      <input id="discount_percent" name="discount_percent" type="number" step="1" min="1" max="100" required
-             value="{{ coupon.discount_percent|int if coupon else '' }}">
-
-      <label for="scope">Aplica a</label>
-      <select id="scope" name="scope" required>
-        <option value="order" {{ 'selected' if coupon and coupon.scope == 'order' else '' }}>Total de la compra (productos)</option>
-        <option value="products" {{ 'selected' if coupon and coupon.scope == 'products' else '' }}>Productos específicos</option>
+      <label for="kind">Tipo de cupón</label>
+      <select id="kind" name="kind" required>
+        <option value="percent" {{ 'selected' if not coupon or coupon.kind == 'percent' else '' }}>Porcentaje de descuento</option>
+        <option value="fixed" {{ 'selected' if coupon and coupon.kind == 'fixed' else '' }}>Monto fijo de descuento</option>
+        <option value="product" {{ 'selected' if coupon and coupon.kind == 'product' else '' }}>Producto de regalo</option>
       </select>
+
+      <div id="percent-field">
+        <label for="discount_percent">% de descuento</label>
+        <input id="discount_percent" name="discount_percent" type="number" step="1" min="1" max="100" required
+               value="{{ coupon.discount_percent|int if coupon and coupon.discount_percent is not none else '' }}">
+      </div>
+
+      <div id="fixed-field">
+        <label for="fixed_amount">Monto de descuento ($)</label>
+        <input id="fixed_amount" name="fixed_amount" type="number" step="1" min="1" required
+               value="{{ coupon.fixed_amount if coupon and coupon.fixed_amount is not none else '' }}"
+               placeholder="Ej. 2000">
+        <p class="muted">Si el carrito suma menos que este monto, se descuenta solo hasta dejarlo en $0.</p>
+      </div>
+
+      <div id="gift-field">
+        <label for="gift_product_id">Producto que regala</label>
+        <select id="gift_product_id" name="gift_product_id" required>
+          <option value="">Elige un producto</option>
+          {% for product in products %}
+            <option value="{{ product.id }}" {{ 'selected' if coupon and coupon.gift_product_id == product.id else '' }}>{{ product.name }}</option>
+          {% endfor %}
+        </select>
+        <p class="muted">
+          Se agrega gratis al pedido. Reemplaza al regalo por compra mínima: un pedido recibe un solo regalo.
+        </p>
+      </div>
+
+      <div id="scope-field">
+        <label for="scope">Aplica a</label>
+        <select id="scope" name="scope" required>
+          <option value="order" {{ 'selected' if coupon and coupon.scope == 'order' else '' }}>Total de la compra (productos)</option>
+          <option value="products" {{ 'selected' if coupon and coupon.scope == 'products' else '' }}>Productos específicos</option>
+        </select>
+      </div>
 
       <div id="shipping-field">
         <label class="checkbox-row"><input type="checkbox" id="applies_to_shipping" name="applies_to_shipping"
@@ -76,7 +108,7 @@
         <label for="banner_image">Imagen del banner (opcional)</label>
         <input type="file" id="banner_image" name="banner_image" accept="image/png,image/jpeg,image/webp">
         <p class="muted">
-          Si no subes una imagen, se genera automáticamente una slide con el % de descuento y el código,
+          Si no subes una imagen, se genera automáticamente una slide con el descuento (o el regalo) y el código,
           usando los colores del tema.
         </p>
       </div>
@@ -86,18 +118,42 @@
 
     <script>
       (function () {
+        const kindSelect = document.getElementById('kind');
         const scopeSelect = document.getElementById('scope');
+        const percentField = document.getElementById('percent-field');
+        const fixedField = document.getElementById('fixed-field');
+        const giftField = document.getElementById('gift-field');
+        const scopeField = document.getElementById('scope-field');
         const productsField = document.getElementById('products-field');
         const shippingField = document.getElementById('shipping-field');
-        function toggleScopeFields() {
+
+        // A hidden field must also be disabled: otherwise its "required" makes the
+        // browser block the submit (e.g. an empty % on a fixed-amount coupon), and a
+        // disabled input isn't sent at all, so a leftover value can't sneak through.
+        function showField(field, visible) {
+          field.style.display = visible ? 'block' : 'none';
+          field.querySelectorAll('input, select').forEach(function (input) { input.disabled = !visible; });
+        }
+
+        function toggleFields() {
+          showField(percentField, kindSelect.value === 'percent');
+          showField(fixedField, kindSelect.value === 'fixed');
+
+          // A gift isn't a discount on anything - scope, shipping and the product list
+          // don't apply to it at all.
+          const isGift = kindSelect.value === 'product';
+          showField(giftField, isGift);
+          showField(scopeField, !isGift);
+
           const isProducts = scopeSelect.value === 'products';
-          productsField.style.display = isProducts ? 'block' : 'none';
+          showField(productsField, !isGift && isProducts);
           // applies_to_shipping only has an effect on scope='order' coupons -
           // hide it for scope='products' so it doesn't look like it does something it doesn't.
-          shippingField.style.display = isProducts ? 'none' : 'block';
+          showField(shippingField, !isGift && !isProducts);
         }
-        scopeSelect.addEventListener('change', toggleScopeFields);
-        toggleScopeFields();
+        kindSelect.addEventListener('change', toggleFields);
+        scopeSelect.addEventListener('change', toggleFields);
+        toggleFields();
       })();
     </script>
 {% endblock %}

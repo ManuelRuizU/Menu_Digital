@@ -297,6 +297,26 @@ def test_removing_last_applicable_product_zeroes_products_scope_coupon_without_e
     assert order.total_price == 500 + 1500  # only "other" left + shipping, no discount
 
 
+def test_fixed_coupon_is_capped_when_editing_shrinks_the_order(client, db):
+    _register_owner(client)
+    product = _create_product(db, price=1000, name='Plato', stock_quantity=None)
+    other = _create_product(db, price=4000, name='Otro', stock_quantity=None)
+    coupon = _create_coupon(db, code='FIJO3000', kind='fixed', discount_percent=None, fixed_amount=3000)
+
+    order = _create_order_with_item(db, product, quantity=1, shipping_cost=1500)
+    db.session.add(OrderItem(order_id=order.id, product_id=other.id, product_name=other.name,
+                              quantity=1, price=other.price))
+    order.coupon_id = coupon.id
+    db.session.commit()
+
+    other_item = OrderItem.query.filter_by(order_id=order.id, product_id=other.id).first()
+    client.post(f'/admin/orders/{order.id}/items/{other_item.id}/remove')
+
+    db.session.refresh(order)
+    assert order.discount_amount == 1000  # capped at what's left (1000), not the full 3000
+    assert order.total_price == 1000 + 1500 - 1000
+
+
 def test_orphan_item_excluded_from_bundle_promo_without_crashing(client, db):
     _register_owner(client)
     product = _create_product(db, price=1000, name='Bundled', stock_quantity=None)

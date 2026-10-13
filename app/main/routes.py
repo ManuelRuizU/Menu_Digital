@@ -254,9 +254,16 @@ def banner_coupons_api():
             continue
         if coupon.max_total_uses is not None and coupon.total_uses >= coupon.max_total_uses:
             continue
+        # Don't advertise a gift that would be rejected the moment it's applied.
+        if coupon.kind == 'product' and not _gift_product_is_available(coupon.gift_product):
+            continue
         payload.append({
             'code': coupon.code,
+            'kind': coupon.kind,
             'discountPercent': coupon.discount_percent,
+            'fixedAmount': coupon.fixed_amount,
+            'giftProductName': coupon.gift_product.name if coupon.kind == 'product' else None,
+            'minOrderAmount': coupon.min_order_amount,
             'scope': coupon.scope,
             'validUntil': coupon.valid_until.isoformat() if coupon.valid_until else None,
             'bannerImageUrl': (url_for('static', filename='uploads/coupons/' + coupon.banner_image_filename)
@@ -404,12 +411,37 @@ def _resolve_coupon(code):
     return Coupon.query.filter(db.func.upper(Coupon.code) == code.upper()).first()
 
 
+def _coupon_gift_is_available(coupon, order_lines):
+    """Like _gift_product_is_available, but counting the units of that same product
+    already in the cart: validation runs BEFORE the cart's stock is decremented, so a
+    cart that takes the last units must not pass with nothing left for the gift."""
+    product = coupon.gift_product
+    if not _gift_product_is_available(product):
+        return False
+    if product.stock_quantity is None:
+        return True
+    in_cart = sum(quantity for line_product, quantity, _options, _price in order_lines
+                  if line_product.id == product.id)
+    return product.stock_quantity >= in_cart + 1
+
+
 def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
     """Calcula el monto del descuento del cupón sobre el carrito actual.
     NO valida vigencia ni límites de uso — eso es responsabilidad de
     validate_coupon(). Devuelve (discount_amount, error) donde error solo
     aparece si el cupón scope='products' ya no tiene productos aplicables
-    en el carrito (razón de carrito, no de tiempo)."""
+    en el carrito (razón de carrito, no de tiempo).
+
+    kind='fixed' descuenta fixed_amount, con tope en lo aplicable: un cupón de
+    $5000 sobre $3000 descuenta $3000, nunca deja el total negativo.
+
+    kind='product' no descuenta nada (el beneficio es el producto a $0, que agrega
+    create_order) - solo valida que el regalo esté disponible."""
+    if coupon.kind == 'product':
+        if not _coupon_gift_is_available(coupon, order_lines):
+            return 0, 'El producto de regalo de este cupón no está disponible.'
+        return 0, None
+
     if coupon.scope == 'products':
         coupon_product_ids = {product.id for product in coupon.products}
         applicable = sum(unit_price * quantity for product, quantity, _options, unit_price in order_lines
@@ -419,6 +451,8 @@ def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
     else:
         applicable = subtotal + (shipping_cost if coupon.applies_to_shipping else 0)
 
+    if coupon.kind == 'fixed':
+        return min(coupon.fixed_amount, applicable), None
     return round(applicable * coupon.discount_percent / 100), None
 
 
@@ -492,7 +526,10 @@ def apply_coupon_api():
     return jsonify({
         'ok': True,
         'code': coupon.code,
+        'kind': coupon.kind,
         'discountPercent': coupon.discount_percent,
+        'fixedAmount': coupon.fixed_amount,
+        'giftProductName': coupon.gift_product.name if coupon.kind == 'product' else None,
         'scope': coupon.scope,
         'discountAmount': discount_amount,
     })
@@ -630,8 +667,28 @@ def create_order():
                 if product.stock_quantity == 0:
                     product.sold_out = True
 
+        # One gift per order: a gift coupon replaces the automatic threshold gift.
+        coupon_gift_given = False
+        if coupon and coupon.kind == 'product':
+            # validate_coupon already counted the cart's own units of this product, so
+            # this should always pass - it's the last check against the stock as it is
+            # right now, after the cart was decremented above. If it ever fails, the
+            # order still goes through (the customer is on their way to WhatsApp), but
+            # without the gift AND without the coupon: no redemption is recorded, so the
+            # customer doesn't lose a single-use coupon on a gift they never got.
+            if _gift_product_is_available(coupon.gift_product):
+                _add_gift_item(order, coupon.gift_product)
+                coupon_gift_given = True
+            else:
+                current_app.logger.warning(
+                    'Gift coupon %s: %s out of stock at checkout, order %s saved without gift or coupon',
+                    coupon.code, coupon.gift_product.name, order.id)
+                order.coupon_id = None
+                coupon = None
+
         effective_total = subtotal + shipping_cost - bundle_discount - discount_amount
-        if _gift_is_available(owner) and effective_total >= owner.gift_threshold_amount:
+        if (not coupon_gift_given and _gift_is_available(owner)
+                and effective_total >= owner.gift_threshold_amount):
             _add_gift_item(order, owner.gift_product)
 
         if coupon:

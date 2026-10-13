@@ -107,3 +107,18 @@ def test_delete_succeeds_when_nothing_references_product(client, db):
 
     assert 'Producto eliminado'.encode() in resp.data
     assert Product.query.get(product.id) is None
+
+
+def test_delete_blocked_when_product_is_a_gift_coupons_gift(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    coupon = Coupon(code='REGALO', kind='product', gift_product_id=product.id, scope='order', is_active=True)
+    db.session.add(coupon)
+    db.session.commit()
+
+    resp = client.post(f'/admin/products/{product.id}/delete', follow_redirects=True)
+
+    html = resp.data.decode()
+    assert 'es el producto de regalo del cupón' in html
+    assert 'REGALO' in html
+    assert Product.query.get(product.id) is not None

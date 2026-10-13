@@ -461,6 +461,10 @@ def _product_delete_blockers(product):
         reasons.append(f'está en {article} {word} {labels}')
     if User.query.filter_by(gift_product_id=product.id).first():
         reasons.append('es el regalo configurado por compra mínima')
+    if product.gift_coupons:
+        codes = _join_with_y([f"'{c.code}'" for c in product.gift_coupons])
+        word = 'del cupón' if len(product.gift_coupons) == 1 else 'de los cupones'
+        reasons.append(f'es el producto de regalo {word} {codes}')
     return reasons
 
 
@@ -787,7 +791,9 @@ def edit_coupon(coupon_id):
 
 def _save_coupon(coupon):
     code = request.form.get('code', '').strip().upper()
+    kind = request.form.get('kind') or 'percent'
     discount_percent = request.form.get('discount_percent', type=float)
+    fixed_amount = parse_money(request.form, 'fixed_amount')
     scope = request.form.get('scope')
     max_total_uses = request.form.get('max_total_uses', type=int)
     max_uses_per_customer = request.form.get('max_uses_per_customer', type=int)
@@ -797,12 +803,31 @@ def _save_coupon(coupon):
     show_in_banner = request.form.get('show_in_banner') == 'on'
     applies_to_shipping = request.form.get('applies_to_shipping') == 'on'
     min_order_amount = parse_money(request.form, 'min_order_amount')
+    gift_product_id = request.form.get('gift_product_id', type=int)
+
+    if kind == 'product':
+        # A gift isn't a discount on anything: scope/shipping/products don't apply (the
+        # form disables them, so scope doesn't even arrive) - pinned to neutral values.
+        scope, applies_to_shipping, product_ids = 'order', False, []
 
     def _redisplay():
         return render_template('panel/coupon_form.html', **_coupon_form_context(coupon if coupon.id else None))
 
-    if not code or discount_percent is None or not (0 < discount_percent <= 100) or scope not in ('order', 'products'):
-        flash('Completa el código, un % de descuento válido (1-100) y a qué aplica el cupón.')
+    if not code or kind not in ('percent', 'fixed', 'product') or scope not in ('order', 'products'):
+        flash('Completa el código, el tipo de cupón y a qué aplica.')
+        return _redisplay()
+
+    if kind == 'percent' and (discount_percent is None or not (0 < discount_percent <= 100)):
+        flash('Ingresa un % de descuento válido (1-100).')
+        return _redisplay()
+
+    if kind == 'fixed' and (fixed_amount is None or fixed_amount <= 0):
+        flash('Ingresa un monto de descuento mayor a 0.')
+        return _redisplay()
+
+    gift_product = Product.query.get(gift_product_id) if kind == 'product' and gift_product_id else None
+    if kind == 'product' and gift_product is None:
+        flash('Elige el producto que regala el cupón.')
         return _redisplay()
 
     if scope == 'products' and not product_ids:
@@ -826,7 +851,12 @@ def _save_coupon(coupon):
 
     is_new = coupon.id is None
     coupon.code = code
-    coupon.discount_percent = discount_percent
+    coupon.kind = kind
+    # Only the value of its own kind is kept, so switching an existing coupon's kind
+    # never leaves a stale % or amount behind.
+    coupon.discount_percent = discount_percent if kind == 'percent' else None
+    coupon.fixed_amount = fixed_amount if kind == 'fixed' else None
+    coupon.gift_product = gift_product
     coupon.scope = scope
     coupon.max_total_uses = max_total_uses
     coupon.max_uses_per_customer = max_uses_per_customer
