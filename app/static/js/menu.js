@@ -997,6 +997,28 @@ function updateGiftHint(total) {
   elements.giftHint.hidden = !showNudge
 }
 
+// Presentation only - the amount itself is decided (and used for the total) in
+// updateSummary, unchanged. A bare "$0" used to stand for three different things
+// (pickup, delivery with no address yet, a free delivery); now each says what it is.
+function updateShippingRow(outOfCoverage, shipping) {
+  const row = elements.shipping.closest('.summary-row')
+  const isDelivery = getDeliveryMode() === 'envio'
+  // No delivery zones at all (no Retiro/Despacho choice rendered) or pickup chosen:
+  // there's no shipping to talk about, so no row.
+  row.hidden = !elements.deliveryModeOptions || !isDelivery
+  elements.shipping.classList.remove('summary-pending')
+  if (row.hidden) return
+
+  if (!STATE.selectedLocation) {
+    // Not free - just not calculated yet (also covers an address typed or restored
+    // from a previous visit but never confirmed with a suggestion or the map pin).
+    elements.shipping.textContent = 'Ingresa tu dirección'
+    elements.shipping.classList.add('summary-pending')
+  } else {
+    elements.shipping.textContent = outOfCoverage ? 'Sin cobertura' : formatPrice(shipping)
+  }
+}
+
 function updateSummary() {
   const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
@@ -1007,7 +1029,7 @@ function updateSummary() {
   const total = Math.max(0, subtotal + shipping - bundleDiscount - discount)
 
   elements.subtotal.textContent = formatPrice(subtotal)
-  elements.shipping.textContent = outOfCoverage ? 'Sin cobertura' : formatPrice(shipping)
+  updateShippingRow(outOfCoverage, shipping)
   if (elements.bundleDiscountRow) elements.bundleDiscountRow.hidden = !bundleDiscount
   if (elements.bundleDiscount) elements.bundleDiscount.textContent = `-${formatPrice(bundleDiscount)}`
   if (elements.discountRow) elements.discountRow.hidden = !discount
@@ -1076,7 +1098,7 @@ async function setLocation(lat, lng, label, precise = true) {
   STATE.deliveryCovered = covered
   clearAppliedCoupon()
   const baseMessage = covered
-    ? `Dirección confirmada: ${label}`
+    ? `Dirección confirmada: ${label} · Envío: ${formatPrice(shippingCost)}`
     : `${label} está fuera de nuestra zona de reparto. Elige "Retiro" o prueba otra dirección.`
   const precisionWarning = precise ? '' : ' ⚠️ Esta búsqueda no incluye el número exacto: arrastra el pin 🛵 hasta tu ubicación real.'
   elements.addressHint.textContent = baseMessage + precisionWarning

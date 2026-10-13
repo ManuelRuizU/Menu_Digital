@@ -309,6 +309,8 @@ button, input { font: inherit; }
 .summary-row { display: flex; justify-content: space-between; color: var(--muted); }
 .summary-row[hidden] { display: none; }
 .summary-row.discount-row { color: var(--primary); }
+/* Shipping not calculated yet (delivery with no address) - a prompt, not an amount. */
+.summary-row .summary-pending { font-weight: 500; font-style: italic; color: var(--accent); }
 .summary-row.total { font-size: 1.1rem; color: var(--text-strong); font-weight: 700; }
 .accordion { display: grid; gap: 10px; margin-top: 18px; }
 .accordion-section { border: 1px solid var(--border); border-radius: 18px; background: var(--tint-1); overflow: hidden; }
