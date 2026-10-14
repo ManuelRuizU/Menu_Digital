@@ -275,16 +275,25 @@ button, input { font: inherit; }
 .bundle-badge { display: inline-block; margin-top: 4px; font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(var(--accent-rgb),0.16); color: var(--accent); }
 .sold-out-btn { flex: 1; border: 1px solid var(--border); border-radius: 14px; background: var(--tint-1); color: var(--muted); padding: 12px 14px; font-size: 0.85rem; cursor: not-allowed; }
 .upsell-suggestions:empty { display: none; }
-.upsell-suggestions { margin-top: 16px; }
-.upsell-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.upsell-item { display: flex; align-items: center; gap: 10px; background: var(--tint-1); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; }
-.upsell-item span:first-child { flex: 1; color: var(--text-strong); font-size: 0.9rem; }
-.upsell-price { color: var(--primary); font-weight: 700; font-size: 0.9rem; }
-.upsell-item button { flex-shrink: 0; width: 32px; height: 32px; border: none; border-radius: 10px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+.upsell-suggestions { margin-top: 22px; }
+/* The cross-sell is secondary to the customer's own order: a labelled divider marks
+   where "tu pedido" ends, and the suggestions themselves stay quiet - no shadow, no
+   colored price, no gradient button competing with the cart items above. */
+.upsell-title { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.upsell-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.upsell-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.upsell-item { display: flex; align-items: center; gap: 10px; background: transparent; border: 1px solid var(--border); border-radius: 14px; padding: 8px 10px 8px 12px; }
+.upsell-item span:first-child { flex: 1; color: var(--text); font-size: 0.85rem; }
+.upsell-price { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+.upsell-item button { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-strong); font-size: 1rem; font-weight: 600; line-height: 1; cursor: pointer; }
+.upsell-item button:hover { background: var(--tint-1); }
 .cart-items { display: flex; flex-direction: column; gap: 12px; }
 .cart-item { display: grid; grid-template-columns: 1fr auto; gap: 12px; background: var(--surface); border: 1px solid rgba(var(--primary-rgb), 0.3); box-shadow: var(--shadow-soft); border-radius: 18px; padding: 14px; }
 .cart-item strong { display: block; color: var(--text-strong); margin-bottom: 6px; }
 .cart-item small { color: var(--muted); }
+/* What the customer is paying per unit - the most important number on the card, so
+   not the faintest one: full text color and weight instead of the muted <small>. */
+.cart-item .cart-item-price { display: block; margin-top: 2px; color: var(--text-strong); font-size: 0.9rem; font-weight: 700; }
 .cart-item-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .cart-item-controls .qty-btn { width: 28px; height: 28px; border: none; border-radius: 8px; background: var(--tint-2); color: var(--text-strong); font-size: 1rem; font-weight: 700; cursor: pointer; line-height: 1; }
 .cart-item-controls .qty-value { min-width: 18px; text-align: center; color: var(--text-strong); font-weight: 600; }

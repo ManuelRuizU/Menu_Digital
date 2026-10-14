@@ -881,10 +881,10 @@ function renderFeaturedBanner() {
 function getUpsellSuggestions(limit = 2) {
   const cartIds = new Set(STATE.cart.map((item) => item.id))
   const candidates = STATE.products.filter((product) => !product.soldOut && !cartIds.has(product.id))
-  // suggestInCart, not featured: the ⭐ badge and the banner are a separate choice.
-  const suggested = candidates.filter((product) => product.suggestInCart)
-  const rest = candidates.filter((product) => !product.suggestInCart)
-  return [...suggested, ...rest].slice(0, limit)
+  // Only what the owner marked (suggestInCart - not featured, the ⭐ badge and the
+  // banner are a separate choice). No filler: nothing marked means no section at all,
+  // rather than suggesting whatever happens to come first in the menu.
+  return candidates.filter((product) => product.suggestInCart).slice(0, limit)
 }
 
 function renderUpsellSuggestions() {
@@ -899,7 +899,7 @@ function renderUpsellSuggestions() {
     return
   }
   elements.upsellSuggestions.innerHTML = `
-    <p class="hint">También te podría interesar</p>
+    <p class="upsell-title">También te podría interesar</p>
     <div class="upsell-list">
       ${suggestions.map((product) => `
         <div class="upsell-item">
@@ -926,7 +926,7 @@ function renderCart() {
           ${item.selectedOptions && item.selectedOptions.length
             ? `<small class="cart-item-options">${item.selectedOptions.map((o) => escapeHtml(o.name)).join(', ')}</small>`
             : ''}
-          <small>${formatPrice(item.price)} c/u</small>
+          <small class="cart-item-price">${formatPrice(item.price)} c/u</small>
         </div>
         <div class="cart-item-controls">
           <div>
