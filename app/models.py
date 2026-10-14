@@ -102,6 +102,8 @@ class Category(db.Model):
 class Subcategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False)
+    # Optional one-liner shown under the name in the public menu (e.g. what's in it).
+    description = db.Column(db.String(200), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
     products = db.relationship('Product', backref='subcategory', lazy=True)
 

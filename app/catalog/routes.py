@@ -327,6 +327,25 @@ def create_subcategory():
     return redirect(url_for('catalog.categories'))
 
 
+@catalog.route('/subcategories/<int:subcategory_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def update_subcategory(subcategory_id):
+    """Only the description - renaming would need the (name, category_id) uniqueness
+    handling create_subcategory does, and isn't needed for this."""
+    subcategory = Subcategory.query.get_or_404(subcategory_id)
+    description = request.form.get('description', '').strip()
+    # The input's maxlength is only a hint - SQLite doesn't enforce String(200) either.
+    if len(description) > 200:
+        flash('La descripción puede tener hasta 200 caracteres.')
+        return redirect(url_for('catalog.categories'))
+
+    subcategory.description = description or None  # empty = remove it
+    db.session.commit()
+    flash('Descripción guardada' if description else 'Descripción quitada')
+    return redirect(url_for('catalog.categories'))
+
+
 @catalog.route('/subcategories/<int:subcategory_id>/delete', methods=['POST'])
 @login_required
 @admin_required

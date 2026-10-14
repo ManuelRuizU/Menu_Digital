@@ -207,6 +207,7 @@ def products_api():
             'category': product.category.name,
             'subcategoryId': product.subcategory_id,
             'subcategory': product.subcategory.name if product.subcategory else None,
+            'subcategoryDescription': product.subcategory.description if product.subcategory else None,
             'soldOut': product.sold_out,
             'featured': product.is_featured,
             'suggestInCart': product.suggest_in_cart,

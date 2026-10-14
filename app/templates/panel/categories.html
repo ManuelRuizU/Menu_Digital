@@ -23,13 +23,27 @@
 
         {% for sub in category.subcategories %}
           <div class="subitem">
-            <span>{{ sub.name }}</span>
+            <div>
+              <span>{{ sub.name }}</span>
+              {% if sub.description %}<br><small class="muted">{{ sub.description }}</small>{% endif %}
+            </div>
             <form method="post" action="{{ url_for('catalog.delete_subcategory', subcategory_id=sub.id) }}"
                   onsubmit="return confirm('¿Eliminar esta subcategoría?');">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="danger">Eliminar</button>
             </form>
           </div>
+          {# Outside .subitem: that row is flex side-to-side, a third child would break it. #}
+          <details class="subitem-edit">
+            <summary>{{ 'Editar descripción' if sub.description else 'Agregar descripción' }}</summary>
+            <form method="post" action="{{ url_for('catalog.update_subcategory', subcategory_id=sub.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input name="description" maxlength="200" value="{{ sub.description or '' }}"
+                     placeholder="Ej: pollo, camarón, salmón, apanados y fritos">
+              <p class="muted">Se muestra en la carta bajo el nombre de la subcategoría. Déjalo vacío para quitarla.</p>
+              <button type="submit" class="secondary">Guardar</button>
+            </form>
+          </details>
         {% else %}
           <p class="muted">Sin subcategorías</p>
         {% endfor %}

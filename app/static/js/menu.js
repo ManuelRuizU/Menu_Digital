@@ -636,7 +636,8 @@ function groupProducts(products) {
     const subKey = product.subcategoryId || 'none'
     let subcategory = category.subcategoryIndex.get(subKey)
     if (!subcategory) {
-      subcategory = { id: product.subcategoryId, name: product.subcategory, products: [] }
+      subcategory = { id: product.subcategoryId, name: product.subcategory,
+                      description: product.subcategoryDescription, products: [] }
       category.subcategoryIndex.set(subKey, subcategory)
       category.subcategories.push(subcategory)
     }
@@ -717,6 +718,7 @@ function renderProductGrid(filterTerm = '') {
       ${category.subcategories.map((sub) => `
         <div class="menu-subsection" id="sub-${category.id}-${sub.id || 'none'}">
           ${sub.name ? `<h3 class="menu-subsection-title">${escapeHtml(sub.name)}</h3>` : ''}
+          ${sub.name && sub.description ? `<p class="menu-subsection-description">${escapeHtml(sub.description)}</p>` : ''}
           <div class="products-grid">${sub.products.map(productCardHtml).join('')}</div>
         </div>
       `).join('')}
