@@ -1331,47 +1331,23 @@ function decrementCartItem(cartKey) {
 
 const PAYMENT_METHOD_LABELS = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta al recibir' }
 
-function buildWhatsAppText() {
-  const name = elements.name.value.trim() || 'Cliente'
-  const phone = elements.phone.value.trim() || 'Sin teléfono'
-  const deliveryMode = getDeliveryMode()
+// order: create_order's response - every amount (lines, promos, coupon, gift, total)
+// comes from what the server saved, never from the cart preview. Only what the
+// customer typed (name, phone, address, payment, time, notes) is read from the form.
+function buildWhatsAppText(order) {
   const paymentMethod = getPaymentMethod()
-  const address = elements.address.value.trim() || 'Dirección no definida'
-  const notes = elements.notes.value.trim()
-  const shipping = deliveryMode === 'envio' && STATE.selectedLocation && STATE.deliveryCovered ? STATE.shippingCost : 0
-  const total = getOrderTotal()
-  const lines = [
-    'Hola! Quiero hacer un pedido desde el menú digital:',
-    `Nombre: ${name}`,
-    `Teléfono: ${phone}`,
-    `Tipo: ${deliveryMode === 'envio' ? 'Despacho' : 'Retiro'}`,
-  ]
-  if (deliveryMode === 'envio') lines.push(`Dirección: ${address}`)
-  lines.push(`Pago: ${PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod}`)
-  if (paymentMethod === 'efectivo' && Number(elements.cashAmount.value) > 0) {
-    const cash = Number(elements.cashAmount.value)
-    lines.push(cash >= total ? `Paga con: ${formatPrice(cash)} (vuelto ${formatPrice(cash - total)})` : `Paga con: ${formatPrice(cash)}`)
+  const customer = {
+    name: elements.name.value.trim() || 'Cliente',
+    phone: elements.phone.value.trim() || 'Sin teléfono',
+    deliveryMode: getDeliveryMode(),
+    address: elements.address.value.trim() || 'Dirección no definida',
+    paymentLabel: PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod,
+    paymentMethod,
+    cashAmount: Number(elements.cashAmount.value) || 0,
+    requestedTimeLabel: getRequestedTimeLabel(),
+    notes: elements.notes.value.trim(),
   }
-  lines.push(`Hora sugerida: ${getRequestedTimeLabel() || 'No indicada'}`)
-  if (notes) lines.push(`Notas: ${notes}`)
-  lines.push('', 'Productos:')
-  STATE.cart.forEach((item) => {
-    const optionsText = item.selectedOptions && item.selectedOptions.length
-      ? ` (${item.selectedOptions.map((o) => o.name).join(', ')})`
-      : ''
-    lines.push(`• ${item.quantity}× ${item.name}${optionsText} - ${formatPrice(item.price * item.quantity)}`)
-  })
-  const gift = currentGift(total)
-  if (gift) lines.push(`• 1× ${gift.name} - de regalo 🎁 (${gift.reason})`)
-  lines.push('', `Subtotal: ${formatPrice(STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}`)
-  if (deliveryMode === 'envio') lines.push(`Envío: ${formatPrice(shipping)}`)
-  const bundleDiscount = computeBundleDiscount()
-  if (bundleDiscount) lines.push(`2x1/3x2 aplicado: -${formatPrice(bundleDiscount)}`)
-  // A gift coupon has no discount line - its gift is listed under "Productos:" above.
-  if (STATE.appliedCoupon && !appliedGiftCoupon()) lines.push(`Descuento (${STATE.appliedCoupon.code}): -${formatPrice(STATE.appliedCoupon.discountAmount)}`)
-  lines.push(`Total: ${formatPrice(total)}`)
-  lines.push('', 'Gracias!')
-  return encodeURIComponent(lines.join('\n'))
+  return encodeURIComponent(OrderMessage.buildWhatsAppLines(order, customer).join('\n'))
 }
 
 function buildConfirmSummaryHtml() {
@@ -1465,26 +1441,28 @@ async function handleConfirmSend() {
   elements.confirmError.style.display = 'none'
 
   saveCustomer()
-  const result = await saveOrder()
-  if (!result.ok) {
-    // Order was never saved - the customer keeps their cart to retry, nothing to clear.
-    elements.confirmError.textContent = result.message
-    elements.confirmError.style.display = 'block'
-    elements.confirmModalSend.disabled = false
-    elements.confirmModalSend.textContent = 'Confirmar y enviar por WhatsApp'
-    return
-  }
-
-  try {
-    const response = await fetch('/api/whatsapp-number')
-    const data = await response.json()
-    const whatsappNumber = data.whatsappNumber || '56900000000'
-    window.open(`https://wa.me/${whatsappNumber}?text=${buildWhatsAppText()}`, '_blank')
-  } catch (error) {
-    window.open(`https://wa.me/56900000000?text=${buildWhatsAppText()}`, '_blank')
-  }
-  resetCartAfterOrder()
-  closeConfirmModal()
+  // Same window.open as always, but now right after the ONE await (the save) - the
+  // WhatsApp number comes in that response instead of a second fetch, which kept the
+  // open even further from the customer's tap and, if it failed, sent the message to a
+  // placeholder number with the order already saved.
+  await OrderMessage.submitOrder({
+    save: saveOrder,
+    open: (order) => {
+      const whatsappNumber = order.whatsappNumber || '56900000000'
+      window.open(`https://wa.me/${whatsappNumber}?text=${buildWhatsAppText(order)}`, '_blank')
+    },
+    onFailure: (message) => {
+      // Order was never saved - nothing opens, the customer keeps their cart to retry.
+      elements.confirmError.textContent = message
+      elements.confirmError.style.display = 'block'
+      elements.confirmModalSend.disabled = false
+      elements.confirmModalSend.textContent = 'Confirmar y enviar por WhatsApp'
+    },
+    onSent: () => {
+      resetCartAfterOrder()
+      closeConfirmModal()
+    },
+  })
 }
 
 async function saveOrder() {
@@ -1512,13 +1490,15 @@ async function saveOrder() {
         lat: STATE.selectedLocation ? STATE.selectedLocation.lat : null,
         lng: STATE.selectedLocation ? STATE.selectedLocation.lng : null,
         couponCode: STATE.appliedCoupon ? STATE.appliedCoupon.code : null,
+        // Only compared server-side to catch a drifted preview (logged) - never used to price.
+        expectedTotal: getOrderTotal(),
       }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || data.ok === false) {
       return { ok: false, message: data.message || 'No se pudo guardar el pedido.' }
     }
-    return { ok: true }
+    return { ok: true, order: data }
   } catch (error) {
     return { ok: false, message: 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.' }
   }

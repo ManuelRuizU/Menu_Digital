@@ -66,7 +66,9 @@ def test_js_mirror_passes_the_same_vectors():
     """Runs tests/js with Node's built-in runner so a plain `pytest` also covers the JS."""
     node = shutil.which('node')
     if node is None:
-        pytest.skip('node is not installed - run `node --test tests/js` where it is')
+        # Loud on purpose (pytest.ini adds -rs, so this reason is printed in the summary):
+        # a skipped mirror check must never read as a pass.
+        pytest.skip('JS mirror NOT verified: node not found - run `node --test tests/js` where Node is installed')
     result = subprocess.run([node, '--test', str(TESTS_DIR / 'js')], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
 

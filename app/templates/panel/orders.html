@@ -107,7 +107,7 @@
               <p class="muted">Envío: ${{ '%.0f'|format(order.shipping_cost) }}</p>
             {% endif %}
             {% if order.bundle_discount_amount %}
-              <p class="muted">2x1/3x2 aplicado: -${{ '%.0f'|format(order.bundle_discount_amount) }}</p>
+              <p class="muted">Promociones aplicadas: -${{ '%.0f'|format(order.bundle_discount_amount) }}</p>
             {% endif %}
             {% if order.coupon and order.coupon.kind == 'product' %}
               <p class="muted">Cupón {{ order.coupon.code }} (regalo)</p>

@@ -458,21 +458,28 @@ _BUNDLE_DISCOUNT_BY_KIND = {
 }
 
 
-def compute_bundle_discount(order_lines, promos):
-    """Automatic promos - no code needed. Each promo is priced on its own matching units
-    (the admin keeps a product in at most one active promo, so they never compete for
-    the same unit). An unknown kind is skipped with a log line instead of raising: a
+def compute_bundle_discounts(order_lines, promos):
+    """Automatic promos - no code needed - as [(label, amount)], one entry per promo that
+    actually discounts something. Each promo is priced on its own matching units (the
+    admin keeps a product in at most one active promo, so they never compete for the
+    same unit). An unknown kind is skipped with a log line instead of raising: a
     malformed promo must never take down the menu or create_order."""
-    total_discount = 0
+    breakdown = []
     for promo in promos:
         compute = _BUNDLE_DISCOUNT_BY_KIND.get(promo.kind)
         if compute is None:
             current_app.logger.warning('Bundle promo %r has unknown kind %r - skipped', promo.label, promo.kind)
             continue
         product_ids = {product.id for product in promo.products}
-        total_discount += compute(promo, order_lines, product_ids)
+        amount = round(compute(promo, order_lines, product_ids))
+        if amount > 0:
+            breakdown.append((promo.label, amount))
+    return breakdown
 
-    return round(total_discount)
+
+def compute_bundle_discount(order_lines, promos):
+    """Total of compute_bundle_discounts - what's stored in Order.bundle_discount_amount."""
+    return sum(amount for _label, amount in compute_bundle_discounts(order_lines, promos))
 
 
 def normalize_phone(phone):
@@ -697,7 +704,8 @@ def create_order():
             'message': f'El pedido mínimo para despacho es ${owner.min_delivery_order:.0f}.',
         }), 400
 
-    bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
+    bundle_breakdown = compute_bundle_discounts(order_lines, _get_active_bundle_promos())
+    bundle_discount = sum(amount for _label, amount in bundle_breakdown)
 
     coupon = None
     discount_amount = 0
@@ -744,6 +752,7 @@ def create_order():
 
         # One gift per order: a gift coupon replaces the automatic threshold gift.
         coupon_gift_given = False
+        gift = None  # what actually went into the order - reported back for the WhatsApp text
         if coupon and coupon.kind == 'product':
             # validate_coupon already counted the cart's own units of this product, so
             # this should always pass - it's the last check against the stock as it is
@@ -754,6 +763,7 @@ def create_order():
             if _gift_product_is_available(coupon.gift_product):
                 _add_gift_item(order, coupon.gift_product)
                 coupon_gift_given = True
+                gift = {'name': coupon.gift_product.name, 'couponCode': coupon.code, 'threshold': None}
             else:
                 current_app.logger.warning(
                     'Gift coupon %s: %s out of stock at checkout, order %s saved without gift or coupon',
@@ -765,6 +775,7 @@ def create_order():
         if (not coupon_gift_given and _gift_is_available(owner)
                 and effective_total >= owner.gift_threshold_amount):
             _add_gift_item(order, owner.gift_product)
+            gift = {'name': owner.gift_product.name, 'couponCode': None, 'threshold': owner.gift_threshold_amount}
 
         if coupon:
             db.session.add(CouponRedemption(coupon_id=coupon.id, order_id=order.id, phone_digits=normalize_phone(phone)))
@@ -774,5 +785,31 @@ def create_order():
         current_app.logger.exception('Failed to save order for %s (%s)', customer_name, phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
 
-    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.',
-                     'discountAmount': discount_amount})
+    # The cart's own preview, sent only so a drift between menu.js and this code shows
+    # up in the logs instead of in a customer complaint - never used to price anything.
+    expected_total = parse_money(data, 'expectedTotal')
+    if expected_total is not None and expected_total != order.total_price:
+        current_app.logger.warning(
+            'Order %s: cart preview total %s != server total %s - the JS pricing preview drifted',
+            order.id, expected_total, order.total_price)
+
+    # Every amount the customer's WhatsApp message shows comes from here (what was just
+    # saved), never from the cart's preview - so the message always matches the order.
+    return jsonify({
+        'ok': True,
+        'message': 'Pedido guardado y listo para enviar por WhatsApp.',
+        'discountAmount': discount_amount,
+        'orderId': order.id,
+        'whatsappNumber': (owner.whatsapp_number if owner and owner.whatsapp_number else ''),
+        'lines': [
+            {'name': product.name, 'quantity': quantity,
+             'options': [option.name for option in selected_options], 'total': unit_price * quantity}
+            for product, quantity, selected_options, unit_price in order_lines
+        ],
+        'subtotal': subtotal,
+        'shipping': order.shipping_cost,
+        'promos': [{'label': label, 'amount': amount} for label, amount in bundle_breakdown],
+        'coupon': ({'code': coupon.code, 'kind': coupon.kind, 'amount': order.discount_amount} if coupon else None),
+        'gift': gift,
+        'total': order.total_price,
+    })

@@ -1130,7 +1130,7 @@ def test_orders_view_bundle_discount_shown_in_breakdown_when_present(client, db)
     resp = client.get('/admin/orders')
     html = resp.data.decode()
 
-    assert '2x1/3x2 aplicado: -$300' in html
+    assert 'Promociones aplicadas: -$300' in html
 
 
 def test_orders_view_marks_gift_item_explicitly_not_as_a_plain_zero_dollar_item(client, db):
