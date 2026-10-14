@@ -881,9 +881,10 @@ function renderFeaturedBanner() {
 function getUpsellSuggestions(limit = 2) {
   const cartIds = new Set(STATE.cart.map((item) => item.id))
   const candidates = STATE.products.filter((product) => !product.soldOut && !cartIds.has(product.id))
-  const featured = candidates.filter((product) => product.featured)
-  const rest = candidates.filter((product) => !product.featured)
-  return [...featured, ...rest].slice(0, limit)
+  // suggestInCart, not featured: the ⭐ badge and the banner are a separate choice.
+  const suggested = candidates.filter((product) => product.suggestInCart)
+  const rest = candidates.filter((product) => !product.suggestInCart)
+  return [...suggested, ...rest].slice(0, limit)
 }
 
 function renderUpsellSuggestions() {

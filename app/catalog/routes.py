@@ -410,6 +410,9 @@ def _save_product(product):
     # Purely informational field - 0, negative or non-numeric input never blocks
     # saving the product, it just means no prep time is shown to the customer.
     product.prep_minutes = prep_minutes if prep_minutes and prep_minutes > 0 else None
+    # An unchecked checkbox isn't sent at all - False is right because this form always
+    # renders it. Any other POST to _save_product without the field would switch it off.
+    product.suggest_in_cart = request.form.get('suggest_in_cart') == 'on'
     if is_new:
         product.is_active = True
 

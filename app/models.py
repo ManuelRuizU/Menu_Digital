@@ -121,7 +121,9 @@ class Product(db.Model):
     image_filename = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sold_out = db.Column(db.Boolean, nullable=False, default=False)
-    is_featured = db.Column(db.Boolean, nullable=False, default=False)
+    is_featured = db.Column(db.Boolean, nullable=False, default=False)  # ⭐ badge + banner slides
+    # Prioritized in the cart's "También te podría interesar" - independent of is_featured.
+    suggest_in_cart = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text('0'))
     stock_quantity = db.Column(db.Integer, nullable=True)
     prep_minutes = db.Column(db.Integer, nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)

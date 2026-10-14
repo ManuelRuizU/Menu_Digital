@@ -19,6 +19,7 @@
               {% if not product.is_active %}· inactivo{% endif %}
               {% if product.sold_out %}· agotado{% endif %}
               {% if product.is_featured %}· recomendado{% endif %}
+              {% if product.suggest_in_cart %}· sugerido en carrito{% endif %}
               {% if product.stock_quantity is not none %}· stock: {{ product.stock_quantity }}{% endif %}
             </span>
           </div>

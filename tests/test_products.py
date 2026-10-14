@@ -137,3 +137,99 @@ def test_edit_product_form_shows_preview_of_existing_photo(client, db):
 
     assert 'id="image-preview-block" style="">' in html  # visible - there's already a photo
     assert 'src="/static/uploads/products/product_1.jpg"' in html
+
+
+# --- suggest_in_cart: "También te podría interesar", independent of is_featured ---
+
+def test_create_product_with_suggest_in_cart_checked_saves_true(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+
+    client.post('/admin/products/new', data=_product_form_data(category.id, suggest_in_cart='on'))
+
+    assert Product.query.filter_by(name='Producto').one().suggest_in_cart is True
+
+
+def test_create_product_without_suggest_in_cart_saves_false(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+
+    client.post('/admin/products/new', data=_product_form_data(category.id))
+
+    assert Product.query.filter_by(name='Producto').one().suggest_in_cart is False
+
+
+def test_edit_product_unchecking_suggest_in_cart_turns_it_off(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+    product = Product(name='Salsa', description='Test', price=500, category_id=category.id,
+                      suggest_in_cart=True)
+    db.session.add(product)
+    db.session.commit()
+
+    client.post(f'/admin/products/{product.id}/edit', data=_product_form_data(category.id, name='Salsa'))
+
+    db.session.refresh(product)
+    assert product.suggest_in_cart is False
+
+
+def test_saving_product_form_never_touches_is_featured(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+    product = Product(name='Roll', description='Test', price=5000, category_id=category.id, is_featured=True)
+    db.session.add(product)
+    db.session.commit()
+
+    client.post(f'/admin/products/{product.id}/edit', data=_product_form_data(category.id, name='Roll'))
+
+    db.session.refresh(product)
+    assert product.is_featured is True
+    assert product.suggest_in_cart is False
+
+
+def test_product_form_checkbox_reflects_suggest_in_cart(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+    marked = Product(name='Salsa', description='Test', price=500, category_id=category.id, suggest_in_cart=True)
+    unmarked = Product(name='Roll', description='Test', price=5000, category_id=category.id)
+    db.session.add_all([marked, unmarked])
+    db.session.commit()
+
+    marked_html = client.get(f'/admin/products/{marked.id}/edit').data.decode()
+    unmarked_html = client.get(f'/admin/products/{unmarked.id}/edit').data.decode()
+    new_html = client.get('/admin/products/new').data.decode()
+
+    checkbox = '<input type="checkbox" id="suggest_in_cart" name="suggest_in_cart"\n             checked>'
+    assert checkbox in marked_html
+    assert checkbox not in unmarked_html
+    assert 'name="suggest_in_cart"' in new_html and checkbox not in new_html
+    assert 'Es distinto de ⭐ Recomendado' in new_html
+
+
+def test_products_api_sends_suggest_in_cart_and_featured_independently(client, db):
+    category = _create_category(db)
+    db.session.add_all([
+        Product(name='Solo destacado', description='T', price=1, category_id=category.id, is_featured=True),
+        Product(name='Solo carrito', description='T', price=1, category_id=category.id, suggest_in_cart=True),
+        Product(name='Ninguno', description='T', price=1, category_id=category.id),
+    ])
+    db.session.commit()
+
+    payload = {item['name']: item for item in client.get('/api/products').get_json()}
+
+    assert (payload['Solo destacado']['featured'], payload['Solo destacado']['suggestInCart']) == (True, False)
+    assert (payload['Solo carrito']['featured'], payload['Solo carrito']['suggestInCart']) == (False, True)
+    assert (payload['Ninguno']['featured'], payload['Ninguno']['suggestInCart']) == (False, False)
+
+
+def test_products_list_shows_both_tags(client, db):
+    _register_owner(client)
+    category = _create_category(db)
+    db.session.add(Product(name='Ambos', description='T', price=1, category_id=category.id,
+                           is_featured=True, suggest_in_cart=True))
+    db.session.commit()
+
+    html = client.get('/admin/products').data.decode()
+
+    assert '· recomendado' in html
+    assert '· sugerido en carrito' in html

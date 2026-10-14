@@ -75,6 +75,14 @@
         Opcional. Se muestra al cliente para que sepa cuánto demora. Déjalo vacío si no aplica.
       </p>
 
+      <label class="checkbox-row"><input type="checkbox" id="suggest_in_cart" name="suggest_in_cart"
+             {{ 'checked' if product and product.suggest_in_cart else '' }}> Sugerirlo en el carrito ("También te podría interesar")</label>
+      <p class="muted">
+        Es distinto de ⭐ Recomendado, que lo destaca en la carta y el banner. Úsalo para
+        productos de bajo costo que se agregan fácil a cualquier pedido (una salsa, un jugo,
+        un acompañamiento).
+      </p>
+
       <button type="submit">Guardar producto</button>
     </form>
 

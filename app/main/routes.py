@@ -209,6 +209,7 @@ def products_api():
             'subcategory': product.subcategory.name if product.subcategory else None,
             'soldOut': product.sold_out,
             'featured': product.is_featured,
+            'suggestInCart': product.suggest_in_cart,
             'prepMinutes': product.prep_minutes,
             'imageUrl': (url_for('static', filename='uploads/products/' + product.image_filename)
                          if product.image_filename else None),
