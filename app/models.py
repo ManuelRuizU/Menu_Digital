@@ -358,6 +358,22 @@ class BundlePromo(db.Model):
             name='ck_bundle_promo_kind_fields'),
     )
 
+    @property
+    def common_base_price(self):
+        """The one price every product of a tiered promo shares, or None when they don't
+        (or there are no products) - the tiers only mean something with a single price."""
+        prices = {product.price for product in self.products}
+        return prices.pop() if len(prices) == 1 else None
+
+    @property
+    def price_mismatch(self):
+        """For a tiered promo whose products no longer share one price: every product
+        with its price, so the panel can say exactly what differs. Empty otherwise
+        (including any buy_pay promo, where mixed prices are normal)."""
+        if self.kind != 'tiered' or len({product.price for product in self.products}) <= 1:
+            return []
+        return sorted(((product.name, product.price) for product in self.products), key=lambda pair: (pair[1], pair[0]))
+
     def __repr__(self):
         return f'<BundlePromo {self.label}>'
 

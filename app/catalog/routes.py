@@ -24,7 +24,7 @@ from app.decorators import admin_required, owner_required
 from app.geocoding import geocode
 from app.main.routes import compute_bundle_discount, compute_coupon_discount, get_hours_for_today, \
     has_delivery_configured, _get_active_bundle_promos, _haversine_km, _resolve_selected_options
-from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Category, Coupon, Courier, DeliveryRadiusTier,
+from app.models import (BUSINESS_TZ, BundlePromo, BundlePromoTier, BusinessHours, Category, Coupon, Courier, DeliveryRadiusTier,
                          DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup,
                          Subcategory, User)
 from app.uploads import save_image
@@ -455,6 +455,12 @@ def _save_product(product):
 
     db.session.commit()
     flash('Producto guardado')
+    # Saved anyway - the owner may be repricing a whole promo one product at a time - but
+    # say so: a tiered promo whose products don't share one price stops applying.
+    for promo in product.bundle_promos:
+        if promo.is_active and promo.price_mismatch:
+            flash(f'Este producto está en la promo "{promo.label}"; con este precio la promo '
+                  'dejará de aplicarse hasta que todos sus productos tengan el mismo precio.')
     return redirect(url_for('catalog.products'))
 
 
@@ -945,10 +951,12 @@ def bundle_promos():
 
 
 def _bundle_promo_form_context(promo=None):
+    saved_tiers = [(tier.quantity, tier.total_price) for tier in promo.tiers] if promo else []
     return {
         'promo': promo,
         'products': Product.query.order_by(Product.name).all(),
         'selected_product_ids': {product.id for product in promo.products} if promo else set(),
+        'tier_rows': saved_tiers + [(None, None)] * _TIER_FORM_EXTRA_ROWS,
     }
 
 
@@ -971,10 +979,80 @@ def edit_bundle_promo(promo_id):
     return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context(promo))
 
 
+# Blank rows in the form beyond the saved tiers, so the owner can add levels without JS.
+_TIER_FORM_EXTRA_ROWS = 2
+
+
+def _parse_tiers(form):
+    """The tier rows of the form as [(quantity, total_price)], or (None, error). A row
+    with both fields empty is just an unused row; half-filled rows are an error."""
+    quantities = form.getlist('tier_quantity')
+    prices = form.getlist('tier_price')
+    tiers = []
+    for raw_quantity, raw_price in zip(quantities, prices):
+        raw_quantity, raw_price = raw_quantity.strip(), raw_price.strip()
+        if not raw_quantity and not raw_price:
+            continue
+        try:
+            quantity = int(raw_quantity)
+        except ValueError:
+            return None, 'Cada nivel necesita una cantidad (2 o más) y un precio total.'
+        total_price = parse_money({'price': raw_price}, 'price')
+        if quantity < 2 or total_price is None or total_price <= 0:
+            return None, 'Cada nivel necesita una cantidad (2 o más) y un precio total mayor a $0.'
+        tiers.append((quantity, total_price))
+
+    if not tiers:
+        return None, 'Agrega al menos un nivel (ej. 2 por $4.990).'
+    if len({quantity for quantity, _price in tiers}) != len(tiers):
+        return None, 'No puedes repetir la misma cantidad en dos niveles.'
+    return sorted(tiers), None
+
+
+def _tiered_price_errors(products, tiers):
+    """What's wrong with this tiered promo's prices, or None. Its products must share one
+    base price (the tiers are N x that price), and every tier must actually save money."""
+    prices = {product.price for product in products}
+    if len(prices) > 1:
+        listed = ', '.join(f'{product.name} (${product.price:.0f})'
+                           for product in sorted(products, key=lambda p: (p.price, p.name)))
+        return ('Todos los productos de una promo por cantidad deben tener el mismo precio. '
+                f'Hoy difieren: {listed}.')
+    base = prices.pop()
+    for quantity, total_price in tiers:
+        if total_price >= quantity * base:
+            return (f'El nivel de {quantity} debe costar menos de ${quantity * base:.0f} '
+                    f'({quantity} × ${base:.0f}), si no, no es un descuento.')
+    return None
+
+
+def _dates_overlap(from_a, until_a, from_b, until_b):
+    """Two optional date ranges (None = open-ended on that side) share at least one day."""
+    starts_before_b_ends = from_a is None or until_b is None or from_a <= until_b
+    b_starts_before_a_ends = from_b is None or until_a is None or from_b <= until_a
+    return starts_before_b_ends and b_starts_before_a_ends
+
+
+def _promo_overlap_error(promo_id, products, valid_from, valid_until):
+    """A product may be in only ONE active automatic promo (of any kind) for any given
+    day - so the cart never has to decide between two promos for the same unit. None
+    if that holds for these products and dates, else the message to show."""
+    for product in products:
+        for other in product.bundle_promos:
+            if other.id == promo_id or not other.is_active:
+                continue
+            if _dates_overlap(valid_from, valid_until, other.valid_from, other.valid_until):
+                return (f'"{product.name}" ya está en la promo "{other.label}", activa en fechas que se '
+                        'cruzan con estas. Un producto puede estar en una sola promoción activa a la vez.')
+    return None
+
+
 def _save_bundle_promo(promo):
+    is_new = promo.id is None
+    # The kind is chosen once, when the promo is created: switching an existing 2x1 to
+    # tiered (or back) would leave it half-filled with the other kind's fields.
+    kind = request.form.get('kind') if is_new else promo.kind
     label = request.form.get('label', '').strip()
-    buy_quantity = request.form.get('buy_quantity', type=int)
-    pay_quantity = request.form.get('pay_quantity', type=int)
     valid_from = _parse_date(request.form.get('valid_from'))
     valid_until = _parse_date(request.form.get('valid_until'))
     product_ids = request.form.getlist('product_ids', type=int)
@@ -982,30 +1060,67 @@ def _save_bundle_promo(promo):
     def _redisplay():
         return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context(promo if promo.id else None))
 
-    if (not label or not buy_quantity or not pay_quantity
-            or buy_quantity < 2 or pay_quantity < 1 or pay_quantity >= buy_quantity):
-        flash('Completa un nombre, y una combinación válida (ej. "Lleva 2, paga 1" - paga siempre debe ser menor que lleva).')
+    if not label or kind not in ('buy_pay', 'tiered'):
+        flash('Completa un nombre y elige el tipo de promoción.')
         return _redisplay()
+
+    buy_quantity = pay_quantity = None
+    tiers = []
+    if kind == 'buy_pay':
+        buy_quantity = request.form.get('buy_quantity', type=int)
+        pay_quantity = request.form.get('pay_quantity', type=int)
+        if (not buy_quantity or not pay_quantity
+                or buy_quantity < 2 or pay_quantity < 1 or pay_quantity >= buy_quantity):
+            flash('Completa una combinación válida (ej. "Lleva 2, paga 1" - paga siempre debe ser menor que lleva).')
+            return _redisplay()
+    else:
+        tiers, error = _parse_tiers(request.form)
+        if error:
+            flash(error)
+            return _redisplay()
 
     if not product_ids:
         flash('Elige al menos un producto para esta promoción.')
         return _redisplay()
+    products = Product.query.filter(Product.id.in_(product_ids)).all()
 
     if valid_from and valid_until and valid_from > valid_until:
         flash('La fecha "desde" no puede ser posterior a la fecha "hasta".')
         return _redisplay()
 
-    is_new = promo.id is None
+    if kind == 'tiered':
+        error = _tiered_price_errors(products, tiers)
+        if error:
+            flash(error)
+            return _redisplay()
+
+    # Only an active promo competes for its products - a new one starts active.
+    if is_new or promo.is_active:
+        error = _promo_overlap_error(promo.id, products, valid_from, valid_until)
+        if error:
+            flash(error)
+            return _redisplay()
+
     promo.label = label
+    promo.kind = kind
     promo.buy_quantity = buy_quantity
     promo.pay_quantity = pay_quantity
     promo.valid_from = valid_from
     promo.valid_until = valid_until
-    promo.products = Product.query.filter(Product.id.in_(product_ids)).all()
+    promo.products = products
     if is_new:
         promo.is_active = True
-
     db.session.add(promo)
+
+    if kind == 'tiered':
+        # Old tiers must be gone before the new ones go in: SQLAlchemy inserts before it
+        # deletes within one flush, which would trip unique(promo_id, quantity) whenever
+        # an edit keeps a quantity (the usual case - e.g. only changing a price).
+        promo.tiers.clear()
+        db.session.flush()
+        promo.tiers = [BundlePromoTier(quantity=quantity, total_price=total_price)
+                       for quantity, total_price in tiers]
+
     db.session.commit()
     flash('Promoción guardada')
     return redirect(url_for('catalog.bundle_promos'))
@@ -1016,6 +1131,12 @@ def _save_bundle_promo(promo):
 @owner_required
 def toggle_bundle_promo_active(promo_id):
     promo = BundlePromo.query.get_or_404(promo_id)
+    if not promo.is_active:
+        # Activating is the other way into "two active promos on one product".
+        error = _promo_overlap_error(promo.id, promo.products, promo.valid_from, promo.valid_until)
+        if error:
+            flash(error)
+            return redirect(url_for('catalog.bundle_promos'))
     promo.is_active = not promo.is_active
     db.session.commit()
     flash('Promoción activada' if promo.is_active else 'Promoción desactivada')
