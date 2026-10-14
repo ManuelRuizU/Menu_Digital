@@ -43,6 +43,9 @@
             </p>
           {% endif %}
         {% endif %}
+        {% for product_name, other_label in overlaps.get(promo.id, []) %}
+          <p class="promo-warning">⚠ El producto {{ product_name }} también está en la promo {{ other_label }}; los descuentos se suman.</p>
+        {% endfor %}
         {% if promo.valid_from or promo.valid_until %}
           <p class="muted">
             Vigencia: {{ promo.valid_from.strftime('%d-%m-%Y') if promo.valid_from else 'sin inicio' }}

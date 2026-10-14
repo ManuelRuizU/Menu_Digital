@@ -97,6 +97,7 @@
 
       <div id="gift-info" data-threshold="{{ gift_threshold_amount or '' }}" data-product-name="{{ gift_product_name or '' }}" hidden></div>
       <p id="gift-hint" class="hint gift-hint" hidden></p>
+      <div id="promo-nudges" class="promo-nudges"></div>
 
       <div class="coupon-box">
         <div class="coupon-inputs">
@@ -109,7 +110,7 @@
       <div class="summary">
         <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
         <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
-        <div id="bundle-discount-row" class="summary-row discount-row" hidden><span>2x1/3x2 aplicado</span><strong id="bundle-discount">$0</strong></div>
+        <div id="bundle-discount-rows" class="summary-rows"></div>
         <div id="discount-row" class="summary-row discount-row" hidden><span>Descuento</span><strong id="discount">$0</strong></div>
         <div class="summary-row total"><span>Total</span><strong id="total">$0</strong></div>
       </div>
@@ -272,6 +273,7 @@
 {% block scripts %}
 {% if not is_closed %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{{ url_for('static', filename='js/bundle_pricing.js') }}"></script>
 <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
 {% endif %}
 {% endblock %}

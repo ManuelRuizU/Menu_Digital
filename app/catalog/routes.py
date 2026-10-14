@@ -947,7 +947,26 @@ def delete_coupon(coupon_id):
 @owner_required
 def bundle_promos():
     all_promos = BundlePromo.query.order_by(BundlePromo.id.desc()).all()
-    return render_template('panel/bundle_promos.html', promos=all_promos)
+    return render_template('panel/bundle_promos.html', promos=all_promos,
+                           overlaps=_active_promo_overlaps(all_promos))
+
+
+def _active_promo_overlaps(promos):
+    """{promo.id: [(product name, other promo label), ...]} for every product sitting in
+    two active promos whose dates cross. Saving/activating already refuses that, but
+    data from before the rule (or edited outside the panel) can still have it - and then
+    both discounts add up, so the owner should see it. Marked on both promos."""
+    overlaps = {}
+    active = [promo for promo in promos if promo.is_active]
+    for index, promo in enumerate(active):
+        for other in active[index + 1:]:
+            if not _dates_overlap(promo.valid_from, promo.valid_until, other.valid_from, other.valid_until):
+                continue
+            shared_ids = {product.id for product in promo.products} & {product.id for product in other.products}
+            for product in sorted((p for p in promo.products if p.id in shared_ids), key=lambda p: p.name):
+                overlaps.setdefault(promo.id, []).append((product.name, other.label))
+                overlaps.setdefault(other.id, []).append((product.name, promo.label))
+    return overlaps
 
 
 def _bundle_promo_form_context(promo=None):

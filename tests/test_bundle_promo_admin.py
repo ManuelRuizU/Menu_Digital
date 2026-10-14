@@ -331,3 +331,29 @@ def test_no_warning_for_mixed_prices_in_a_buy_pay_promo(client, db):
     resp = _edit_product_price(client, te, 3900)
 
     assert 'Este producto está en la promo'.encode() not in resp.data
+
+
+def test_listing_warns_on_both_promos_when_a_product_is_in_two_active_overlapping_promos(client, db):
+    # Can't be created through the panel anymore - this is data from before the rule.
+    _register_owner(client)
+    shared = _create_product(db, 'Hand roll pollo')
+    _create_buy_pay_promo(db, [shared], label='2x1 viejo')
+    _create_tiered_promo(db, [shared], label='Hand rolls')
+
+    html = _text(client.get('/admin/bundle-promos'))
+
+    assert '⚠ El producto Hand roll pollo también está en la promo Hand rolls; los descuentos se suman.' in html
+    assert '⚠ El producto Hand roll pollo también está en la promo 2x1 viejo; los descuentos se suman.' in html
+
+
+def test_listing_does_not_warn_when_one_promo_is_inactive_or_dates_do_not_cross(client, db):
+    _register_owner(client)
+    shared = _create_product(db, 'Hand roll pollo')
+    today = date.today()
+    _create_buy_pay_promo(db, [shared], label='Pasada', valid_until=today - timedelta(days=10))
+    _create_tiered_promo(db, [shared], label='Actual', valid_from=today)
+    _create_buy_pay_promo(db, [shared], label='Apagada', is_active=False)
+
+    html = _text(client.get('/admin/bundle-promos'))
+
+    assert 'los descuentos se suman' not in html

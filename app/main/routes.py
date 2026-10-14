@@ -283,6 +283,7 @@ def bundle_promos_api():
             'kind': promo.kind,
             'buyQuantity': promo.buy_quantity,
             'payQuantity': promo.pay_quantity,
+            'tiers': [{'quantity': tier.quantity, 'totalPrice': tier.total_price} for tier in promo.tiers],
             'productIds': [product.id for product in promo.products],
         }
         for promo in _get_active_bundle_promos()
@@ -407,13 +408,30 @@ def _buy_pay_discount(promo, order_lines, product_ids):
     return discount
 
 
+def tiered_cost_for_units(unit, tiers, n):
+    """Cheapest way to pay for n units, where each unit costs `unit` alone or q of them
+    cost tiers[q]:  best[k] = min(best[k-1] + unit, best[k-q] + tiers[q] for q <= k).
+    `tiers` is [(quantity, total_price)]. Pure, and mirrored line for line by
+    tieredCostForUnits in static/js/bundle_pricing.js - both run against the same
+    vectors in tests/fixtures/tiered_cases.json, so they can't drift apart silently."""
+    best = [0] * (n + 1)
+    for k in range(1, n + 1):
+        best[k] = best[k - 1] + unit
+        for quantity, total_price in tiers:
+            if quantity <= k:
+                best[k] = min(best[k], best[k - quantity] + total_price)
+    return best[n]
+
+
+def tiered_discount_for_units(unit, tiers, n):
+    """What tiered pricing saves on n units over buying them one by one (never negative)."""
+    discount = n * unit - tiered_cost_for_units(unit, tiers, n)
+    return discount if discount > 0 else 0
+
+
 def _tiered_discount(promo, order_lines, product_ids):
     """"2 por $4.990, 3 por $6.990", mixing any of the promo's products. Priced on the
-    base price only - variants are charged on top, in full, never discounted.
-
-    Cheapest way to pay for n units, where each unit costs `unit` alone or q of them
-    cost tier[q]:  best[k] = min(best[k-1] + unit, best[k-q] + tier[q] for q <= k).
-    The discount is what that saves over n * unit."""
+    base price only - variants are charged on top, in full, never discounted."""
     base_prices = []
     for product, quantity, options, unit_price in order_lines:
         if product.id in product_ids:
@@ -430,17 +448,8 @@ def _tiered_discount(promo, order_lines, product_ids):
             promo.label, sorted(set(base_prices)))
         return 0
 
-    unit = base_prices[0]
-    n = len(base_prices)
-    best = [0] * (n + 1)
-    for k in range(1, n + 1):
-        best[k] = best[k - 1] + unit
-        for tier in promo.tiers:
-            if tier.quantity <= k:
-                best[k] = min(best[k], best[k - tier.quantity] + tier.total_price)
-
-    discount = n * unit - best[n]
-    return discount if discount > 0 else 0
+    tiers = [(tier.quantity, tier.total_price) for tier in promo.tiers]
+    return tiered_discount_for_units(base_prices[0], tiers, len(base_prices))
 
 
 _BUNDLE_DISCOUNT_BY_KIND = {

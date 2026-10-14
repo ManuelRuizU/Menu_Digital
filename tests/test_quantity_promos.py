@@ -1,12 +1,16 @@
 """kind='tiered' BundlePromo: "hand roll $2.990, 2 por $4.990, 3 por $6.990", mixing any
 hand roll of the promo. Python is the source of truth; menu.js mirrors it (own layer)."""
+import json
 import logging
+import shutil
+import subprocess
 from datetime import date, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from app.main.routes import compute_bundle_discount
+from app.main.routes import compute_bundle_discount, tiered_cost_for_units, tiered_discount_for_units
 from app.models import (BundlePromo, BundlePromoTier, Category, Coupon, Order, OrderItem, OrderItemOption,
                         Product, ProductOption, ProductOptionGroup)
 
@@ -45,6 +49,27 @@ def _line(product, quantity, options=(), unit_price=None):
 
 
 # --- the dynamic-programming price, on its own ---
+
+TESTS_DIR = Path(__file__).parent
+SHARED_CASES = json.loads((TESTS_DIR / 'fixtures' / 'tiered_cases.json').read_text(encoding='utf-8'))['cases']
+
+
+@pytest.mark.parametrize('case', SHARED_CASES, ids=[c['name'] for c in SHARED_CASES])
+def test_shared_tiered_vectors(case):
+    """Same file the JS tests read - the menu's mirror and this can't drift apart."""
+    tiers = [tuple(tier) for tier in case['tiers']]
+    assert tiered_cost_for_units(case['unit'], tiers, case['n']) == case['expected_cost']
+    assert tiered_discount_for_units(case['unit'], tiers, case['n']) == case['expected_discount']
+
+
+def test_js_mirror_passes_the_same_vectors():
+    """Runs tests/js with Node's built-in runner so a plain `pytest` also covers the JS."""
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('node is not installed - run `node --test tests/js` where it is')
+    result = subprocess.run([node, '--test', str(TESTS_DIR / 'js')], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+
 
 @pytest.mark.parametrize('units, expected_discount', [
     (1, 0),                       # 2990 alone

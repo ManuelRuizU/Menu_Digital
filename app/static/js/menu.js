@@ -44,8 +44,8 @@ const elements = {
   productCount: document.getElementById('product-count'),
   subtotal: document.getElementById('subtotal'),
   shipping: document.getElementById('shipping'),
-  bundleDiscountRow: document.getElementById('bundle-discount-row'),
-  bundleDiscount: document.getElementById('bundle-discount'),
+  bundleDiscountRows: document.getElementById('bundle-discount-rows'),
+  promoNudges: document.getElementById('promo-nudges'),
   discountRow: document.getElementById('discount-row'),
   discount: document.getElementById('discount'),
   couponCode: document.getElementById('coupon-code'),
@@ -541,30 +541,38 @@ function togglePaymentFields() {
   updateChangeHint()
 }
 
-function computeBundleDiscount() {
-  let total = 0
-  STATE.bundlePromos.forEach((promo) => {
-    // Only kinds this code knows how to price - anything else counts as no discount
-    // instead of breaking the cart (tiered promos arrive in their own layer).
-    if ((promo.kind || 'buy_pay') !== 'buy_pay') return
-    const unitPrices = []
-    STATE.cart.forEach((item) => {
-      if (promo.productIds.includes(item.id)) {
-        for (let i = 0; i < item.quantity; i++) unitPrices.push(item.price)
-      }
-    })
-    if (unitPrices.length < promo.buyQuantity) return
+// Price delta of one of a product's options, from the catalog - carts saved before the
+// delta was stored on the cart line only have the option's id.
+function catalogOptionDelta(productId, optionId) {
+  const product = STATE.products.find((p) => p.id === productId)
+  const groups = product && Array.isArray(product.optionGroups) ? product.optionGroups : []
+  for (const group of groups) {
+    const option = group.options.find((o) => o.id === optionId)
+    if (option) return option.priceDelta || 0
+  }
+  return 0
+}
 
-    unitPrices.sort((a, b) => b - a)
-    const freeQuantity = promo.buyQuantity - promo.payQuantity
-    const numFullGroups = Math.floor(unitPrices.length / promo.buyQuantity)
-    for (let group = 0; group < numFullGroups; group++) {
-      const start = group * promo.buyQuantity
-      const chunk = unitPrices.slice(start, start + promo.buyQuantity)
-      if (freeQuantity > 0) total += chunk.slice(-freeQuantity).reduce((sum, price) => sum + price, 0)
-    }
-  })
-  return Math.round(total)
+// The cart in the shape bundle_pricing.js prices - see that file.
+function pricingLines() {
+  return STATE.cart.map((item) => ({
+    productId: item.id,
+    quantity: item.quantity,
+    unitPrice: item.price,
+    optionDeltas: (item.selectedOptions || []).map((o) =>
+      (typeof o.priceDelta === 'number' ? o.priceDelta : catalogOptionDelta(item.id, o.id))),
+  }))
+}
+
+// [{ label, amount }] - one entry per automatic promo discounting the cart right now.
+// Preview only: create_order recalculates the real amounts on the server.
+function getAppliedBundleDiscounts() {
+  return BundlePricing.bundleDiscounts(STATE.bundlePromos, pricingLines())
+    .map(({ promo, amount }) => ({ label: promo.label, amount }))
+}
+
+function computeBundleDiscount() {
+  return getAppliedBundleDiscounts().reduce((sum, entry) => sum + entry.amount, 0)
 }
 
 function getOrderTotal() {
@@ -654,6 +662,21 @@ function findBundlePromoForProduct(product) {
   return STATE.bundlePromos.find((promo) => promo.productIds.includes(product.id))
 }
 
+// "Lleva 2, paga 1" or "2 x $4.990 · 3 x $6.990"; nothing for a kind this code doesn't know.
+function bundleBadgeHtml(promo) {
+  const title = `title="${escapeHtml(promo.label)}"`
+  if ((promo.kind || 'buy_pay') === 'buy_pay') {
+    return `<span class="bundle-badge" ${title}>Lleva ${promo.buyQuantity}, paga ${promo.payQuantity}</span>`
+  }
+  if (promo.kind === 'tiered' && promo.tiers && promo.tiers.length) {
+    // Each tier is one unbreakable unit, so a narrow card wraps at the "·", never between
+    // a quantity and its price.
+    const text = promo.tiers.map((tier) => `<span class="bundle-tier">${tier.quantity} x ${formatPrice(tier.totalPrice)}</span>`).join(' · ')
+    return `<span class="bundle-badge bundle-badge-tiers" ${title}>${text}</span>`
+  }
+  return ''
+}
+
 function productCardHtml(product) {
   const soldOut = product.soldOut
   const badge = soldOut
@@ -675,7 +698,7 @@ function productCardHtml(product) {
           <strong>${safeName}</strong>
           <div class="price">${priceHtml(product)}</div>
           ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
-          ${bundlePromo && (bundlePromo.kind || 'buy_pay') === 'buy_pay' ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
+          ${bundlePromo ? bundleBadgeHtml(bundlePromo) : ''}
         </div>
       </div>
       <div class="card-actions">
@@ -1036,19 +1059,44 @@ function updateShippingRow(outOfCoverage, shipping) {
   }
 }
 
+// "Agrega 1 más y llévate 3 por $6.990" - only when the pricing function itself says one
+// more unit saves more (bundle_pricing.js nextUnitNudge), never from separate rules. The
+// button jumps to the subcategory of the promo's first product.
+function renderPromoNudges() {
+  if (!elements.promoNudges) return
+  const lines = pricingLines()
+  elements.promoNudges.innerHTML = STATE.bundlePromos.map((promo) => {
+    const nudge = BundlePricing.nextUnitNudge(promo, lines)
+    if (!nudge) return ''
+    const firstProduct = STATE.products.find((p) => promo.productIds.includes(p.id))
+    const target = firstProduct ? `sub-${firstProduct.categoryId}-${firstProduct.subcategoryId || 'none'}` : null
+    return `
+      <div class="promo-nudge">
+        <span>Agrega 1 más y llévate ${nudge.quantity} por ${formatPrice(nudge.totalPrice)}</span>
+        ${target ? `<button type="button" data-target="${target}" aria-label="Ver ${escapeHtml(promo.label)}">Ver</button>` : ''}
+      </div>
+    `
+  }).join('')
+}
+
 function updateSummary() {
   const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const outOfCoverage = wantsDelivery && !STATE.deliveryCovered
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
-  const bundleDiscount = computeBundleDiscount()
+  const bundleDiscounts = getAppliedBundleDiscounts()
+  const bundleDiscount = bundleDiscounts.reduce((sum, entry) => sum + entry.amount, 0)
   const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
   const total = Math.max(0, subtotal + shipping - bundleDiscount - discount)
 
   elements.subtotal.textContent = formatPrice(subtotal)
   updateShippingRow(outOfCoverage, shipping)
-  if (elements.bundleDiscountRow) elements.bundleDiscountRow.hidden = !bundleDiscount
-  if (elements.bundleDiscount) elements.bundleDiscount.textContent = `-${formatPrice(bundleDiscount)}`
+  if (elements.bundleDiscountRows) {
+    elements.bundleDiscountRows.innerHTML = bundleDiscounts.map((entry) => `
+      <div class="summary-row discount-row"><span>${escapeHtml(entry.label)}</span><strong>-${formatPrice(entry.amount)}</strong></div>
+    `).join('')
+  }
+  renderPromoNudges()
   if (elements.discountRow) elements.discountRow.hidden = !discount
   if (elements.discount) elements.discount.textContent = `-${formatPrice(discount)}`
   elements.total.textContent = outOfCoverage ? '—' : formatPrice(total)
@@ -1249,7 +1297,7 @@ function addToCart(productId, selectedOptions = []) {
   } else {
     STATE.cart.push({
       cartKey, id: product.id, name: product.name, price: unitPrice, quantity: 1,
-      selectedOptions: sortedOptions.map((o) => ({ id: o.id, name: o.name })),
+      selectedOptions: sortedOptions.map((o) => ({ id: o.id, name: o.name, priceDelta: o.priceDelta })),
     })
   }
   saveCart()
@@ -1369,7 +1417,7 @@ function buildConfirmSummaryHtml() {
     <div class="confirm-row"><span>Forma de pago</span><span>${escapeHtml(paymentLine)}</span></div>
     <div class="confirm-row"><span>Subtotal</span><span>${formatPrice(subtotal)}</span></div>
     ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Envío</span><span>${formatPrice(shipping)}</span></div>` : ''}
-    ${computeBundleDiscount() ? `<div class="confirm-row"><span>2x1/3x2 aplicado</span><span>-${formatPrice(computeBundleDiscount())}</span></div>` : ''}
+    ${getAppliedBundleDiscounts().map((entry) => `<div class="confirm-row"><span>${escapeHtml(entry.label)}</span><span>-${formatPrice(entry.amount)}</span></div>`).join('')}
     ${STATE.appliedCoupon && !appliedGiftCoupon() ? `<div class="confirm-row"><span>Descuento (${escapeHtml(STATE.appliedCoupon.code)})</span><span>-${formatPrice(STATE.appliedCoupon.discountAmount)}</span></div>` : ''}
     <div class="confirm-row confirm-total"><span>Total</span><span>${formatPrice(total)}</span></div>
   `
@@ -1660,6 +1708,8 @@ window.addEventListener('load', () => {
     if (navLink) {
       const target = document.getElementById(navLink.getAttribute('data-target'))
       closeNav()
+      // A promo nudge lives in the cart - on mobile that's a sheet covering the menu.
+      if (navLink.closest('#cart-panel')) closeCart()
       if (target) setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
     }
     const details = event.target.closest('[data-details]')
