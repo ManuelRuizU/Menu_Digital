@@ -544,6 +544,9 @@ function togglePaymentFields() {
 function computeBundleDiscount() {
   let total = 0
   STATE.bundlePromos.forEach((promo) => {
+    // Only kinds this code knows how to price - anything else counts as no discount
+    // instead of breaking the cart (tiered promos arrive in their own layer).
+    if ((promo.kind || 'buy_pay') !== 'buy_pay') return
     const unitPrices = []
     STATE.cart.forEach((item) => {
       if (promo.productIds.includes(item.id)) {
@@ -672,7 +675,7 @@ function productCardHtml(product) {
           <strong>${safeName}</strong>
           <div class="price">${priceHtml(product)}</div>
           ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
-          ${bundlePromo ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
+          ${bundlePromo && (bundlePromo.kind || 'buy_pay') === 'buy_pay' ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
         </div>
       </div>
       <div class="card-actions">

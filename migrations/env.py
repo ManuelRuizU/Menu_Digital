@@ -11,7 +11,10 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-fileConfig(config.config_file_name)
+# disable_existing_loggers=False: create_app() stamps a fresh database in-process, and
+# the default (True) would silently switch off the already-created 'app' logger -
+# every current_app.logger.warning/exception after that would go nowhere.
+fileConfig(config.config_file_name, disable_existing_loggers=False)
 logger = logging.getLogger('alembic.env')
 
 

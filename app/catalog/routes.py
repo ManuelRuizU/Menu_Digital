@@ -1730,7 +1730,9 @@ def _recalculate_order_total(order):
     items = OrderItem.query.filter_by(order_id=order.id).all()
     subtotal = sum(item.price * item.quantity for item in items)
 
-    order_lines = [(item.product, item.quantity, [], item.price)
+    # The saved options go along (not []) so a tiered promo can take the variants back
+    # out of the snapshot price - see _line_base_price.
+    order_lines = [(item.product, item.quantity, item.selected_options, item.price)
                     for item in items if item.product is not None and not item.is_gift]
 
     bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())

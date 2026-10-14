@@ -280,6 +280,7 @@ def bundle_promos_api():
         {
             'id': promo.id,
             'label': promo.label,
+            'kind': promo.kind,
             'buyQuantity': promo.buy_quantity,
             'payQuantity': promo.pay_quantity,
             'productIds': [product.id for product in promo.products],
@@ -375,29 +376,92 @@ def _get_active_bundle_promos():
             if (not p.valid_from or today >= p.valid_from) and (not p.valid_until or today <= p.valid_until)]
 
 
+def _line_base_price(unit_price, options):
+    """A line's per-unit price without its variants - what a tiered promo prices. Works
+    both for a checkout line (ProductOption) and an edited order's saved line
+    (OrderItemOption): both carry price_delta, and both unit_prices already include it.
+    At checkout this is exactly product.price; when editing it comes from the snapshot,
+    like every other amount in that recalculation."""
+    return unit_price - sum(option.price_delta for option in options)
+
+
+def _buy_pay_discount(promo, order_lines, product_ids):
+    """"2x1"/"3x2": flatten the matching units, sort by price descending, and group them
+    into chunks of buy_quantity; within each *complete* chunk the cheapest
+    (buy_quantity - pay_quantity) units are free. A leftover partial chunk gets nothing."""
+    unit_prices = []
+    for product, quantity, _options, unit_price in order_lines:
+        if product.id in product_ids:
+            unit_prices.extend([unit_price] * quantity)
+    if len(unit_prices) < promo.buy_quantity:
+        return 0
+
+    unit_prices.sort(reverse=True)
+    free_quantity = promo.buy_quantity - promo.pay_quantity
+    discount = 0
+    for group_index in range(len(unit_prices) // promo.buy_quantity):
+        start = group_index * promo.buy_quantity
+        group = unit_prices[start:start + promo.buy_quantity]
+        if free_quantity > 0:
+            discount += sum(group[-free_quantity:])
+    return discount
+
+
+def _tiered_discount(promo, order_lines, product_ids):
+    """"2 por $4.990, 3 por $6.990", mixing any of the promo's products. Priced on the
+    base price only - variants are charged on top, in full, never discounted.
+
+    Cheapest way to pay for n units, where each unit costs `unit` alone or q of them
+    cost tier[q]:  best[k] = min(best[k-1] + unit, best[k-q] + tier[q] for q <= k).
+    The discount is what that saves over n * unit."""
+    base_prices = []
+    for product, quantity, options, unit_price in order_lines:
+        if product.id in product_ids:
+            base_prices.extend([_line_base_price(unit_price, options)] * quantity)
+    if not base_prices or not promo.tiers:
+        return 0
+
+    # The admin only accepts a tiered promo whose products share one base price, but a
+    # product's price can be edited afterwards. With no single unit price the tiers
+    # don't mean anything - skip the promo rather than guess which price to discount.
+    if len(set(base_prices)) > 1:
+        current_app.logger.warning(
+            'Tiered promo %r skipped: its products no longer share one base price (%s)',
+            promo.label, sorted(set(base_prices)))
+        return 0
+
+    unit = base_prices[0]
+    n = len(base_prices)
+    best = [0] * (n + 1)
+    for k in range(1, n + 1):
+        best[k] = best[k - 1] + unit
+        for tier in promo.tiers:
+            if tier.quantity <= k:
+                best[k] = min(best[k], best[k - tier.quantity] + tier.total_price)
+
+    discount = n * unit - best[n]
+    return discount if discount > 0 else 0
+
+
+_BUNDLE_DISCOUNT_BY_KIND = {
+    'buy_pay': _buy_pay_discount,
+    'tiered': _tiered_discount,
+}
+
+
 def compute_bundle_discount(order_lines, promos):
-    """Automatic "2x1"/"3x2" promos - no code needed. For each promo, flatten the matching
-    products' units, sort by price descending, and group them into chunks of buy_quantity;
-    within each *complete* chunk the cheapest (buy_quantity - pay_quantity) units are free.
-    A leftover partial chunk (not enough units yet) gets no discount."""
+    """Automatic promos - no code needed. Each promo is priced on its own matching units
+    (the admin keeps a product in at most one active promo, so they never compete for
+    the same unit). An unknown kind is skipped with a log line instead of raising: a
+    malformed promo must never take down the menu or create_order."""
     total_discount = 0
     for promo in promos:
-        product_ids = {product.id for product in promo.products}
-        unit_prices = []
-        for product, quantity, _options, unit_price in order_lines:
-            if product.id in product_ids:
-                unit_prices.extend([unit_price] * quantity)
-        if len(unit_prices) < promo.buy_quantity:
+        compute = _BUNDLE_DISCOUNT_BY_KIND.get(promo.kind)
+        if compute is None:
+            current_app.logger.warning('Bundle promo %r has unknown kind %r - skipped', promo.label, promo.kind)
             continue
-
-        unit_prices.sort(reverse=True)
-        free_quantity = promo.buy_quantity - promo.pay_quantity
-        num_full_groups = len(unit_prices) // promo.buy_quantity
-        for group_index in range(num_full_groups):
-            start = group_index * promo.buy_quantity
-            group = unit_prices[start:start + promo.buy_quantity]
-            if free_quantity > 0:
-                total_discount += sum(group[-free_quantity:])
+        product_ids = {product.id for product in promo.products}
+        total_discount += compute(promo, order_lines, product_ids)
 
     return round(total_discount)
 
