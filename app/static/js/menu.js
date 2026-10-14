@@ -802,17 +802,32 @@ function formatDateDMY(isoDate) {
   return `${day}-${month}-${year}`
 }
 
-function productSlideHtml(product) {
+// One full-width layout for every banner slide: with an image, the image covers the
+// whole slide and the text sits on top of a dark contrast layer (so white text reads on
+// any photo the owner uploads); without one, a primary-to-accent gradient with the text
+// centered. Navigation (dots, swipe, autoplay) only moves the track - untouched here.
+function featuredSlideHtml({ attrs, imageUrl, label, big, title, detail }) {
   return `
-    <button type="button" class="featured-slide" data-details="${product.id}">
-      ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${escapeHtml(product.name)}" class="featured-slide-photo">` : ''}
+    <button type="button" class="featured-slide ${imageUrl ? 'featured-slide-has-image' : 'featured-slide-no-image'}" ${attrs}>
+      ${imageUrl ? `<img src="${imageUrl}" alt="" class="featured-slide-bg">` : ''}
       <div class="featured-slide-info">
-        <span class="featured-slide-label">⭐ Recomendado</span>
-        <strong>${escapeHtml(product.name)}</strong>
-        <div class="featured-slide-price">${priceHtml(product)}</div>
+        <span class="featured-slide-label">${label}</span>
+        ${big ? `<span class="featured-slide-big">${big}</span>` : ''}
+        <strong>${title}</strong>
+        ${detail ? `<div class="featured-slide-price">${detail}</div>` : ''}
       </div>
     </button>
   `
+}
+
+function productSlideHtml(product) {
+  return featuredSlideHtml({
+    attrs: `data-details="${product.id}"`,
+    imageUrl: product.imageUrl,
+    label: '⭐ Recomendado',
+    title: escapeHtml(product.name),
+    detail: priceHtml(product),
+  })
 }
 
 function couponSlideHtml(coupon) {
@@ -828,27 +843,23 @@ function couponSlideHtml(coupon) {
     .filter(Boolean).join(' · ')
 
   if (coupon.bannerImageUrl) {
-    return `
-      <button type="button" class="featured-slide featured-slide-coupon" data-coupon-code="${safeCode}">
-        <img src="${coupon.bannerImageUrl}" alt="${safeCode}" class="featured-slide-photo">
-        <div class="featured-slide-info">
-          <span class="featured-slide-label">🏷️ Cupón</span>
-          <strong>${headline}</strong>
-          ${validityText ? `<div class="featured-slide-price">${validityText}</div>` : ''}
-        </div>
-      </button>
-    `
+    // The owner's own artwork carries the visual - one headline line on top of it.
+    return featuredSlideHtml({
+      attrs: `data-coupon-code="${safeCode}"`,
+      imageUrl: coupon.bannerImageUrl,
+      label: '🏷️ Cupón',
+      title: headline,
+      detail: [minOrderText, validityText].filter(Boolean).join(' · '),
+    })
   }
-  return `
-    <button type="button" class="featured-slide featured-slide-coupon-auto" data-coupon-code="${safeCode}">
-      <div class="coupon-slide-badge${coupon.kind === 'fixed' ? ' coupon-slide-badge-amount' : ''}">${isGift ? '🎁' : `-${discountText}`}</div>
-      <div class="featured-slide-info">
-        <span class="featured-slide-label">🏷️ Usa el código</span>
-        <strong>${safeCode}</strong>
-        <div class="featured-slide-price">${detailText}</div>
-      </div>
-    </button>
-  `
+  // No artwork: the discount itself, large, is the visual.
+  return featuredSlideHtml({
+    attrs: `data-coupon-code="${safeCode}"`,
+    label: '🏷️ Usa el código',
+    big: isGift ? '🎁' : `-${discountText}`,
+    title: safeCode,
+    detail: detailText,
+  })
 }
 
 function renderFeaturedBanner() {
