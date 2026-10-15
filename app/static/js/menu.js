@@ -1,3 +1,18 @@
+// Deploy-window guard: a page whose HTML was fetched just before a deploy and its
+// scripts just after gets the new menu.js without the <script> tags for its companion
+// files - every price and the order sending would then throw. Reload once to get a
+// matching page (the sessionStorage flag stops a reload loop if they're truly missing).
+if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined') {
+  let alreadyRetried = false
+  try {
+    alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
+    if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
+  } catch {}
+  if (!alreadyRetried) window.location.reload()
+  throw new Error('menu.js: bundle_pricing.js / order_message.js not loaded')
+}
+try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
+
 const CART_KEY = 'menu-digital-cart'
 const CUSTOMER_KEY = 'menu-digital-customer'
 

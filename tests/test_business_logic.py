@@ -160,3 +160,23 @@ def test_one_day_marked_closed_does_not_affect_others(db):
     # "nothing configured" - this is the whole point of resolve_hours_for_day's None check.
     assert resolve_hours_for_day(6).is_closed is True
     assert resolve_hours_for_day(1).is_closed is False
+
+
+# --- static asset URLs carry a version, so a deploy never pairs new HTML with old JS ---
+
+def test_public_menu_assets_are_versioned_by_mtime(client, app):
+    import os
+    import re
+
+    html = client.get('/').data.decode()
+
+    for asset in ('js/bundle_pricing.js', 'js/order_message.js', 'js/menu.js', 'css/menu.css'):
+        mtime = int(os.path.getmtime(os.path.join(app.static_folder, asset)))
+        assert re.search(rf'/static/{re.escape(asset)}\?v={mtime}"', html), asset
+
+
+def test_companion_scripts_load_before_menu_js(client):
+    html = client.get('/').data.decode()
+
+    assert html.index('bundle_pricing.js') < html.index('js/menu.js')
+    assert html.index('order_message.js') < html.index('js/menu.js')

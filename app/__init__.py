@@ -1,5 +1,7 @@
 # app/__init__.py
-from flask import Flask
+import os
+
+from flask import Flask, url_for
 from config import Config
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
@@ -48,6 +50,18 @@ def create_app(test_config=None):
         # Existing installs must go through `flask db upgrade` for schema changes -
         # calling create_all() here too would create new tables ahead of their own
         # migration and make it fail with "table already exists".
+
+    @app.template_global()
+    def static_versioned(filename):
+        """url_for('static') plus ?v=<file mtime>: a deploy changes the URL of every asset
+        that changed, so no browser or proxy cache can pair a new page with an old copy.
+        (Flask itself serves static files with no-cache + ETag, but a host that caches
+        /static - PythonAnywhere's static mapping, an nginx `expires` - would not.)"""
+        try:
+            version = int(os.path.getmtime(os.path.join(app.static_folder, filename)))
+        except OSError:
+            return url_for('static', filename=filename)
+        return url_for('static', filename=filename, v=version)
 
     # Configurar Flask-Admin (Category/Subcategory/Product/Order tienen su propio panel en /admin/*)
     admin = Admin(app, name='Admin', index_view=MyAdminIndexView())
