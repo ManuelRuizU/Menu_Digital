@@ -1,6 +1,9 @@
 import json
 
-from app.models import BundlePromo, Category, DeliveryZone, Order, Product
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from app.models import BundlePromo, BundlePromoTier, Category, DeliveryZone, Order, Product
 
 
 def _create_product(db, price=1000, name='Producto'):
@@ -125,3 +128,83 @@ def test_bundle_discount_never_touches_shipping_cost(client, db, order_payload):
     assert order.bundle_discount_amount == 1000  # 1 free unit at $1000
     assert order.shipping_cost == 1500  # untouched by the bundle discount
     assert order.total_price == 2500  # 2000 (subtotal) + 1500 (shipping) - 1000 (bundle discount)
+
+
+# --- Schema: kind + tiers (quantity promos). The calculation comes in its own layer. ---
+
+def test_promo_without_kind_defaults_to_buy_pay(client, db):
+    product = _create_product(db)
+    promo = _create_promo(db, [product])
+
+    assert promo.kind == 'buy_pay'
+    assert promo.tiers == []
+
+
+def test_tiered_promo_stores_tiers_ordered_by_quantity_without_buy_pay(client, db):
+    promo = BundlePromo(label='Hand rolls', kind='tiered', is_active=True)
+    promo.tiers = [BundlePromoTier(quantity=3, total_price=6990), BundlePromoTier(quantity=2, total_price=4990)]
+    db.session.add(promo)
+    db.session.commit()
+    db.session.expire_all()
+
+    promo = BundlePromo.query.one()
+    assert (promo.buy_quantity, promo.pay_quantity) == (None, None)
+    assert [(t.quantity, t.total_price) for t in promo.tiers] == [(2, 4990), (3, 6990)]
+
+
+def test_tier_quantity_must_be_at_least_2(client, db):
+    promo = BundlePromo(label='Hand rolls', kind='tiered', is_active=True)
+    promo.tiers = [BundlePromoTier(quantity=1, total_price=2990)]
+    db.session.add(promo)
+
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def test_tier_quantity_is_unique_per_promo(client, db):
+    promo = BundlePromo(label='Hand rolls', kind='tiered', is_active=True)
+    promo.tiers = [BundlePromoTier(quantity=2, total_price=4990), BundlePromoTier(quantity=2, total_price=4500)]
+    db.session.add(promo)
+
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def test_deleting_tiered_promo_deletes_its_tiers(client, db):
+    promo = BundlePromo(label='Hand rolls', kind='tiered', is_active=True)
+    promo.tiers = [BundlePromoTier(quantity=2, total_price=4990)]
+    db.session.add(promo)
+    db.session.commit()
+
+    db.session.delete(promo)
+    db.session.commit()
+
+    assert BundlePromoTier.query.count() == 0
+
+
+def test_buy_pay_promo_without_quantities_is_rejected_by_the_db(client, db):
+    db.session.add(BundlePromo(label='2x1 roto', kind='buy_pay', is_active=True))
+
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def test_unknown_kind_is_rejected_by_the_db(client, db):
+    db.session.add(BundlePromo(label='Rara', kind='bogus', buy_quantity=2, pay_quantity=1, is_active=True))
+
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def test_tier_total_price_must_be_positive(client, db):
+    promo = BundlePromo(label='Hand rolls', kind='tiered', is_active=True)
+    promo.tiers = [BundlePromoTier(quantity=2, total_price=0)]
+    db.session.add(promo)
+
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()

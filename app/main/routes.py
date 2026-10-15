@@ -280,8 +280,10 @@ def bundle_promos_api():
         {
             'id': promo.id,
             'label': promo.label,
+            'kind': promo.kind,
             'buyQuantity': promo.buy_quantity,
             'payQuantity': promo.pay_quantity,
+            'tiers': [{'quantity': tier.quantity, 'totalPrice': tier.total_price} for tier in promo.tiers],
             'productIds': [product.id for product in promo.products],
         }
         for promo in _get_active_bundle_promos()
@@ -375,31 +377,109 @@ def _get_active_bundle_promos():
             if (not p.valid_from or today >= p.valid_from) and (not p.valid_until or today <= p.valid_until)]
 
 
-def compute_bundle_discount(order_lines, promos):
-    """Automatic "2x1"/"3x2" promos - no code needed. For each promo, flatten the matching
-    products' units, sort by price descending, and group them into chunks of buy_quantity;
-    within each *complete* chunk the cheapest (buy_quantity - pay_quantity) units are free.
-    A leftover partial chunk (not enough units yet) gets no discount."""
-    total_discount = 0
+def _line_base_price(unit_price, options):
+    """A line's per-unit price without its variants - what a tiered promo prices. Works
+    both for a checkout line (ProductOption) and an edited order's saved line
+    (OrderItemOption): both carry price_delta, and both unit_prices already include it.
+    At checkout this is exactly product.price; when editing it comes from the snapshot,
+    like every other amount in that recalculation."""
+    return unit_price - sum(option.price_delta for option in options)
+
+
+def _buy_pay_discount(promo, order_lines, product_ids):
+    """"2x1"/"3x2": flatten the matching units, sort by price descending, and group them
+    into chunks of buy_quantity; within each *complete* chunk the cheapest
+    (buy_quantity - pay_quantity) units are free. A leftover partial chunk gets nothing."""
+    unit_prices = []
+    for product, quantity, _options, unit_price in order_lines:
+        if product.id in product_ids:
+            unit_prices.extend([unit_price] * quantity)
+    if len(unit_prices) < promo.buy_quantity:
+        return 0
+
+    unit_prices.sort(reverse=True)
+    free_quantity = promo.buy_quantity - promo.pay_quantity
+    discount = 0
+    for group_index in range(len(unit_prices) // promo.buy_quantity):
+        start = group_index * promo.buy_quantity
+        group = unit_prices[start:start + promo.buy_quantity]
+        if free_quantity > 0:
+            discount += sum(group[-free_quantity:])
+    return discount
+
+
+def tiered_cost_for_units(unit, tiers, n):
+    """Cheapest way to pay for n units, where each unit costs `unit` alone or q of them
+    cost tiers[q]:  best[k] = min(best[k-1] + unit, best[k-q] + tiers[q] for q <= k).
+    `tiers` is [(quantity, total_price)]. Pure, and mirrored line for line by
+    tieredCostForUnits in static/js/bundle_pricing.js - both run against the same
+    vectors in tests/fixtures/tiered_cases.json, so they can't drift apart silently."""
+    best = [0] * (n + 1)
+    for k in range(1, n + 1):
+        best[k] = best[k - 1] + unit
+        for quantity, total_price in tiers:
+            if quantity <= k:
+                best[k] = min(best[k], best[k - quantity] + total_price)
+    return best[n]
+
+
+def tiered_discount_for_units(unit, tiers, n):
+    """What tiered pricing saves on n units over buying them one by one (never negative)."""
+    discount = n * unit - tiered_cost_for_units(unit, tiers, n)
+    return discount if discount > 0 else 0
+
+
+def _tiered_discount(promo, order_lines, product_ids):
+    """"2 por $4.990, 3 por $6.990", mixing any of the promo's products. Priced on the
+    base price only - variants are charged on top, in full, never discounted."""
+    base_prices = []
+    for product, quantity, options, unit_price in order_lines:
+        if product.id in product_ids:
+            base_prices.extend([_line_base_price(unit_price, options)] * quantity)
+    if not base_prices or not promo.tiers:
+        return 0
+
+    # The admin only accepts a tiered promo whose products share one base price, but a
+    # product's price can be edited afterwards. With no single unit price the tiers
+    # don't mean anything - skip the promo rather than guess which price to discount.
+    if len(set(base_prices)) > 1:
+        current_app.logger.warning(
+            'Tiered promo %r skipped: its products no longer share one base price (%s)',
+            promo.label, sorted(set(base_prices)))
+        return 0
+
+    tiers = [(tier.quantity, tier.total_price) for tier in promo.tiers]
+    return tiered_discount_for_units(base_prices[0], tiers, len(base_prices))
+
+
+_BUNDLE_DISCOUNT_BY_KIND = {
+    'buy_pay': _buy_pay_discount,
+    'tiered': _tiered_discount,
+}
+
+
+def compute_bundle_discounts(order_lines, promos):
+    """Automatic promos - no code needed - as [(label, amount)], one entry per promo that
+    actually discounts something. Each promo is priced on its own matching units (the
+    admin keeps a product in at most one active promo, so they never compete for the
+    same unit). An unknown kind is skipped with a log line instead of raising: a
+    malformed promo must never take down the menu or create_order."""
+    breakdown = []
     for promo in promos:
-        product_ids = {product.id for product in promo.products}
-        unit_prices = []
-        for product, quantity, _options, unit_price in order_lines:
-            if product.id in product_ids:
-                unit_prices.extend([unit_price] * quantity)
-        if len(unit_prices) < promo.buy_quantity:
+        compute = _BUNDLE_DISCOUNT_BY_KIND.get(promo.kind)
+        if compute is None:
+            current_app.logger.warning('Bundle promo %r has unknown kind %r - skipped', promo.label, promo.kind)
             continue
+        product_ids = {product.id for product in promo.products}
+        amount = round(compute(promo, order_lines, product_ids))
+        if amount > 0:
+            breakdown.append((promo.label, amount))
+    return breakdown
 
-        unit_prices.sort(reverse=True)
-        free_quantity = promo.buy_quantity - promo.pay_quantity
-        num_full_groups = len(unit_prices) // promo.buy_quantity
-        for group_index in range(num_full_groups):
-            start = group_index * promo.buy_quantity
-            group = unit_prices[start:start + promo.buy_quantity]
-            if free_quantity > 0:
-                total_discount += sum(group[-free_quantity:])
 
-    return round(total_discount)
+def compute_bundle_discount(order_lines, promos):
+    """Total of compute_bundle_discounts - what's stored in Order.bundle_discount_amount."""
+    return sum(amount for _label, amount in compute_bundle_discounts(order_lines, promos))
 
 
 def normalize_phone(phone):
@@ -624,7 +704,8 @@ def create_order():
             'message': f'El pedido mínimo para despacho es ${owner.min_delivery_order:.0f}.',
         }), 400
 
-    bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
+    bundle_breakdown = compute_bundle_discounts(order_lines, _get_active_bundle_promos())
+    bundle_discount = sum(amount for _label, amount in bundle_breakdown)
 
     coupon = None
     discount_amount = 0
@@ -671,6 +752,7 @@ def create_order():
 
         # One gift per order: a gift coupon replaces the automatic threshold gift.
         coupon_gift_given = False
+        gift = None  # what actually went into the order - reported back for the WhatsApp text
         if coupon and coupon.kind == 'product':
             # validate_coupon already counted the cart's own units of this product, so
             # this should always pass - it's the last check against the stock as it is
@@ -681,6 +763,7 @@ def create_order():
             if _gift_product_is_available(coupon.gift_product):
                 _add_gift_item(order, coupon.gift_product)
                 coupon_gift_given = True
+                gift = {'name': coupon.gift_product.name, 'couponCode': coupon.code, 'threshold': None}
             else:
                 current_app.logger.warning(
                     'Gift coupon %s: %s out of stock at checkout, order %s saved without gift or coupon',
@@ -692,6 +775,7 @@ def create_order():
         if (not coupon_gift_given and _gift_is_available(owner)
                 and effective_total >= owner.gift_threshold_amount):
             _add_gift_item(order, owner.gift_product)
+            gift = {'name': owner.gift_product.name, 'couponCode': None, 'threshold': owner.gift_threshold_amount}
 
         if coupon:
             db.session.add(CouponRedemption(coupon_id=coupon.id, order_id=order.id, phone_digits=normalize_phone(phone)))
@@ -701,5 +785,31 @@ def create_order():
         current_app.logger.exception('Failed to save order for %s (%s)', customer_name, phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
 
-    return jsonify({'ok': True, 'message': 'Pedido guardado y listo para enviar por WhatsApp.',
-                     'discountAmount': discount_amount})
+    # The cart's own preview, sent only so a drift between menu.js and this code shows
+    # up in the logs instead of in a customer complaint - never used to price anything.
+    expected_total = parse_money(data, 'expectedTotal')
+    if expected_total is not None and expected_total != order.total_price:
+        current_app.logger.warning(
+            'Order %s: cart preview total %s != server total %s - the JS pricing preview drifted',
+            order.id, expected_total, order.total_price)
+
+    # Every amount the customer's WhatsApp message shows comes from here (what was just
+    # saved), never from the cart's preview - so the message always matches the order.
+    return jsonify({
+        'ok': True,
+        'message': 'Pedido guardado y listo para enviar por WhatsApp.',
+        'discountAmount': discount_amount,
+        'orderId': order.id,
+        'whatsappNumber': (owner.whatsapp_number if owner and owner.whatsapp_number else ''),
+        'lines': [
+            {'name': product.name, 'quantity': quantity,
+             'options': [option.name for option in selected_options], 'total': unit_price * quantity}
+            for product, quantity, selected_options, unit_price in order_lines
+        ],
+        'subtotal': subtotal,
+        'shipping': order.shipping_cost,
+        'promos': [{'label': label, 'amount': amount} for label, amount in bundle_breakdown],
+        'coupon': ({'code': coupon.code, 'kind': coupon.kind, 'amount': order.discount_amount} if coupon else None),
+        'gift': gift,
+        'total': order.total_price,
+    })

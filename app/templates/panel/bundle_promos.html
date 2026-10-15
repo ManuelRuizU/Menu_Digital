@@ -1,13 +1,13 @@
 {% extends "panel/_layout.html" %}
-{% block title %}Promociones 2x1{% endblock %}
+{% block title %}Promociones automáticas{% endblock %}
 {% block content %}
     <div class="card-row">
-      <h1>Promociones 2x1 / 3x2</h1>
+      <h1>Promociones automáticas</h1>
       <a href="{{ url_for('catalog.create_bundle_promo') }}"><button type="button">Nueva promoción</button></a>
     </div>
     <p class="muted">
-      Se aplican automáticamente en el carrito del cliente, sin necesidad de código - si lleva
-      suficientes productos elegibles, el(los) más barato(s) salen gratis.
+      Se aplican automáticamente en el carrito del cliente, sin necesidad de código: "Lleva N,
+      paga M" (2x1, 3x2 - los más baratos salen gratis) o "Precio por cantidad" (2 por $X, 3 por $Y).
     </p>
 
     {% for promo in promos %}
@@ -16,12 +16,36 @@
           <div>
             <strong>{{ promo.label }}</strong>
             <span class="muted">
-              — Lleva {{ promo.buy_quantity }}, paga {{ promo.pay_quantity }}
+              {% if promo.kind == 'tiered' %}
+                — Precio por cantidad
+              {% else %}
+                — Lleva {{ promo.buy_quantity }}, paga {{ promo.pay_quantity }}
+              {% endif %}
               en {{ promo.products|map(attribute='name')|join(', ') }}
               {% if not promo.is_active %}· inactiva{% endif %}
             </span>
           </div>
         </div>
+        {% if promo.kind == 'tiered' %}
+          {% set base = promo.common_base_price %}
+          <p class="muted">
+            {% if base %}Suelto ${{ '%.0f'|format(base) }}{% endif %}
+            {% for tier in promo.tiers %}
+              · {{ tier.quantity }} por ${{ '%.0f'|format(tier.total_price) }}
+              {% if base %}(ahorra ${{ '%.0f'|format(tier.quantity * base - tier.total_price) }}){% endif %}
+            {% endfor %}
+          </p>
+          {% if promo.price_mismatch %}
+            <p class="promo-warning">
+              ⚠ No se está aplicando: precios distintos.
+              {% for name, price in promo.price_mismatch %}{{ name }} (${{ '%.0f'|format(price) }}){% if not loop.last %}, {% endif %}{% endfor %}.
+              Iguala sus precios (o quita los que difieren) para que vuelva a aplicarse.
+            </p>
+          {% endif %}
+        {% endif %}
+        {% for product_name, other_label in overlaps.get(promo.id, []) %}
+          <p class="promo-warning">⚠ El producto {{ product_name }} también está en la promo {{ other_label }}; los descuentos se suman.</p>
+        {% endfor %}
         {% if promo.valid_from or promo.valid_until %}
           <p class="muted">
             Vigencia: {{ promo.valid_from.strftime('%d-%m-%Y') if promo.valid_from else 'sin inicio' }}

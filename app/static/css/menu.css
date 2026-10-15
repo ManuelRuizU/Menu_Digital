@@ -280,7 +280,10 @@ button, input { font: inherit; }
 .sold-out-badge { background: rgba(0,0,0,0.75); color: white; }
 .featured-badge { background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; text-transform: none; letter-spacing: normal; }
 .product-photo-wrap .sold-out-badge, .product-photo-wrap .featured-badge { position: absolute; top: 10px; left: 10px; margin-bottom: 0; }
-.bundle-badge { display: inline-block; margin-top: 4px; font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(var(--accent-rgb),0.16); color: var(--accent); }
+.bundle-badge { display: inline-block; max-width: 100%; margin-top: 4px; font-size: 0.72rem; font-weight: 700; line-height: 1.3; padding: 3px 9px; border-radius: 999px; background: rgba(var(--accent-rgb),0.16); color: var(--accent); overflow-wrap: anywhere; }
+/* Tier list may take two lines on a narrow card - a full pill would turn into a blob. */
+.bundle-badge-tiers { border-radius: 10px; }
+.bundle-tier { white-space: nowrap; }
 .sold-out-btn { flex: 1; border: 1px solid var(--border); border-radius: 14px; background: var(--tint-1); color: var(--muted); padding: 12px 14px; font-size: 0.85rem; cursor: not-allowed; }
 .upsell-suggestions:empty { display: none; }
 .upsell-suggestions { margin-top: 22px; }
@@ -326,6 +329,15 @@ button, input { font: inherit; }
 .summary-row { display: flex; justify-content: space-between; color: var(--muted); }
 .summary-row[hidden] { display: none; }
 .summary-row.discount-row { color: var(--primary); }
+/* One row per automatic promo - display:contents lets them sit in .summary's own grid
+   (same gap as every other row) instead of being one block. */
+.summary-rows { display: contents; }
+/* "Agrega 1 más y llévate 3 por $6.990" - a quiet hint in the cart, wraps on narrow screens. */
+.promo-nudges:empty { display: none; }
+.promo-nudges { display: grid; gap: 8px; margin-top: 12px; }
+.promo-nudge { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px; border: 1px dashed rgba(var(--accent-rgb), 0.6); background: rgba(var(--accent-rgb), 0.08); color: var(--text-strong); font-size: 0.85rem; font-weight: 600; }
+.promo-nudge span { flex: 1 1 180px; min-width: 0; }
+.promo-nudge button { flex-shrink: 0; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--text-strong); padding: 6px 12px; font-weight: 600; font-size: 0.8rem; cursor: pointer; }
 /* Shipping not calculated yet (delivery with no address) - a prompt, not an amount. */
 .summary-row .summary-pending { font-weight: 500; font-style: italic; color: var(--accent); }
 .summary-row.total { font-size: 1.1rem; color: var(--text-strong); font-weight: 700; }

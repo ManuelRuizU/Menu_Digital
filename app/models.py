@@ -329,21 +329,72 @@ bundle_promo_product = db.Table(
 
 
 class BundlePromo(db.Model):
-    """A "2x1"/"3x2"-style automatic promotion (no code needed): buy `buy_quantity` units
-    across the attached products, pay for only `pay_quantity` of them - the cheapest
-    units in each complete group are the ones that come out free. Applies automatically
-    whenever the cart has enough matching items; never requires the customer to do anything."""
+    """An automatic promotion over the attached products (no code needed), mixing any
+    of them. Applies whenever the cart has enough matching units; the customer never
+    has to do anything. Two kinds:
+
+    - kind='buy_pay' ("2x1"/"3x2"): buy `buy_quantity` units, pay for only
+      `pay_quantity` of them - the cheapest units in each complete group come out free.
+    - kind='tiered' ("2 por $4.990, 3 por $6.990"): fixed totals for N units, in
+      `tiers`. buy_quantity/pay_quantity are unused (NULL) for this kind."""
     id = db.Column(db.Integer, primary_key=True)
     label = db.Column(db.String(80), nullable=False)
-    buy_quantity = db.Column(db.Integer, nullable=False)
-    pay_quantity = db.Column(db.Integer, nullable=False)
+    kind = db.Column(db.String(10), nullable=False, default='buy_pay', server_default='buy_pay')
+    buy_quantity = db.Column(db.Integer, nullable=True)
+    pay_quantity = db.Column(db.Integer, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     valid_from = db.Column(db.Date, nullable=True)
     valid_until = db.Column(db.Date, nullable=True)
     products = db.relationship('Product', secondary=bundle_promo_product, lazy='joined', backref='bundle_promos')
+    tiers = db.relationship('BundlePromoTier', backref='promo', lazy='joined',
+                            cascade='all, delete-orphan', order_by='BundlePromoTier.quantity')
+
+    __table_args__ = (
+        # What NOT NULL used to guarantee, now per kind: buy_pay keeps its numbers, and
+        # an unknown kind can't be stored at all.
+        db.CheckConstraint(
+            "kind IN ('buy_pay', 'tiered') "
+            "AND (kind = 'tiered' OR (buy_quantity IS NOT NULL AND pay_quantity IS NOT NULL))",
+            name='ck_bundle_promo_kind_fields'),
+    )
+
+    @property
+    def common_base_price(self):
+        """The one price every product of a tiered promo shares, or None when they don't
+        (or there are no products) - the tiers only mean something with a single price."""
+        prices = {product.price for product in self.products}
+        return prices.pop() if len(prices) == 1 else None
+
+    @property
+    def price_mismatch(self):
+        """For a tiered promo whose products no longer share one price: every product
+        with its price, so the panel can say exactly what differs. Empty otherwise
+        (including any buy_pay promo, where mixed prices are normal)."""
+        if self.kind != 'tiered' or len({product.price for product in self.products}) <= 1:
+            return []
+        return sorted(((product.name, product.price) for product in self.products), key=lambda pair: (pair[1], pair[0]))
 
     def __repr__(self):
         return f'<BundlePromo {self.label}>'
+
+
+class BundlePromoTier(db.Model):
+    """One level of a kind='tiered' BundlePromo: `quantity` units (any mix of the promo's
+    products) for `total_price` in total, e.g. 3 hand rolls for $6.990."""
+    id = db.Column(db.Integer, primary_key=True)
+    promo_id = db.Column(db.Integer, db.ForeignKey('bundle_promo.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    total_price = db.Column(db.Integer, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('promo_id', 'quantity'),
+        # A tier of 1 would just be the regular price.
+        db.CheckConstraint('quantity >= 2', name='ck_bundle_promo_tier_quantity_min'),
+        db.CheckConstraint('total_price > 0', name='ck_bundle_promo_tier_total_price_positive'),
+    )
+
+    def __repr__(self):
+        return f'<BundlePromoTier {self.quantity} x {self.total_price}>'
 
 
 class DeliveryRadiusTier(db.Model):

@@ -1,0 +1,328 @@
+{
+  "_comment": "Shared vectors for the tiered promo price. Read by tests/test_quantity_promos.py (Python, tiered_cost_for_units) and tests/js/bundle_pricing.test.js (menu JS, tieredCostForUnits). expected_* were produced by an exhaustive search, not by the DP under test.",
+  "cases": [
+    {
+      "name": "sin unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          4990
+        ],
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 0,
+      "expected_cost": 0,
+      "expected_discount": 0
+    },
+    {
+      "name": "hand rolls 2/3, 1 unidad",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          4990
+        ],
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 1,
+      "expected_cost": 2990,
+      "expected_discount": 0
+    },
+    {
+      "name": "hand rolls 2/3, 2 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          4990
+        ],
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 2,
+      "expected_cost": 4990,
+      "expected_discount": 990
+    },
+    {
+      "name": "hand rolls 2/3, 3 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          4990
+        ],
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 3,
+      "expected_cost": 6990,
+      "expected_discount": 1980
+    },
+    {
+      "name": "hand rolls 2/3, 4 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          4990
+        ],
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 4,
+      "expected_cost": 9980,
+      "expected_discount": 1980
+    },
+    {
+      "name": "hand rolls 2/3, 7 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          4990
+        ],
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 7,
+      "expected_cost": 16970,
+      "expected_discount": 3960
+    },
+    {
+      "name": "nivel que no ahorra (2 por 6500 > 2 sueltos)",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          6500
+        ]
+      ],
+      "n": 2,
+      "expected_cost": 5980,
+      "expected_discount": 0
+    },
+    {
+      "name": "nivel igual al precio suelto no ahorra",
+      "unit": 2990,
+      "tiers": [
+        [
+          2,
+          5980
+        ]
+      ],
+      "n": 2,
+      "expected_cost": 5980,
+      "expected_discount": 0
+    },
+    {
+      "name": "un solo nivel de 3, 2 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 2,
+      "expected_cost": 5980,
+      "expected_discount": 0
+    },
+    {
+      "name": "un solo nivel de 3, 3 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 3,
+      "expected_cost": 6990,
+      "expected_discount": 1980
+    },
+    {
+      "name": "un solo nivel de 3, 5 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 5,
+      "expected_cost": 12970,
+      "expected_discount": 1980
+    },
+    {
+      "name": "un solo nivel de 3, 6 unidades",
+      "unit": 2990,
+      "tiers": [
+        [
+          3,
+          6990
+        ]
+      ],
+      "n": 6,
+      "expected_cost": 13980,
+      "expected_discount": 3960
+    },
+    {
+      "name": "niveles 2/3/5, 4 unidades",
+      "unit": 1000,
+      "tiers": [
+        [
+          2,
+          1800
+        ],
+        [
+          3,
+          2500
+        ],
+        [
+          5,
+          4000
+        ]
+      ],
+      "n": 4,
+      "expected_cost": 3500,
+      "expected_discount": 500
+    },
+    {
+      "name": "niveles 2/3/5, 5 unidades",
+      "unit": 1000,
+      "tiers": [
+        [
+          2,
+          1800
+        ],
+        [
+          3,
+          2500
+        ],
+        [
+          5,
+          4000
+        ]
+      ],
+      "n": 5,
+      "expected_cost": 4000,
+      "expected_discount": 1000
+    },
+    {
+      "name": "niveles 2/3/5, 6 unidades",
+      "unit": 1000,
+      "tiers": [
+        [
+          2,
+          1800
+        ],
+        [
+          3,
+          2500
+        ],
+        [
+          5,
+          4000
+        ]
+      ],
+      "n": 6,
+      "expected_cost": 5000,
+      "expected_discount": 1000
+    },
+    {
+      "name": "niveles 2/3/5, 7 unidades",
+      "unit": 1000,
+      "tiers": [
+        [
+          2,
+          1800
+        ],
+        [
+          3,
+          2500
+        ],
+        [
+          5,
+          4000
+        ]
+      ],
+      "n": 7,
+      "expected_cost": 5800,
+      "expected_discount": 1200
+    },
+    {
+      "name": "niveles 2/3/5, 8 unidades",
+      "unit": 1000,
+      "tiers": [
+        [
+          2,
+          1800
+        ],
+        [
+          3,
+          2500
+        ],
+        [
+          5,
+          4000
+        ]
+      ],
+      "n": 8,
+      "expected_cost": 6500,
+      "expected_discount": 1500
+    },
+    {
+      "name": "niveles 2/3/5, 10 unidades",
+      "unit": 1000,
+      "tiers": [
+        [
+          2,
+          1800
+        ],
+        [
+          3,
+          2500
+        ],
+        [
+          5,
+          4000
+        ]
+      ],
+      "n": 10,
+      "expected_cost": 8000,
+      "expected_discount": 2000
+    },
+    {
+      "name": "niveles desordenados dan lo mismo",
+      "unit": 2990,
+      "tiers": [
+        [
+          3,
+          6990
+        ],
+        [
+          2,
+          4990
+        ]
+      ],
+      "n": 7,
+      "expected_cost": 16970,
+      "expected_discount": 3960
+    }
+  ]
+}

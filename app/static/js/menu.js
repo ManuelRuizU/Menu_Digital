@@ -1,3 +1,18 @@
+// Deploy-window guard: a page whose HTML was fetched just before a deploy and its
+// scripts just after gets the new menu.js without the <script> tags for its companion
+// files - every price and the order sending would then throw. Reload once to get a
+// matching page (the sessionStorage flag stops a reload loop if they're truly missing).
+if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined') {
+  let alreadyRetried = false
+  try {
+    alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
+    if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
+  } catch {}
+  if (!alreadyRetried) window.location.reload()
+  throw new Error('menu.js: bundle_pricing.js / order_message.js not loaded')
+}
+try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
+
 const CART_KEY = 'menu-digital-cart'
 const CUSTOMER_KEY = 'menu-digital-customer'
 
@@ -44,8 +59,8 @@ const elements = {
   productCount: document.getElementById('product-count'),
   subtotal: document.getElementById('subtotal'),
   shipping: document.getElementById('shipping'),
-  bundleDiscountRow: document.getElementById('bundle-discount-row'),
-  bundleDiscount: document.getElementById('bundle-discount'),
+  bundleDiscountRows: document.getElementById('bundle-discount-rows'),
+  promoNudges: document.getElementById('promo-nudges'),
   discountRow: document.getElementById('discount-row'),
   discount: document.getElementById('discount'),
   couponCode: document.getElementById('coupon-code'),
@@ -541,27 +556,38 @@ function togglePaymentFields() {
   updateChangeHint()
 }
 
-function computeBundleDiscount() {
-  let total = 0
-  STATE.bundlePromos.forEach((promo) => {
-    const unitPrices = []
-    STATE.cart.forEach((item) => {
-      if (promo.productIds.includes(item.id)) {
-        for (let i = 0; i < item.quantity; i++) unitPrices.push(item.price)
-      }
-    })
-    if (unitPrices.length < promo.buyQuantity) return
+// Price delta of one of a product's options, from the catalog - carts saved before the
+// delta was stored on the cart line only have the option's id.
+function catalogOptionDelta(productId, optionId) {
+  const product = STATE.products.find((p) => p.id === productId)
+  const groups = product && Array.isArray(product.optionGroups) ? product.optionGroups : []
+  for (const group of groups) {
+    const option = group.options.find((o) => o.id === optionId)
+    if (option) return option.priceDelta || 0
+  }
+  return 0
+}
 
-    unitPrices.sort((a, b) => b - a)
-    const freeQuantity = promo.buyQuantity - promo.payQuantity
-    const numFullGroups = Math.floor(unitPrices.length / promo.buyQuantity)
-    for (let group = 0; group < numFullGroups; group++) {
-      const start = group * promo.buyQuantity
-      const chunk = unitPrices.slice(start, start + promo.buyQuantity)
-      if (freeQuantity > 0) total += chunk.slice(-freeQuantity).reduce((sum, price) => sum + price, 0)
-    }
-  })
-  return Math.round(total)
+// The cart in the shape bundle_pricing.js prices - see that file.
+function pricingLines() {
+  return STATE.cart.map((item) => ({
+    productId: item.id,
+    quantity: item.quantity,
+    unitPrice: item.price,
+    optionDeltas: (item.selectedOptions || []).map((o) =>
+      (typeof o.priceDelta === 'number' ? o.priceDelta : catalogOptionDelta(item.id, o.id))),
+  }))
+}
+
+// [{ label, amount }] - one entry per automatic promo discounting the cart right now.
+// Preview only: create_order recalculates the real amounts on the server.
+function getAppliedBundleDiscounts() {
+  return BundlePricing.bundleDiscounts(STATE.bundlePromos, pricingLines())
+    .map(({ promo, amount }) => ({ label: promo.label, amount }))
+}
+
+function computeBundleDiscount() {
+  return getAppliedBundleDiscounts().reduce((sum, entry) => sum + entry.amount, 0)
 }
 
 function getOrderTotal() {
@@ -651,6 +677,21 @@ function findBundlePromoForProduct(product) {
   return STATE.bundlePromos.find((promo) => promo.productIds.includes(product.id))
 }
 
+// "Lleva 2, paga 1" or "2 x $4.990 · 3 x $6.990"; nothing for a kind this code doesn't know.
+function bundleBadgeHtml(promo) {
+  const title = `title="${escapeHtml(promo.label)}"`
+  if ((promo.kind || 'buy_pay') === 'buy_pay') {
+    return `<span class="bundle-badge" ${title}>Lleva ${promo.buyQuantity}, paga ${promo.payQuantity}</span>`
+  }
+  if (promo.kind === 'tiered' && promo.tiers && promo.tiers.length) {
+    // Each tier is one unbreakable unit, so a narrow card wraps at the "·", never between
+    // a quantity and its price.
+    const text = promo.tiers.map((tier) => `<span class="bundle-tier">${tier.quantity} x ${formatPrice(tier.totalPrice)}</span>`).join(' · ')
+    return `<span class="bundle-badge bundle-badge-tiers" ${title}>${text}</span>`
+  }
+  return ''
+}
+
 function productCardHtml(product) {
   const soldOut = product.soldOut
   const badge = soldOut
@@ -672,7 +713,7 @@ function productCardHtml(product) {
           <strong>${safeName}</strong>
           <div class="price">${priceHtml(product)}</div>
           ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
-          ${bundlePromo ? `<span class="bundle-badge">Lleva ${bundlePromo.buyQuantity}, paga ${bundlePromo.payQuantity}</span>` : ''}
+          ${bundlePromo ? bundleBadgeHtml(bundlePromo) : ''}
         </div>
       </div>
       <div class="card-actions">
@@ -1033,19 +1074,44 @@ function updateShippingRow(outOfCoverage, shipping) {
   }
 }
 
+// "Agrega 1 más y llévate 3 por $6.990" - only when the pricing function itself says one
+// more unit saves more (bundle_pricing.js nextUnitNudge), never from separate rules. The
+// button jumps to the subcategory of the promo's first product.
+function renderPromoNudges() {
+  if (!elements.promoNudges) return
+  const lines = pricingLines()
+  elements.promoNudges.innerHTML = STATE.bundlePromos.map((promo) => {
+    const nudge = BundlePricing.nextUnitNudge(promo, lines)
+    if (!nudge) return ''
+    const firstProduct = STATE.products.find((p) => promo.productIds.includes(p.id))
+    const target = firstProduct ? `sub-${firstProduct.categoryId}-${firstProduct.subcategoryId || 'none'}` : null
+    return `
+      <div class="promo-nudge">
+        <span>Agrega 1 más y llévate ${nudge.quantity} por ${formatPrice(nudge.totalPrice)}</span>
+        ${target ? `<button type="button" data-target="${target}" aria-label="Ver ${escapeHtml(promo.label)}">Ver</button>` : ''}
+      </div>
+    `
+  }).join('')
+}
+
 function updateSummary() {
   const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const outOfCoverage = wantsDelivery && !STATE.deliveryCovered
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
-  const bundleDiscount = computeBundleDiscount()
+  const bundleDiscounts = getAppliedBundleDiscounts()
+  const bundleDiscount = bundleDiscounts.reduce((sum, entry) => sum + entry.amount, 0)
   const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
   const total = Math.max(0, subtotal + shipping - bundleDiscount - discount)
 
   elements.subtotal.textContent = formatPrice(subtotal)
   updateShippingRow(outOfCoverage, shipping)
-  if (elements.bundleDiscountRow) elements.bundleDiscountRow.hidden = !bundleDiscount
-  if (elements.bundleDiscount) elements.bundleDiscount.textContent = `-${formatPrice(bundleDiscount)}`
+  if (elements.bundleDiscountRows) {
+    elements.bundleDiscountRows.innerHTML = bundleDiscounts.map((entry) => `
+      <div class="summary-row discount-row"><span>${escapeHtml(entry.label)}</span><strong>-${formatPrice(entry.amount)}</strong></div>
+    `).join('')
+  }
+  renderPromoNudges()
   if (elements.discountRow) elements.discountRow.hidden = !discount
   if (elements.discount) elements.discount.textContent = `-${formatPrice(discount)}`
   elements.total.textContent = outOfCoverage ? '—' : formatPrice(total)
@@ -1246,7 +1312,7 @@ function addToCart(productId, selectedOptions = []) {
   } else {
     STATE.cart.push({
       cartKey, id: product.id, name: product.name, price: unitPrice, quantity: 1,
-      selectedOptions: sortedOptions.map((o) => ({ id: o.id, name: o.name })),
+      selectedOptions: sortedOptions.map((o) => ({ id: o.id, name: o.name, priceDelta: o.priceDelta })),
     })
   }
   saveCart()
@@ -1280,47 +1346,23 @@ function decrementCartItem(cartKey) {
 
 const PAYMENT_METHOD_LABELS = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta al recibir' }
 
-function buildWhatsAppText() {
-  const name = elements.name.value.trim() || 'Cliente'
-  const phone = elements.phone.value.trim() || 'Sin teléfono'
-  const deliveryMode = getDeliveryMode()
+// order: create_order's response - every amount (lines, promos, coupon, gift, total)
+// comes from what the server saved, never from the cart preview. Only what the
+// customer typed (name, phone, address, payment, time, notes) is read from the form.
+function buildWhatsAppText(order) {
   const paymentMethod = getPaymentMethod()
-  const address = elements.address.value.trim() || 'Dirección no definida'
-  const notes = elements.notes.value.trim()
-  const shipping = deliveryMode === 'envio' && STATE.selectedLocation && STATE.deliveryCovered ? STATE.shippingCost : 0
-  const total = getOrderTotal()
-  const lines = [
-    'Hola! Quiero hacer un pedido desde el menú digital:',
-    `Nombre: ${name}`,
-    `Teléfono: ${phone}`,
-    `Tipo: ${deliveryMode === 'envio' ? 'Despacho' : 'Retiro'}`,
-  ]
-  if (deliveryMode === 'envio') lines.push(`Dirección: ${address}`)
-  lines.push(`Pago: ${PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod}`)
-  if (paymentMethod === 'efectivo' && Number(elements.cashAmount.value) > 0) {
-    const cash = Number(elements.cashAmount.value)
-    lines.push(cash >= total ? `Paga con: ${formatPrice(cash)} (vuelto ${formatPrice(cash - total)})` : `Paga con: ${formatPrice(cash)}`)
+  const customer = {
+    name: elements.name.value.trim() || 'Cliente',
+    phone: elements.phone.value.trim() || 'Sin teléfono',
+    deliveryMode: getDeliveryMode(),
+    address: elements.address.value.trim() || 'Dirección no definida',
+    paymentLabel: PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod,
+    paymentMethod,
+    cashAmount: Number(elements.cashAmount.value) || 0,
+    requestedTimeLabel: getRequestedTimeLabel(),
+    notes: elements.notes.value.trim(),
   }
-  lines.push(`Hora sugerida: ${getRequestedTimeLabel() || 'No indicada'}`)
-  if (notes) lines.push(`Notas: ${notes}`)
-  lines.push('', 'Productos:')
-  STATE.cart.forEach((item) => {
-    const optionsText = item.selectedOptions && item.selectedOptions.length
-      ? ` (${item.selectedOptions.map((o) => o.name).join(', ')})`
-      : ''
-    lines.push(`• ${item.quantity}× ${item.name}${optionsText} - ${formatPrice(item.price * item.quantity)}`)
-  })
-  const gift = currentGift(total)
-  if (gift) lines.push(`• 1× ${gift.name} - de regalo 🎁 (${gift.reason})`)
-  lines.push('', `Subtotal: ${formatPrice(STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}`)
-  if (deliveryMode === 'envio') lines.push(`Envío: ${formatPrice(shipping)}`)
-  const bundleDiscount = computeBundleDiscount()
-  if (bundleDiscount) lines.push(`2x1/3x2 aplicado: -${formatPrice(bundleDiscount)}`)
-  // A gift coupon has no discount line - its gift is listed under "Productos:" above.
-  if (STATE.appliedCoupon && !appliedGiftCoupon()) lines.push(`Descuento (${STATE.appliedCoupon.code}): -${formatPrice(STATE.appliedCoupon.discountAmount)}`)
-  lines.push(`Total: ${formatPrice(total)}`)
-  lines.push('', 'Gracias!')
-  return encodeURIComponent(lines.join('\n'))
+  return encodeURIComponent(OrderMessage.buildWhatsAppLines(order, customer).join('\n'))
 }
 
 function buildConfirmSummaryHtml() {
@@ -1366,7 +1408,7 @@ function buildConfirmSummaryHtml() {
     <div class="confirm-row"><span>Forma de pago</span><span>${escapeHtml(paymentLine)}</span></div>
     <div class="confirm-row"><span>Subtotal</span><span>${formatPrice(subtotal)}</span></div>
     ${deliveryMode === 'envio' ? `<div class="confirm-row"><span>Envío</span><span>${formatPrice(shipping)}</span></div>` : ''}
-    ${computeBundleDiscount() ? `<div class="confirm-row"><span>2x1/3x2 aplicado</span><span>-${formatPrice(computeBundleDiscount())}</span></div>` : ''}
+    ${getAppliedBundleDiscounts().map((entry) => `<div class="confirm-row"><span>${escapeHtml(entry.label)}</span><span>-${formatPrice(entry.amount)}</span></div>`).join('')}
     ${STATE.appliedCoupon && !appliedGiftCoupon() ? `<div class="confirm-row"><span>Descuento (${escapeHtml(STATE.appliedCoupon.code)})</span><span>-${formatPrice(STATE.appliedCoupon.discountAmount)}</span></div>` : ''}
     <div class="confirm-row confirm-total"><span>Total</span><span>${formatPrice(total)}</span></div>
   `
@@ -1414,26 +1456,28 @@ async function handleConfirmSend() {
   elements.confirmError.style.display = 'none'
 
   saveCustomer()
-  const result = await saveOrder()
-  if (!result.ok) {
-    // Order was never saved - the customer keeps their cart to retry, nothing to clear.
-    elements.confirmError.textContent = result.message
-    elements.confirmError.style.display = 'block'
-    elements.confirmModalSend.disabled = false
-    elements.confirmModalSend.textContent = 'Confirmar y enviar por WhatsApp'
-    return
-  }
-
-  try {
-    const response = await fetch('/api/whatsapp-number')
-    const data = await response.json()
-    const whatsappNumber = data.whatsappNumber || '56900000000'
-    window.open(`https://wa.me/${whatsappNumber}?text=${buildWhatsAppText()}`, '_blank')
-  } catch (error) {
-    window.open(`https://wa.me/56900000000?text=${buildWhatsAppText()}`, '_blank')
-  }
-  resetCartAfterOrder()
-  closeConfirmModal()
+  // Same window.open as always, but now right after the ONE await (the save) - the
+  // WhatsApp number comes in that response instead of a second fetch, which kept the
+  // open even further from the customer's tap and, if it failed, sent the message to a
+  // placeholder number with the order already saved.
+  await OrderMessage.submitOrder({
+    save: saveOrder,
+    open: (order) => {
+      const whatsappNumber = order.whatsappNumber || '56900000000'
+      window.open(`https://wa.me/${whatsappNumber}?text=${buildWhatsAppText(order)}`, '_blank')
+    },
+    onFailure: (message) => {
+      // Order was never saved - nothing opens, the customer keeps their cart to retry.
+      elements.confirmError.textContent = message
+      elements.confirmError.style.display = 'block'
+      elements.confirmModalSend.disabled = false
+      elements.confirmModalSend.textContent = 'Confirmar y enviar por WhatsApp'
+    },
+    onSent: () => {
+      resetCartAfterOrder()
+      closeConfirmModal()
+    },
+  })
 }
 
 async function saveOrder() {
@@ -1461,13 +1505,15 @@ async function saveOrder() {
         lat: STATE.selectedLocation ? STATE.selectedLocation.lat : null,
         lng: STATE.selectedLocation ? STATE.selectedLocation.lng : null,
         couponCode: STATE.appliedCoupon ? STATE.appliedCoupon.code : null,
+        // Only compared server-side to catch a drifted preview (logged) - never used to price.
+        expectedTotal: getOrderTotal(),
       }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || data.ok === false) {
       return { ok: false, message: data.message || 'No se pudo guardar el pedido.' }
     }
-    return { ok: true }
+    return { ok: true, order: data }
   } catch (error) {
     return { ok: false, message: 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.' }
   }
@@ -1657,6 +1703,8 @@ window.addEventListener('load', () => {
     if (navLink) {
       const target = document.getElementById(navLink.getAttribute('data-target'))
       closeNav()
+      // A promo nudge lives in the cart - on mobile that's a sheet covering the menu.
+      if (navLink.closest('#cart-panel')) closeCart()
       if (target) setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
     }
     const details = event.target.closest('[data-details]')
