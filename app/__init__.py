@@ -76,6 +76,9 @@ def create_app(test_config=None):
     from app.catalog import catalog as catalog_blueprint
     app.register_blueprint(catalog_blueprint)
 
+    from app.duplicates import check_duplicates_command
+    app.cli.add_command(check_duplicates_command)
+
     @app.after_request
     def set_security_headers(response):
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'

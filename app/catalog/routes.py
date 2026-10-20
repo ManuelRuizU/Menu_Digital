@@ -28,7 +28,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BundlePromoTier, BusinessHours
                          DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup,
                          Subcategory, User)
 from app.uploads import save_image
-from app.utils import day_range_utc, parse_money
+from app.utils import clean_name, day_range_utc, normalize_name, parse_money
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
 ORDER_STATUS_LABELS = {'Pending': 'Pendiente', 'Confirmed': 'Confirmado', 'Cancelled': 'Cancelado'}
@@ -253,29 +253,36 @@ def categories():
     return render_template('panel/categories.html', categories=all_categories)
 
 
-def _same_name(a, b):
-    """Names the owner would read as the same: case and surrounding spaces don't count.
-    casefold() in Python, not SQL lower() - SQLite's only folds ASCII ("Fríos"/"FRÍOS")."""
-    return a.strip().casefold() == b.strip().casefold()
-
+# Duplicates are found by normalize_name (case, spaces and accents don't count) - in
+# Python, over the rows in scope, because SQL can't compare that way. A catalog is small.
 
 def _category_name_taken(name, exclude_id=None):
-    return any(_same_name(category.name, name)
+    key = normalize_name(name)
+    return any(normalize_name(category.name) == key
                for category in Category.query.filter(Category.id != exclude_id).all())
 
 
 def _subcategory_name_taken(name, category_id, exclude_id=None):
     """Unique within its category only - "Fríos" can exist under Bebidas and Postres."""
-    return any(_same_name(sub.name, name)
+    key = normalize_name(name)
+    return any(normalize_name(sub.name) == key
                for sub in Subcategory.query.filter(Subcategory.category_id == category_id,
                                                    Subcategory.id != exclude_id).all())
+
+
+def _product_name_clash(name, category_id, exclude_ids=()):
+    """The product of category_id already called `name` (normalized), or None. Unique
+    within its category - the same name in another category is fine."""
+    key = normalize_name(name)
+    return next((product for product in Product.query.filter(Product.category_id == category_id).all()
+                 if product.id not in exclude_ids and normalize_name(product.name) == key), None)
 
 
 @catalog.route('/categories/new', methods=['POST'])
 @login_required
 @admin_required
 def create_category():
-    name = request.form.get('name', '').strip()
+    name = clean_name(request.form.get('name'))
     if not name:
         flash('El nombre de la categoría es obligatorio.')
         return redirect(url_for('catalog.categories'))
@@ -307,7 +314,7 @@ def edit_category(category_id):
     if request.method == 'GET':
         return render_template('panel/category_form.html', category=category, name=category.name)
 
-    name = request.form.get('name', '').strip()
+    name = clean_name(request.form.get('name'))
 
     def _redisplay(message):
         flash(message)
@@ -351,7 +358,7 @@ def delete_category(category_id):
 @login_required
 @admin_required
 def create_subcategory():
-    name = request.form.get('name', '').strip()
+    name = clean_name(request.form.get('name'))
     category_id = request.form.get('category_id', type=int)
     category = Category.query.get(category_id) if category_id else None
 
@@ -398,7 +405,7 @@ def edit_subcategory(subcategory_id):
         return _subcategory_form(subcategory, subcategory.name, subcategory.description or '',
                                  subcategory.category_id)
 
-    name = request.form.get('name', '').strip()
+    name = clean_name(request.form.get('name'))
     description = request.form.get('description', '').strip()
     category_id = request.form.get('category_id', type=int)
     category = Category.query.get(category_id) if category_id else None
@@ -418,6 +425,15 @@ def edit_subcategory(subcategory_id):
         return _redisplay(f'Ya existe una subcategoría con ese nombre en {category.name}.')
 
     moved = category.id != subcategory.category_id
+    if moved:
+        # Its products go along - none may land next to a product of the same name there.
+        moving_ids = {product.id for product in subcategory.products}
+        for product in subcategory.products:
+            clash = _product_name_clash(product.name, category.id, exclude_ids=moving_ids)
+            if clash:
+                return _redisplay(f"No se puede mover: ya existe '{clash.name}' en {category.name}. "
+                                  'Cambia el nombre de uno de los dos productos primero.')
+
     subcategory.name = name
     subcategory.description = description or None  # empty = remove it
     subcategory.category_id = category.id
@@ -622,7 +638,7 @@ def edit_product(product_id):
 
 
 def _save_product(product):
-    name = request.form.get('name', '').strip()
+    name = clean_name(request.form.get('name'))
     description = request.form.get('description', '').strip()
     price = parse_money(request.form, 'price')
     original_price = parse_money(request.form, 'original_price')
@@ -649,6 +665,13 @@ def _save_product(product):
 
     if not name or not description or price is None or category is None:
         flash('Completa nombre, descripción, precio y categoría del producto.')
+        return _redisplay()
+    if len(name) > 100:
+        flash('El nombre puede tener hasta 100 caracteres.')
+        return _redisplay()
+    clash = _product_name_clash(name, category.id, exclude_ids={product.id})
+    if clash:
+        flash(f"Ya existe '{clash.name}' en {category.name}.")
         return _redisplay()
 
     # Quantity pricing. Only the owner sets it (like every promo), and only when the form

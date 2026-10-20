@@ -1,12 +1,28 @@
 # app/utils.py
 
 import re
+import unicodedata
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.models import BUSINESS_TZ
 
 REQUESTED_TIME_RE = re.compile(r'^\d{2}:\d{2}$')
+
+
+def clean_name(value):
+    """A catalog name as it's SAVED: what the owner typed, with the surrounding spaces
+    trimmed and runs of inner spaces collapsed to one. Case and accents are kept."""
+    return ' '.join((value or '').split())
+
+
+def normalize_name(value):
+    """A catalog name as it's COMPARED, never saved: clean_name, casefolded, without
+    accents (NFKD, combining marks dropped) - so "Sushi"/"SUSHI", "Hand  Roll"/"Hand Roll"
+    and "Maracuyá"/"Maracuya" are the same name. Done in Python, not SQL: SQLite's
+    lower() only folds ASCII and it has no accent stripping at all."""
+    decomposed = unicodedata.normalize('NFKD', clean_name(value).casefold())
+    return ''.join(char for char in decomposed if not unicodedata.combining(char))
 
 
 def day_range_utc(local_date):
