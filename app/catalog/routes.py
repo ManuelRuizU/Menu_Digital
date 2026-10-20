@@ -253,6 +253,24 @@ def categories():
     return render_template('panel/categories.html', categories=all_categories)
 
 
+def _same_name(a, b):
+    """Names the owner would read as the same: case and surrounding spaces don't count.
+    casefold() in Python, not SQL lower() - SQLite's only folds ASCII ("Fríos"/"FRÍOS")."""
+    return a.strip().casefold() == b.strip().casefold()
+
+
+def _category_name_taken(name, exclude_id=None):
+    return any(_same_name(category.name, name)
+               for category in Category.query.filter(Category.id != exclude_id).all())
+
+
+def _subcategory_name_taken(name, category_id, exclude_id=None):
+    """Unique within its category only - "Fríos" can exist under Bebidas and Postres."""
+    return any(_same_name(sub.name, name)
+               for sub in Subcategory.query.filter(Subcategory.category_id == category_id,
+                                                   Subcategory.id != exclude_id).all())
+
+
 @catalog.route('/categories/new', methods=['POST'])
 @login_required
 @admin_required
@@ -262,7 +280,7 @@ def create_category():
         flash('El nombre de la categoría es obligatorio.')
         return redirect(url_for('catalog.categories'))
 
-    if Category.query.filter_by(name=name).first():
+    if _category_name_taken(name):
         flash('Ya existe una categoría con ese nombre.')
         return redirect(url_for('catalog.categories'))
 
@@ -278,6 +296,39 @@ def create_category():
         return redirect(url_for('catalog.categories'))
 
     flash('Categoría creada')
+    return redirect(url_for('catalog.categories'))
+
+
+@catalog.route('/categories/<int:category_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_category(category_id):
+    category = Category.query.get_or_404(category_id)
+    if request.method == 'GET':
+        return render_template('panel/category_form.html', category=category, name=category.name)
+
+    name = request.form.get('name', '').strip()
+
+    def _redisplay(message):
+        flash(message)
+        return render_template('panel/category_form.html', category=category, name=name)
+
+    if not name:
+        return _redisplay('El nombre de la categoría es obligatorio.')
+    if len(name) > 50:
+        return _redisplay('El nombre puede tener hasta 50 caracteres.')
+    if _category_name_taken(name, exclude_id=category.id):
+        return _redisplay('Ya existe una categoría con ese nombre.')
+
+    category.name = name
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Same safety net as create_category: the UniqueConstraint is the real guarantee.
+        db.session.rollback()
+        return _redisplay('Ya existe una categoría con ese nombre.')
+
+    flash('Categoría guardada')
     return redirect(url_for('catalog.categories'))
 
 
@@ -308,7 +359,7 @@ def create_subcategory():
         flash('Completa el nombre y la categoría de la subcategoría.')
         return redirect(url_for('catalog.categories'))
 
-    if Subcategory.query.filter_by(name=name, category_id=category.id).first():
+    if _subcategory_name_taken(name, category.id):
         flash('Ya existe una subcategoría con ese nombre en esta categoría.')
         return redirect(url_for('catalog.categories'))
 
@@ -327,22 +378,65 @@ def create_subcategory():
     return redirect(url_for('catalog.categories'))
 
 
-@catalog.route('/subcategories/<int:subcategory_id>/edit', methods=['POST'])
+def _subcategory_form(subcategory, name, description, category_id):
+    return render_template('panel/subcategory_form.html', subcategory=subcategory,
+                           categories=Category.query.order_by(Category.name).all(),
+                           name=name, description=description, category_id=category_id,
+                           product_count=len(subcategory.products))
+
+
+@catalog.route('/subcategories/<int:subcategory_id>/edit', methods=['GET', 'POST'])
 @login_required
 @admin_required
-def update_subcategory(subcategory_id):
-    """Only the description - renaming would need the (name, category_id) uniqueness
-    handling create_subcategory does, and isn't needed for this."""
+def edit_subcategory(subcategory_id):
+    """Name, description and the category it belongs to. Moving it to another category
+    moves its products along in the same commit - a product's category_id and its
+    subcategory's category must never disagree (the menu groups by one, the panel by
+    the other)."""
     subcategory = Subcategory.query.get_or_404(subcategory_id)
+    if request.method == 'GET':
+        return _subcategory_form(subcategory, subcategory.name, subcategory.description or '',
+                                 subcategory.category_id)
+
+    name = request.form.get('name', '').strip()
     description = request.form.get('description', '').strip()
+    category_id = request.form.get('category_id', type=int)
+    category = Category.query.get(category_id) if category_id else None
+
+    def _redisplay(message):
+        flash(message)
+        return _subcategory_form(subcategory, name, description, category_id)
+
+    if not name or category is None:
+        return _redisplay('Completa el nombre y la categoría de la subcategoría.')
+    if len(name) > 50:
+        return _redisplay('El nombre puede tener hasta 50 caracteres.')
     # The input's maxlength is only a hint - SQLite doesn't enforce String(200) either.
     if len(description) > 200:
-        flash('La descripción puede tener hasta 200 caracteres.')
-        return redirect(url_for('catalog.categories'))
+        return _redisplay('La descripción puede tener hasta 200 caracteres.')
+    if _subcategory_name_taken(name, category.id, exclude_id=subcategory.id):
+        return _redisplay(f'Ya existe una subcategoría con ese nombre en {category.name}.')
 
+    moved = category.id != subcategory.category_id
+    subcategory.name = name
     subcategory.description = description or None  # empty = remove it
-    db.session.commit()
-    flash('Descripción guardada' if description else 'Descripción quitada')
+    subcategory.category_id = category.id
+    if moved:
+        for product in subcategory.products:
+            product.category_id = category.id
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Same safety net as create_subcategory: unique (name, category_id) is the real guarantee.
+        db.session.rollback()
+        return _redisplay(f'Ya existe una subcategoría con ese nombre en {category.name}.')
+
+    if moved and subcategory.products:
+        count = len(subcategory.products)
+        flash(f'Subcategoría guardada y movida a {category.name}, con '
+              f'{count} producto{"s" if count != 1 else ""}.')
+    else:
+        flash('Subcategoría guardada')
     return redirect(url_for('catalog.categories'))
 
 

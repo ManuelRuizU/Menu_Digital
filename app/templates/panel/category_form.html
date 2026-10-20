@@ -1,0 +1,20 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Editar categoría{% endblock %}
+{% block content %}
+    <h1>Editar categoría</h1>
+
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label for="name">Nombre</label>
+      <input id="name" name="name" required maxlength="50" value="{{ name }}" placeholder="Ej: Bebidas">
+      <p class="muted">
+        Así aparece en la carta y en el menú de secciones. Sus subcategorías y productos no cambian.
+      </p>
+
+      <div class="inline-actions">
+        <button type="submit">Guardar categoría</button>
+        <a href="{{ url_for('catalog.categories') }}"><button type="button" class="secondary">Cancelar</button></a>
+      </div>
+    </form>
+{% endblock %}

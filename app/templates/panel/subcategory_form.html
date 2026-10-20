@@ -1,0 +1,59 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Editar subcategoría{% endblock %}
+{% block content %}
+    <h1>Editar subcategoría</h1>
+
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label for="name">Nombre</label>
+      <input id="name" name="name" required maxlength="50" value="{{ name }}" placeholder="Ej: Hand rolls">
+
+      <label for="description">Descripción (opcional)</label>
+      <input id="description" name="description" maxlength="200" value="{{ description }}"
+             placeholder="Ej: pollo, camarón, salmón, apanados y fritos">
+      <p class="muted">Se muestra en la carta bajo el nombre de la subcategoría. Déjala vacía para quitarla.</p>
+
+      <label for="category_id">Categoría</label>
+      <select id="category_id" name="category_id" required data-current="{{ subcategory.category_id }}">
+        {% for category in categories %}
+          <option value="{{ category.id }}" {{ 'selected' if category.id == category_id else '' }}>{{ category.name }}</option>
+        {% endfor %}
+      </select>
+      {% if product_count %}
+        <p class="muted" id="move-hint">
+          Tiene {{ product_count }} producto{{ 's' if product_count != 1 else '' }}. Si la cambias de
+          categoría, se mueve{{ 'n' if product_count != 1 else '' }} con ella.
+        </p>
+        <p class="promo-warning" id="move-warning" hidden>
+          Al guardar se moverá{{ 'n' if product_count != 1 else '' }} {{ product_count }}
+          producto{{ 's' if product_count != 1 else '' }} a <span id="move-target"></span>.
+        </p>
+      {% else %}
+        <p class="muted">No tiene productos.</p>
+      {% endif %}
+
+      <div class="inline-actions">
+        <button type="submit">Guardar subcategoría</button>
+        <a href="{{ url_for('catalog.categories') }}"><button type="button" class="secondary">Cancelar</button></a>
+      </div>
+    </form>
+
+    <script>
+      // Spell out the move only once a different category is picked - without JS the
+      // hint above already says the products go along.
+      (function () {
+        const select = document.getElementById('category_id');
+        const warning = document.getElementById('move-warning');
+        if (!select || !warning) return;
+        const target = document.getElementById('move-target');
+        function sync() {
+          const moving = select.value !== select.dataset.current;
+          warning.hidden = !moving;
+          target.textContent = select.options[select.selectedIndex].text;
+        }
+        select.addEventListener('change', sync);
+        sync();
+      })();
+    </script>
+{% endblock %}
