@@ -369,12 +369,143 @@ def products():
     return render_template('panel/products.html', products=all_products)
 
 
-def _product_form_context(product=None):
+def _product_form_context(product=None, posted_tiers=None):
+    """posted_tiers: the quantity-pricing fields as the owner sent them ({'rows', 'enabled',
+    'featured'}), when the form comes back with an error - so they aren't lost.
+    Otherwise the saved state is shown."""
+    tiered_promo = _own_tiered_promo(product) if product else None
+    if posted_tiers is not None:
+        tier_rows = posted_tiers['rows']
+        tiered_enabled = posted_tiers['enabled']
+        featured_quantity = posted_tiers['featured']
+    else:
+        tier_rows = [(tier.quantity, tier.total_price) for tier in tiered_promo.tiers] if tiered_promo else []
+        tiered_enabled = bool(tiered_promo and tiered_promo.is_active)
+        featured_quantity = tiered_promo.featured_quantity if tiered_promo else 1
     return {
         'product': product,
         'categories': Category.query.order_by(Category.name).all(),
         'subcategories': Subcategory.query.order_by(Subcategory.name).all(),
+        'tiered_promo': tiered_promo,
+        'legacy_tiered_promos': _legacy_tiered_promos(product) if product else [],
+        'can_edit_tiers': current_user.is_owner,
+        'tiered_enabled': tiered_enabled,
+        'tier_rows': tier_rows + [(None, None)] * _TIER_FORM_EXTRA_ROWS,
+        # The saving is only shown next to saved tiers - typed ones haven't been validated.
+        'tiers_saved': posted_tiers is None,
+        'featured_quantity': featured_quantity,
+        'featured_choices': _featured_choices(tier_rows),
+        'pack_like_group_ids': ({group.id for group in _pack_like_option_groups(product)}
+                                if tiered_promo and tiered_promo.is_active else set()),
     }
+
+
+def _featured_choices(tier_rows):
+    """The tiers the "precio que se destaca" select offers: rows with a usable quantity
+    and price, as (quantity, total_price). Rows may be typed strings (a form that came
+    back with an error) - unusable ones are just left out of the select."""
+    choices = []
+    for quantity, total_price in tier_rows:
+        try:
+            quantity, total_price = int(quantity), int(float(total_price))
+        except (TypeError, ValueError):
+            continue
+        if quantity >= 2 and quantity not in {q for q, _price in choices}:
+            choices.append((quantity, total_price))
+    return sorted(choices)
+
+
+# An option named like an amount ("3 unidades", "x6", "X 12") - with a surcharge, that's
+# a hand-made pack, which quantity pricing replaces.
+_QUANTITY_LIKE_OPTION = re.compile(r'^\s*(\d|x\s*\d)', re.IGNORECASE)
+
+
+def _pack_like_option_groups(product):
+    """Option groups that look like the old way of selling packs: a paid option whose
+    name starts with a number or "x<number>". Alongside quantity pricing they charge
+    twice for the same thing - the editor warns, without blocking."""
+    return [group for group in product.option_groups
+            if any(option.price_delta > 0 and _QUANTITY_LIKE_OPTION.match(option.name) for option in group.options)]
+
+
+def _own_tiered_promo(product):
+    """The product's quantity pricing ("2 por $4.990"): the tiered promo holding only
+    this product. Tiered promos are configured from the product editor, one each."""
+    return next((promo for promo in product.bundle_promos
+                 if promo.kind == 'tiered' and len(promo.products) == 1), None)
+
+
+def _legacy_tiered_promos(product):
+    """Tiered promos shared with other products - only possible from before quantity
+    pricing moved to the product editor. Shown read-only; removed from Promociones."""
+    return [promo for promo in product.bundle_promos if promo.kind == 'tiered' and len(promo.products) > 1]
+
+
+def _tiered_label(product_name):
+    """Shown to the customer (cart breakdown, WhatsApp message), so it reads as a phrase."""
+    return f'Precio por cantidad - {product_name}'[:80]
+
+
+def _first_tier_without_saving(base_price, tiers):
+    """The first (quantity, total_price) that doesn't cost less than buying `quantity`
+    singles at base_price, or None if every tier is a real discount."""
+    return next(((quantity, total_price) for quantity, total_price in tiers
+                 if total_price >= quantity * base_price), None)
+
+
+def _tiered_overlap_error(product_name, product, own_promo):
+    """A product may be in only ONE active automatic promo. Its quantity pricing counts
+    from today on, forever - so any other active promo conflicts unless it already
+    ended (a 2x1 whose valid_until is past, still switched on)."""
+    today = datetime.now(BUSINESS_TZ).date()
+    for other in product.bundle_promos:
+        if other is own_promo or not other.is_active:
+            continue
+        if not _dates_overlap(today, None, other.valid_from, other.valid_until):
+            continue
+        return (f'"{product_name}" ya está en la promo "{other.label}". Un producto solo puede tener '
+                'una promo activa: quítalo de esa promo primero.')
+    return None
+
+
+def _resolve_featured_quantity(raw, tiers, own_promo):
+    """(featured_quantity, error, note) for the "precio que se destaca" select. 1 (the
+    single price) or one of `tiers`' quantities. A quantity that was a saved tier but
+    isn't anymore means the owner just deleted the featured tier: back to 1, with a note."""
+    if raw in (None, ''):
+        return 1, None, None
+    try:
+        featured = int(raw)
+    except ValueError:
+        featured = None
+    if featured == 1 or featured in {quantity for quantity, _price in tiers}:
+        return featured, None, None
+    if featured is not None and own_promo and featured in {tier.quantity for tier in own_promo.tiers}:
+        return 1, None, (f'Quitaste el nivel de {featured}, que era el destacado: la carta vuelve a '
+                         'destacar el precio suelto.')
+    return None, 'El precio que se destaca en la carta debe ser "Suelto" o uno de los niveles.', None
+
+
+def _apply_product_tiers(product, promo, tiers, featured_quantity):
+    """Create or update the product's own tiered promo, switched on, to match `tiers`
+    (already validated, never empty). Switching it off is just is_active=False."""
+    if promo is None:
+        promo = BundlePromo(kind='tiered')
+        db.session.add(promo)
+    promo.label = _tiered_label(product.name)
+    promo.buy_quantity = promo.pay_quantity = None
+    # Always permanent and active: the product editor is the only place it's managed.
+    promo.valid_from = promo.valid_until = None
+    promo.is_active = True
+    promo.featured_quantity = featured_quantity
+    promo.products = [product]
+    # Old tiers must be gone before the new ones go in: SQLAlchemy inserts before it
+    # deletes within one flush, which would trip unique(promo_id, quantity) whenever
+    # an edit keeps a quantity (the usual case - e.g. only changing a price).
+    promo.tiers.clear()
+    db.session.flush()
+    promo.tiers = [BundlePromoTier(quantity=quantity, total_price=total_price)
+                   for quantity, total_price in tiers]
 
 
 @catalog.route('/products/new', methods=['GET', 'POST'])
@@ -409,9 +540,61 @@ def _save_product(product):
     if subcategory and subcategory.category_id != category_id:
         subcategory = None
 
+    # The quantity-pricing fields as sent - the form comes back with them if anything fails.
+    posted_tiers = {
+        'rows': [(quantity, total_price) for quantity, total_price
+                 in zip(request.form.getlist('tier_quantity'), request.form.getlist('tier_price'))
+                 if quantity.strip() or total_price.strip()],
+        'enabled': request.form.get('tiered_enabled') == 'on',
+        'featured': request.form.get('featured_quantity', 1, type=int),
+    }
+
+    def _redisplay():
+        return render_template('panel/product_form.html',
+                               **_product_form_context(product if product.id else None, posted_tiers))
+
     if not name or not description or price is None or category is None:
         flash('Completa nombre, descripción, precio y categoría del producto.')
-        return render_template('panel/product_form.html', **_product_form_context(product if product.id else None))
+        return _redisplay()
+
+    # Quantity pricing. Only the owner sets it (like every promo), and only when the form
+    # sent its fields at all - a POST without them leaves it as it is.
+    #   tiered_action None: untouched / 'off': switched off, tiers kept / 'on': save `tiers`.
+    own_promo = _own_tiered_promo(product) if product.id else None
+    tiered_action, tiers, featured_quantity, featured_note = None, [], 1, None
+    if current_user.is_owner and 'tier_quantity' in request.form and not _legacy_tiered_promos(product):
+        if not posted_tiers['enabled']:
+            tiered_action = 'off'
+        else:
+            tiered_action = 'on'
+            tiers, error = _parse_tiers(request.form)
+            if not error:
+                error = _tiered_overlap_error(name, product, own_promo)
+            if not error:
+                featured_quantity, error, featured_note = _resolve_featured_quantity(
+                    request.form.get('featured_quantity'), tiers, own_promo)
+            if error:
+                flash(error)
+                return _redisplay()
+
+    # Validated against the price being saved now, edited or not: a cheaper product can
+    # turn a tier that will apply into no discount at all, and staff can change the price
+    # too. Tiers switched off don't apply, so they're checked when switched back on.
+    if tiered_action == 'on':
+        tiers_to_check = tiers
+    elif tiered_action is None and own_promo and own_promo.is_active:
+        tiers_to_check = [(tier.quantity, tier.total_price) for tier in own_promo.tiers]
+    else:
+        tiers_to_check = []
+    bad_tier = _first_tier_without_saving(price, tiers_to_check)
+    if bad_tier:
+        quantity, total_price = bad_tier
+        message = (f'Precio por cantidad: el nivel de {quantity} (${total_price:.0f}) debe costar menos de '
+                   f'${quantity * price:.0f} ({quantity} × ${price:.0f}), si no, no es un descuento.')
+        if not current_user.is_owner:
+            message += ' Pídele al dueño que ajuste el precio por cantidad, o deja el precio como estaba.'
+        flash(message)
+        return _redisplay()
 
     is_new = product.id is None
     product.name = name
@@ -450,11 +633,21 @@ def _save_product(product):
         if new_filename is None:
             db.session.rollback()
             flash('La foto del producto debe ser una imagen (png, jpg, jpeg o webp).')
-            return render_template('panel/product_form.html', **_product_form_context(product if not is_new else None))
+            return render_template('panel/product_form.html',
+                                   **_product_form_context(product if not is_new else None, posted_tiers))
         product.image_filename = new_filename
+
+    if tiered_action == 'on':
+        _apply_product_tiers(product, own_promo, tiers, featured_quantity)
+    elif tiered_action == 'off' and own_promo:
+        # Off keeps the tiers and the featured choice - switching back on restores them.
+        own_promo.is_active = False
+        own_promo.label = _tiered_label(product.name)
 
     db.session.commit()
     flash('Producto guardado')
+    if featured_note:
+        flash(featured_note)
     # Saved anyway - the owner may be repricing a whole promo one product at a time - but
     # say so: a tiered promo whose products don't share one price stops applying.
     for promo in product.bundle_promos:
@@ -483,9 +676,13 @@ def _product_delete_blockers(product):
         codes = _join_with_y([f"'{c.code}'" for c in product.coupons])
         word = 'cupón' if len(product.coupons) == 1 else 'cupones'
         reasons.append(f'está en el {word} {codes}')
-    if product.bundle_promos:
-        labels = _join_with_y([f"'{p.label}'" for p in product.bundle_promos])
-        article, word = ('la', 'promo') if len(product.bundle_promos) == 1 else ('las', 'promos')
+    # Its own quantity pricing isn't a blocker: it only exists for this product, so it
+    # goes with it (see delete_product).
+    own_promo = _own_tiered_promo(product)
+    other_promos = [promo for promo in product.bundle_promos if promo is not own_promo]
+    if other_promos:
+        labels = _join_with_y([f"'{p.label}'" for p in other_promos])
+        article, word = ('la', 'promo') if len(other_promos) == 1 else ('las', 'promos')
         reasons.append(f'está en {article} {word} {labels}')
     if User.query.filter_by(gift_product_id=product.id).first():
         reasons.append('es el regalo configurado por compra mínima')
@@ -507,6 +704,13 @@ def delete_product(product_id):
               '. Quítalo de esas promociones primero, o desactívalo.')
         return redirect(url_for('catalog.products'))
 
+    own_promo = _own_tiered_promo(product)
+    if own_promo:
+        db.session.delete(own_promo)
+        db.session.flush()
+        # The association row went with the promo - forget the stale collection so
+        # deleting the product doesn't try to remove that row a second time.
+        db.session.expire(product, ['bundle_promos'])
     db.session.delete(product)
     db.session.commit()
     flash('Producto eliminado')
@@ -748,7 +952,7 @@ def delete_delivery_zone(zone_id):
 @owner_required
 def promotions():
     active_coupons = Coupon.query.filter_by(is_active=True).count()
-    active_bundle_promos = BundlePromo.query.filter_by(is_active=True).count()
+    active_bundle_promos = BundlePromo.query.filter(BundlePromo.is_active.is_(True), BundlePromo.kind != 'tiered').count()
     products = Product.query.order_by(Product.name).all()
     return render_template('panel/promotions.html', active_coupons=active_coupons,
                             active_bundle_promos=active_bundle_promos, products=products)
@@ -947,7 +1151,13 @@ def delete_coupon(coupon_id):
 @owner_required
 def bundle_promos():
     all_promos = BundlePromo.query.order_by(BundlePromo.id.desc()).all()
-    return render_template('panel/bundle_promos.html', promos=all_promos,
+    # Tiered promos are each product's quantity pricing, edited in the product editor -
+    # here they're only a summary, so the owner still sees every automatic discount.
+    tiered_promos = sorted((promo for promo in all_promos if promo.kind == 'tiered'),
+                           key=lambda promo: [product.name for product in promo.products])
+    return render_template('panel/bundle_promos.html',
+                           promos=[promo for promo in all_promos if promo.kind != 'tiered'],
+                           tiered_promos=tiered_promos,
                            overlaps=_active_promo_overlaps(all_promos))
 
 
@@ -970,13 +1180,20 @@ def _active_promo_overlaps(promos):
 
 
 def _bundle_promo_form_context(promo=None):
-    saved_tiers = [(tier.quantity, tier.total_price) for tier in promo.tiers] if promo else []
     return {
         'promo': promo,
         'products': Product.query.order_by(Product.name).all(),
         'selected_product_ids': {product.id for product in promo.products} if promo else set(),
-        'tier_rows': saved_tiers + [(None, None)] * _TIER_FORM_EXTRA_ROWS,
     }
+
+
+def _redirect_tiered_promo(promo):
+    """A tiered promo is managed from its product's editor, never from Promociones."""
+    if len(promo.products) == 1:
+        return redirect(url_for('catalog.edit_product', product_id=promo.products[0].id))
+    flash('Este precio por cantidad es antiguo y está compartido entre varios productos: ya no se edita. '
+          'Elimínalo y configura el precio por cantidad en cada producto.')
+    return redirect(url_for('catalog.bundle_promos'))
 
 
 @catalog.route('/bundle-promos/new', methods=['GET', 'POST'])
@@ -993,12 +1210,14 @@ def create_bundle_promo():
 @owner_required
 def edit_bundle_promo(promo_id):
     promo = BundlePromo.query.get_or_404(promo_id)
+    if promo.kind == 'tiered':
+        return _redirect_tiered_promo(promo)
     if request.method == 'POST':
         return _save_bundle_promo(promo)
     return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context(promo))
 
 
-# Blank rows in the form beyond the saved tiers, so the owner can add levels without JS.
+# Blank tier rows in the product form beyond the saved ones, so levels can be added without JS.
 _TIER_FORM_EXTRA_ROWS = 2
 
 
@@ -1022,27 +1241,10 @@ def _parse_tiers(form):
         tiers.append((quantity, total_price))
 
     if not tiers:
-        return None, 'Agrega al menos un nivel (ej. 2 por $4.990).'
+        return None, 'Agrega al menos un nivel (ej. 2 por $4.990), o apaga el precio por cantidad.'
     if len({quantity for quantity, _price in tiers}) != len(tiers):
         return None, 'No puedes repetir la misma cantidad en dos niveles.'
     return sorted(tiers), None
-
-
-def _tiered_price_errors(products, tiers):
-    """What's wrong with this tiered promo's prices, or None. Its products must share one
-    base price (the tiers are N x that price), and every tier must actually save money."""
-    prices = {product.price for product in products}
-    if len(prices) > 1:
-        listed = ', '.join(f'{product.name} (${product.price:.0f})'
-                           for product in sorted(products, key=lambda p: (p.price, p.name)))
-        return ('Todos los productos de una promo por cantidad deben tener el mismo precio. '
-                f'Hoy difieren: {listed}.')
-    base = prices.pop()
-    for quantity, total_price in tiers:
-        if total_price >= quantity * base:
-            return (f'El nivel de {quantity} debe costar menos de ${quantity * base:.0f} '
-                    f'({quantity} × ${base:.0f}), si no, no es un descuento.')
-    return None
 
 
 def _dates_overlap(from_a, until_a, from_b, until_b):
@@ -1067,10 +1269,9 @@ def _promo_overlap_error(promo_id, products, valid_from, valid_until):
 
 
 def _save_bundle_promo(promo):
+    """Promociones only creates and edits 2x1/3x2 (buy_pay) promos - quantity pricing
+    (tiered) lives in the product editor. Whatever kind the form says, this is a buy_pay."""
     is_new = promo.id is None
-    # The kind is chosen once, when the promo is created: switching an existing 2x1 to
-    # tiered (or back) would leave it half-filled with the other kind's fields.
-    kind = request.form.get('kind') if is_new else promo.kind
     label = request.form.get('label', '').strip()
     valid_from = _parse_date(request.form.get('valid_from'))
     valid_until = _parse_date(request.form.get('valid_until'))
@@ -1079,24 +1280,16 @@ def _save_bundle_promo(promo):
     def _redisplay():
         return render_template('panel/bundle_promo_form.html', **_bundle_promo_form_context(promo if promo.id else None))
 
-    if not label or kind not in ('buy_pay', 'tiered'):
-        flash('Completa un nombre y elige el tipo de promoción.')
+    if not label:
+        flash('Completa un nombre para la promoción.')
         return _redisplay()
 
-    buy_quantity = pay_quantity = None
-    tiers = []
-    if kind == 'buy_pay':
-        buy_quantity = request.form.get('buy_quantity', type=int)
-        pay_quantity = request.form.get('pay_quantity', type=int)
-        if (not buy_quantity or not pay_quantity
-                or buy_quantity < 2 or pay_quantity < 1 or pay_quantity >= buy_quantity):
-            flash('Completa una combinación válida (ej. "Lleva 2, paga 1" - paga siempre debe ser menor que lleva).')
-            return _redisplay()
-    else:
-        tiers, error = _parse_tiers(request.form)
-        if error:
-            flash(error)
-            return _redisplay()
+    buy_quantity = request.form.get('buy_quantity', type=int)
+    pay_quantity = request.form.get('pay_quantity', type=int)
+    if (not buy_quantity or not pay_quantity
+            or buy_quantity < 2 or pay_quantity < 1 or pay_quantity >= buy_quantity):
+        flash('Completa una combinación válida (ej. "Lleva 2, paga 1" - paga siempre debe ser menor que lleva).')
+        return _redisplay()
 
     if not product_ids:
         flash('Elige al menos un producto para esta promoción.')
@@ -1107,12 +1300,6 @@ def _save_bundle_promo(promo):
         flash('La fecha "desde" no puede ser posterior a la fecha "hasta".')
         return _redisplay()
 
-    if kind == 'tiered':
-        error = _tiered_price_errors(products, tiers)
-        if error:
-            flash(error)
-            return _redisplay()
-
     # Only an active promo competes for its products - a new one starts active.
     if is_new or promo.is_active:
         error = _promo_overlap_error(promo.id, products, valid_from, valid_until)
@@ -1121,7 +1308,7 @@ def _save_bundle_promo(promo):
             return _redisplay()
 
     promo.label = label
-    promo.kind = kind
+    promo.kind = 'buy_pay'
     promo.buy_quantity = buy_quantity
     promo.pay_quantity = pay_quantity
     promo.valid_from = valid_from
@@ -1130,16 +1317,6 @@ def _save_bundle_promo(promo):
     if is_new:
         promo.is_active = True
     db.session.add(promo)
-
-    if kind == 'tiered':
-        # Old tiers must be gone before the new ones go in: SQLAlchemy inserts before it
-        # deletes within one flush, which would trip unique(promo_id, quantity) whenever
-        # an edit keeps a quantity (the usual case - e.g. only changing a price).
-        promo.tiers.clear()
-        db.session.flush()
-        promo.tiers = [BundlePromoTier(quantity=quantity, total_price=total_price)
-                       for quantity, total_price in tiers]
-
     db.session.commit()
     flash('Promoción guardada')
     return redirect(url_for('catalog.bundle_promos'))
@@ -1150,6 +1327,10 @@ def _save_bundle_promo(promo):
 @owner_required
 def toggle_bundle_promo_active(promo_id):
     promo = BundlePromo.query.get_or_404(promo_id)
+    if promo.kind == 'tiered':
+        # Quantity pricing is on while the product has tiers - removing them turns it off.
+        flash('El precio por cantidad se enciende o apaga desde el editor del producto.')
+        return redirect(url_for('catalog.bundle_promos'))
     if not promo.is_active:
         # Activating is the other way into "two active promos on one product".
         error = _promo_overlap_error(promo.id, promo.products, promo.valid_from, promo.valid_until)

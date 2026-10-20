@@ -284,6 +284,7 @@ def bundle_promos_api():
             'buyQuantity': promo.buy_quantity,
             'payQuantity': promo.pay_quantity,
             'tiers': [{'quantity': tier.quantity, 'totalPrice': tier.total_price} for tier in promo.tiers],
+            'featuredQuantity': promo.featured_quantity,
             'productIds': [product.id for product in promo.products],
         }
         for promo in _get_active_bundle_promos()

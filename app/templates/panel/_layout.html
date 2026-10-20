@@ -32,8 +32,16 @@
       .subitem-edit { padding: 0 0 8px; }
       .subitem-edit > summary { cursor: pointer; font-size: 0.85rem; color: #666; }
       .subitem-edit form { margin-top: 8px; }
-      .tier-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-      .tier-row input { width: auto; flex: 1 1 140px; }
+      /* Cantidad | por $ | precio total | ✕ on one line, even at phone width; the saving
+         goes underneath. Without JS the ✕ is hidden and the price takes its column too. */
+      .tier-row { display: grid; grid-template-columns: minmax(64px, 96px) auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .tier-row input { width: 100%; min-width: 0; }
+      .tier-row .tier-remove { min-height: 44px; min-width: 44px; padding: 0 12px; }
+      .tier-row .tier-remove[hidden] { display: none; }
+      .tier-row .tier-saving { grid-column: 1 / -1; margin-top: -2px; }
+      .tiered-switch-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+      .tiered-switch-row .tiered-switch-label { margin: 0; font-weight: 600; cursor: pointer; }
+      #tier-add { margin-bottom: 4px; }
       .promo-warning { margin: 6px 0; padding: 8px 12px; border-radius: 8px; background: #fff4e5; color: #8a4b00; font-weight: 600; }
       .muted { color: #777; font-size: 0.85rem; }
       .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }

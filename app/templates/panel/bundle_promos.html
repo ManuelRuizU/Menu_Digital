@@ -7,7 +7,7 @@
     </div>
     <p class="muted">
       Se aplican automáticamente en el carrito del cliente, sin necesidad de código: "Lleva N,
-      paga M" (2x1, 3x2 - los más baratos salen gratis) o "Precio por cantidad" (2 por $X, 3 por $Y).
+      paga M" (2x1, 3x2 - los más baratos salen gratis).
     </p>
 
     {% for promo in promos %}
@@ -16,33 +16,12 @@
           <div>
             <strong>{{ promo.label }}</strong>
             <span class="muted">
-              {% if promo.kind == 'tiered' %}
-                — Precio por cantidad
-              {% else %}
-                — Lleva {{ promo.buy_quantity }}, paga {{ promo.pay_quantity }}
-              {% endif %}
+              — Lleva {{ promo.buy_quantity }}, paga {{ promo.pay_quantity }}
               en {{ promo.products|map(attribute='name')|join(', ') }}
               {% if not promo.is_active %}· inactiva{% endif %}
             </span>
           </div>
         </div>
-        {% if promo.kind == 'tiered' %}
-          {% set base = promo.common_base_price %}
-          <p class="muted">
-            {% if base %}Suelto ${{ '%.0f'|format(base) }}{% endif %}
-            {% for tier in promo.tiers %}
-              · {{ tier.quantity }} por ${{ '%.0f'|format(tier.total_price) }}
-              {% if base %}(ahorra ${{ '%.0f'|format(tier.quantity * base - tier.total_price) }}){% endif %}
-            {% endfor %}
-          </p>
-          {% if promo.price_mismatch %}
-            <p class="promo-warning">
-              ⚠ No se está aplicando: precios distintos.
-              {% for name, price in promo.price_mismatch %}{{ name }} (${{ '%.0f'|format(price) }}){% if not loop.last %}, {% endif %}{% endfor %}.
-              Iguala sus precios (o quita los que difieren) para que vuelva a aplicarse.
-            </p>
-          {% endif %}
-        {% endif %}
         {% for product_name, other_label in overlaps.get(promo.id, []) %}
           <p class="promo-warning">⚠ El producto {{ product_name }} también está en la promo {{ other_label }}; los descuentos se suman.</p>
         {% endfor %}
@@ -67,5 +46,57 @@
       </div>
     {% else %}
       <p class="muted">Aún no tienes promociones. Crea la primera arriba.</p>
+    {% endfor %}
+
+    <h2>Precio por cantidad</h2>
+    <p class="muted">
+      "2 por $X, 3 por $Y" se configura en el editor de cada producto, en la sección
+      "Precio por cantidad". Aquí ves un resumen de los productos que lo tienen.
+    </p>
+    {% for promo in tiered_promos %}
+      <div class="card">
+        {% set base = promo.common_base_price %}
+        <div class="card-row">
+          <div>
+            <strong>{{ promo.products|map(attribute='name')|join(', ') }}</strong>
+            <span class="muted">
+              {% if base %}— suelto ${{ '%.0f'|format(base) }}{% endif %}
+              {% for tier in promo.tiers %}
+                · {{ tier.quantity }} por ${{ '%.0f'|format(tier.total_price) }}
+                {% if base %}(ahorra ${{ '%.0f'|format(tier.quantity * base - tier.total_price) }}){% endif %}
+              {% endfor %}
+              {% if not promo.is_active %}· apagado{% endif %}
+            </span>
+          </div>
+        </div>
+        {% for product_name, other_label in overlaps.get(promo.id, []) %}
+          <p class="promo-warning">⚠ El producto {{ product_name }} también está en la promo {{ other_label }}; los descuentos se suman.</p>
+        {% endfor %}
+        {% if promo.products|length == 1 %}
+          <div class="inline-actions">
+            <a href="{{ url_for('catalog.edit_product', product_id=promo.products[0].id) }}"><button type="button">Editar producto</button></a>
+          </div>
+        {% else %}
+          {# From before quantity pricing moved to the product editor: shared between
+             products, no longer editable - only deletable, to be set up per product. #}
+          <p class="promo-warning">
+            ⚠ Precio por cantidad antiguo, compartido entre varios productos: ya no se puede editar.
+            Elimínalo y configúralo en cada producto.
+            {% if promo.price_mismatch %}
+              Hoy no se está aplicando: precios distintos
+              ({% for name, price in promo.price_mismatch %}{{ name }} ${{ '%.0f'|format(price) }}{% if not loop.last %}, {% endif %}{% endfor %}).
+            {% endif %}
+          </p>
+          <div class="inline-actions">
+            <form method="post" action="{{ url_for('catalog.delete_bundle_promo', promo_id=promo.id) }}"
+                  onsubmit="return confirm('¿Eliminar este precio por cantidad?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="danger">Eliminar</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="muted">Ningún producto tiene precio por cantidad todavía.</p>
     {% endfor %}
 {% endblock %}

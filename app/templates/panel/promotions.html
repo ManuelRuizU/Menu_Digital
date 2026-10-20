@@ -4,7 +4,7 @@
     <h1>Promociones</h1>
     <p class="muted">
       Tres formas de ofrecer descuentos, cada una para un caso distinto: cupón (código que
-      escribe el cliente), automáticas por cantidad (2x1, 3x2, 2 por $X) y regalo (automático, por monto).
+      escribe el cliente), automáticas por cantidad (2x1, 3x2) y regalo (automático, por monto).
     </p>
 
     <div class="card">
@@ -24,14 +24,15 @@
     <div class="card">
       <div class="card-row">
         <div>
-          <strong>Por cantidad (2x1, 3x2, 2 por $X)</strong>
+          <strong>Por cantidad (2x1, 3x2)</strong>
           <span class="muted">— {{ active_bundle_promos }} activa{{ 's' if active_bundle_promos != 1 else '' }}</span>
         </div>
         <a href="{{ url_for('catalog.bundle_promos') }}"><button type="button">Administrar</button></a>
       </div>
       <p class="muted">
         Se aplica solo, sin código - si el cliente lleva suficientes productos elegibles, el(los)
-        más barato(s) salen gratis.
+        más barato(s) salen gratis. El "2 por $X, 3 por $Y" de un producto se configura en el
+        editor de ese producto.
       </p>
     </div>
 

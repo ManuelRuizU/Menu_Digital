@@ -345,6 +345,10 @@ class BundlePromo(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     valid_from = db.Column(db.Date, nullable=True)
     valid_until = db.Column(db.Date, nullable=True)
+    # tiered only: which price the menu card shows big - 1 is the regular single price,
+    # anything else is one of the tiers' quantities ("3 x $8.990"). The panel keeps it
+    # pointing at an existing tier; the menu falls back to 1 if it ever doesn't.
+    featured_quantity = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     products = db.relationship('Product', secondary=bundle_promo_product, lazy='joined', backref='bundle_promos')
     tiers = db.relationship('BundlePromoTier', backref='promo', lazy='joined',
                             cascade='all, delete-orphan', order_by='BundlePromoTier.quantity')

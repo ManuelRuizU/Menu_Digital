@@ -104,6 +104,34 @@
     return { quantity: next, totalPrice: tieredCostForUnits(units.unit, tiers, next) }
   }
 
+  // What the product modal charges for adding `quantity` units of one product on their
+  // own: the tiered price of those units (the same function the cart uses, so a single
+  // line of `quantity` costs exactly this in the cart too) plus every unit's variant
+  // surcharge, which is never discounted. tiers: [[quantity, totalPrice], ...] or [].
+  function modalTotal (unit, tiers, quantity, extraPerUnit) {
+    return tieredCostForUnits(unit, tiers, quantity) + quantity * (extraPerUnit || 0)
+  }
+
+  // The modal's segmented choices for a product with quantity pricing: "1" (the single
+  // price) and then one per tier, each with what it costs and saves on the base price.
+  function quantityChoices (unit, promo) {
+    const tiers = tiersOf(promo)
+    const quantities = [1, ...tiers.map(([quantity]) => quantity)]
+      .filter((quantity, index, all) => all.indexOf(quantity) === index)
+      .sort((a, b) => a - b)
+    return quantities.map((quantity) => {
+      const total = tieredCostForUnits(unit, tiers, quantity)
+      return { quantity, total, saving: quantity * unit - total }
+    })
+  }
+
+  // The tier the menu card shows big ("3 x $8.990"), or null for the single price - also
+  // when featuredQuantity points at a tier that no longer exists.
+  function featuredTier (promo) {
+    if (!promo || promo.kind !== 'tiered' || !(promo.featuredQuantity > 1)) return null
+    return (promo.tiers || []).find((tier) => tier.quantity === promo.featuredQuantity) || null
+  }
+
   const api = {
     tieredCostForUnits,
     tieredDiscountForUnits,
@@ -111,6 +139,9 @@
     promoDiscount,
     bundleDiscounts,
     nextUnitNudge,
+    modalTotal,
+    quantityChoices,
+    featuredTier,
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.BundlePricing = api

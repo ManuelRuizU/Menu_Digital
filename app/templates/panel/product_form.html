@@ -25,6 +25,72 @@
         quieras destacar en el banner de arriba del menú.
       </p>
 
+      {% if legacy_tiered_promos %}
+        <label>Precio por cantidad</label>
+        <p class="promo-warning">
+          ⚠ Este producto tiene un precio por cantidad antiguo, compartido con
+          {% for promo in legacy_tiered_promos %}{{ promo.products|rejectattr('id', 'equalto', product.id)|map(attribute='name')|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}.
+          Elimínalo en <a href="{{ url_for('catalog.bundle_promos') }}">Promociones</a> para configurarlo aquí.
+        </p>
+      {% elif not can_edit_tiers %}
+        <label>Precio por cantidad</label>
+        <p class="muted">
+          {% if tiered_promo and tiered_promo.is_active %}
+            {% for tier in tiered_promo.tiers %}{{ tier.quantity }} por ${{ '%.0f'|format(tier.total_price) }}{% if not loop.last %} · {% endif %}{% endfor %}.
+            Solo el dueño puede cambiarlo.
+          {% else %}
+            Apagado. Solo el dueño puede configurarlo.
+          {% endif %}
+        </p>
+      {% else %}
+        <div class="tiered-switch-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="tiered_enabled" name="tiered_enabled" {{ 'checked' if tiered_enabled else '' }}>
+            <span class="toggle-track"></span>
+          </label>
+          <label for="tiered_enabled" class="tiered-switch-label">Precio por cantidad</label>
+        </div>
+        <p class="muted">
+          Ej: 2 handrolls por $4.990. El cliente elige en la carta. Apagado, se cobra solo el precio
+          normal; los niveles se guardan para cuando lo vuelvas a encender.
+        </p>
+
+        <div id="tiered-fields">
+          <div id="tier-rows">
+            {% for quantity, total_price in tier_rows %}
+              <div class="tier-row">
+                <input name="tier_quantity" type="number" step="1" min="2" placeholder="Cant."
+                       value="{{ quantity if quantity is not none else '' }}" aria-label="Cantidad del nivel">
+                <span>por $</span>
+                <input name="tier_price" type="number" step="1" min="1" placeholder="Total"
+                       value="{{ total_price if total_price is not none else '' }}" aria-label="Precio total del nivel">
+                <button type="button" class="tier-remove secondary" aria-label="Quitar este nivel" hidden>✕</button>
+                {% if tiers_saved and quantity and product %}
+                  <span class="muted tier-saving">ahorra ${{ '%.0f'|format(quantity * product.price - total_price) }}</span>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          <button type="button" id="tier-add" class="secondary" hidden>+ Agregar nivel</button>
+          <p class="muted">
+            Cada nivel debe costar menos que comprar las unidades sueltas. Las variantes con costo
+            extra se cobran aparte, por cada unidad.
+          </p>
+
+          <label for="featured_quantity">Precio que se destaca en la carta</label>
+          <select id="featured_quantity" name="featured_quantity">
+            <option value="1" {{ 'selected' if featured_quantity == 1 else '' }}>Suelto (1 x ${{ '%.0f'|format(product.price) if product else '…' }})</option>
+            {% for quantity, total_price in featured_choices %}
+              <option value="{{ quantity }}" {{ 'selected' if featured_quantity == quantity else '' }}>{{ quantity }} x ${{ total_price }}</option>
+            {% endfor %}
+          </select>
+          <p class="muted">
+            Lo que el cliente ve en grande en la tarjeta: "3 x $8.990" con el precio suelto debajo, o
+            solo el precio suelto. En el detalle del producto ve todos los niveles.
+          </p>
+        </div>
+      {% endif %}
+
       <label for="category_id">Categoría</label>
       <select id="category_id" name="category_id" required>
         <option value="">Selecciona una categoría</option>
@@ -108,6 +174,11 @@
             {%- if group.multi_select and group.min_select %} · mínimo {{ group.min_select }}{% endif %}
             {%- if group.multi_select and group.max_select %} · máximo {{ group.max_select }}{% endif %}
           </p>
+          {% if group.id in pack_like_group_ids %}
+            <p class="promo-warning">
+              ⚠ Este grupo suma al precio; si era un pack, bórralo: el precio por cantidad ya lo cubre.
+            </p>
+          {% endif %}
           {% if group.multi_select and group.min_select and group.min_select > group.options|length %}
             <p class="muted">
               <strong>⚠ pide elegir {{ group.min_select }} pero solo tiene {{ group.options|length }} opciones
@@ -193,6 +264,86 @@
 
         categorySelect.addEventListener('change', filterSubcategories);
         filterSubcategories();
+      })();
+    </script>
+
+    <script>
+      // Precio por cantidad: show the tier fields only while the switch is on, add/remove
+      // tier rows, and keep the "precio que se destaca" select in step with the rows.
+      // Without JS the fields are always visible and the switch still decides.
+      (function () {
+        const toggle = document.getElementById('tiered_enabled');
+        const fields = document.getElementById('tiered-fields');
+        if (!toggle || !fields) return;
+        const rows = document.getElementById('tier-rows');
+        const addButton = document.getElementById('tier-add');
+        const featured = document.getElementById('featured_quantity');
+        const priceInput = document.getElementById('price');
+        const formatPrice = (value) => '$' + Number(value).toLocaleString('es-CL');
+
+        function syncVisibility() {
+          fields.hidden = !toggle.checked;
+        }
+
+        function rowValues(row) {
+          const quantity = parseInt(row.querySelector('[name="tier_quantity"]').value, 10);
+          const total = parseInt(row.querySelector('[name="tier_price"]').value, 10);
+          return { quantity, total };
+        }
+
+        // Rebuilt from the rows on every change: a deleted or emptied tier disappears from
+        // the select, and if it was the featured one the select falls back to "Suelto".
+        function syncFeatured() {
+          const selected = featured.value;
+          const seen = new Set();
+          const choices = [];
+          rows.querySelectorAll('.tier-row').forEach((row) => {
+            const { quantity, total } = rowValues(row);
+            if (quantity >= 2 && total > 0 && !seen.has(quantity)) {
+              seen.add(quantity);
+              choices.push({ quantity, total });
+            }
+          });
+          choices.sort((a, b) => a.quantity - b.quantity);
+          const price = parseInt(priceInput.value, 10);
+          featured.innerHTML = '';
+          featured.add(new Option(`Suelto (1 x ${price > 0 ? formatPrice(price) : '…'})`, '1'));
+          choices.forEach(({ quantity, total }) => featured.add(new Option(`${quantity} x ${formatPrice(total)}`, String(quantity))));
+          featured.value = seen.has(Number(selected)) ? selected : '1';
+        }
+
+        function wireRow(row) {
+          const remove = row.querySelector('.tier-remove');
+          remove.hidden = false;
+          remove.addEventListener('click', () => {
+            // The last row is emptied, not removed - "+ Agregar nivel" clones a row.
+            if (rows.querySelectorAll('.tier-row').length > 1) {
+              row.remove();
+            } else {
+              row.querySelectorAll('input').forEach((input) => { input.value = ''; });
+              row.querySelectorAll('.muted').forEach((saving) => saving.remove());
+            }
+            syncFeatured();
+          });
+        }
+
+        addButton.hidden = false;
+        addButton.addEventListener('click', () => {
+          const template = rows.querySelector('.tier-row');
+          const row = template.cloneNode(true);
+          row.querySelectorAll('input').forEach((input) => { input.value = ''; });
+          row.querySelectorAll('.muted').forEach((saving) => saving.remove());
+          rows.appendChild(row);
+          wireRow(row);
+          row.querySelector('input').focus();
+        });
+
+        rows.querySelectorAll('.tier-row').forEach(wireRow);
+        rows.addEventListener('input', syncFeatured);
+        priceInput.addEventListener('input', syncFeatured);
+        toggle.addEventListener('change', syncVisibility);
+        syncVisibility();
+        syncFeatured();
       })();
     </script>
 
