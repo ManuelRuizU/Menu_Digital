@@ -19,10 +19,17 @@ def clean_name(value):
 def normalize_name(value):
     """A catalog name as it's COMPARED, never saved: clean_name, casefolded, without
     accents (NFKD, combining marks dropped) - so "Sushi"/"SUSHI", "Hand  Roll"/"Hand Roll"
-    and "Maracuyá"/"Maracuya" are the same name. Done in Python, not SQL: SQLite's
-    lower() only folds ASCII and it has no accent stripping at all."""
+    and "Maracuyá"/"Maracuya" are the same name. Ñ is a letter, not an accented N: "Piña"
+    and "Pina" stay different. Done in Python, not SQL: SQLite's lower() only folds ASCII
+    and it has no accent stripping at all."""
     decomposed = unicodedata.normalize('NFKD', clean_name(value).casefold())
-    return ''.join(char for char in decomposed if not unicodedata.combining(char))
+    kept = []
+    for char in decomposed:
+        # NFKD splits ñ into n + U+0303 (combining tilde): that one mark stays, on an n.
+        if unicodedata.combining(char) and not (char == '̃' and kept and kept[-1] == 'n'):
+            continue
+        kept.append(char)
+    return unicodedata.normalize('NFC', ''.join(kept))
 
 
 def day_range_utc(local_date):

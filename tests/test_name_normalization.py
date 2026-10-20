@@ -57,6 +57,22 @@ def test_normalize_name_treats_these_as_the_same(a, b):
     assert normalize_name(a) == normalize_name(b)
 
 
+@pytest.mark.parametrize('a, b', [
+    ('Piña', 'Pina'), ('PIÑA', 'pina'), ('Año', 'Ano'), ('Ñandú', 'Nandu'),
+])
+def test_normalize_name_keeps_n_tilde_a_different_letter(a, b):
+    assert normalize_name(a) != normalize_name(b)
+
+
+@pytest.mark.parametrize('a, b', [
+    ('Piña', 'PIÑA'), ('Piña', ' piña '),
+    ('Piña', 'Pin\u0303a'),  # the same ñ typed decomposed: n + combining tilde
+    ('Ñandú', 'ñandu'),       # the ú still loses its accent
+])
+def test_normalize_name_still_matches_the_same_n_tilde(a, b):
+    assert normalize_name(a) == normalize_name(b)
+
+
 def test_normalize_name_keeps_different_names_apart():
     assert normalize_name('Hand Roll') != normalize_name('Handroll')
     assert normalize_name('Roll 1') != normalize_name('Roll 2')
@@ -150,6 +166,21 @@ def test_create_product_rejects_a_normalized_duplicate_in_its_category(client, d
 
     assert "Ya existe 'California Roll' en Sushi." in _text(resp)
     assert Product.query.count() == 1
+
+
+def test_pina_and_pina_with_n_tilde_are_different_products_but_maracuya_is_not(client, db):
+    _register_owner(client)
+    jugos = _category(db, 'Jugos')
+    _product(db, jugos, 'Jugo de Piña')
+    _product(db, jugos, 'Jugo de Maracuyá')
+
+    resp = client.post('/admin/products/new', data=_product_form(jugos, 'Jugo de Pina'), follow_redirects=True)
+    assert 'Producto guardado' in _text(resp)
+
+    resp = client.post('/admin/products/new', data=_product_form(jugos, 'Jugo de Maracuya'), follow_redirects=True)
+    assert "Ya existe 'Jugo de Maracuyá' en Jugos." in _text(resp)
+
+    assert sorted(p.name for p in Product.query.all()) == ['Jugo de Maracuyá', 'Jugo de Pina', 'Jugo de Piña']
 
 
 def test_a_product_name_can_repeat_in_another_category(client, db):
