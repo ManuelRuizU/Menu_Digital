@@ -166,7 +166,7 @@ def test_a_tiered_promo_cannot_be_toggled_from_promociones(client, db):
 
     resp = client.post(f'/admin/bundle-promos/{promo.id}/toggle-active', follow_redirects=True)
 
-    assert 'se activa o quita desde el producto' in _text(resp)
+    assert 'se enciende o apaga desde el editor del producto' in _text(resp)
     db.session.refresh(promo)
     assert promo.is_active is True
 

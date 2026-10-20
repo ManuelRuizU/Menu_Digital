@@ -2,14 +2,14 @@
 // scripts just after gets the new menu.js without the <script> tags for its companion
 // files - every price and the order sending would then throw. Reload once to get a
 // matching page (the sessionStorage flag stops a reload loop if they're truly missing).
-if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined') {
+if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined' || typeof CartLines === 'undefined') {
   let alreadyRetried = false
   try {
     alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
     if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
   } catch {}
   if (!alreadyRetried) window.location.reload()
-  throw new Error('menu.js: bundle_pricing.js / order_message.js not loaded')
+  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js not loaded')
 }
 try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
 
@@ -109,6 +109,7 @@ const elements = {
   productModalAdd: document.getElementById('product-modal-add'),
   productModalOptions: document.getElementById('product-modal-options'),
   productModalError: document.getElementById('product-modal-error'),
+  productModalQuantity: document.getElementById('product-modal-quantity'),
   deliveryModeOptions: document.getElementById('delivery-mode-options'),
   minOrderHint: document.getElementById('min-order-hint'),
   prepTimeHint: document.getElementById('prep-time-hint'),
@@ -271,14 +272,69 @@ function getModalSelectedOptions() {
   }))
 }
 
+// How many units "Agregar" adds - the segmented tier picked (quantity pricing) or the
+// stepper. Only decides the quantity of the cart line; the server prices the order.
+let modalQuantity = 1
+
+function tieredPromoForProduct(product) {
+  const promo = findBundlePromoForProduct(product)
+  return promo && promo.kind === 'tiered' && (promo.tiers || []).length ? promo : null
+}
+
+// "1 · $3.500 | 2 · $6.500 ahorra $500 | 3 · $8.990 ahorra $1.510" - one button per tier.
+function quantitySegmentsHtml(product, promo) {
+  const choices = BundlePricing.quantityChoices(product.price, promo)
+  return `
+    <div class="quantity-segments" role="radiogroup" aria-label="Cantidad">
+      ${choices.map(({ quantity, total, saving }) => `
+        <button type="button" class="quantity-segment${quantity === modalQuantity ? ' selected' : ''}"
+                role="radio" aria-checked="${quantity === modalQuantity}" data-modal-quantity="${quantity}">
+          <span class="quantity-segment-main">${quantity} · ${formatPrice(total)}</span>
+          ${saving > 0 ? `<span class="quantity-segment-saving">ahorra ${formatPrice(saving)}</span>` : ''}
+        </button>
+      `).join('')}
+    </div>
+  `
+}
+
+function quantityStepperHtml() {
+  return `
+    <div class="qty-stepper" aria-label="Cantidad">
+      <button type="button" class="qty-stepper-btn" data-modal-step="-1" aria-label="Quitar uno" ${modalQuantity <= 1 ? 'disabled' : ''}>−</button>
+      <span class="qty-stepper-value" aria-live="polite">${modalQuantity}</span>
+      <button type="button" class="qty-stepper-btn" data-modal-step="1" aria-label="Agregar uno">+</button>
+    </div>
+  `
+}
+
 function updateModalPrice() {
   if (!currentModalProduct) return
+  const product = currentModalProduct
   const extra = getModalSelectedOptions().reduce((sum, o) => sum + o.priceDelta, 0)
+  const promo = tieredPromoForProduct(product)
+
+  if (product.soldOut) {
+    elements.productModalQuantity.innerHTML = ''
+  } else {
+    elements.productModalQuantity.innerHTML = promo ? quantitySegmentsHtml(product, promo) : quantityStepperHtml()
+  }
+  // With quantity pricing the segments already show every price - the unit price line
+  // would only repeat the first one.
+  elements.productModalPrice.hidden = !!promo && !product.soldOut
   // The struck-through "before" price only makes sense with no extras added yet - once the
   // customer picks a paid option, showing a plain total is clearer than mixing both.
-  elements.productModalPrice.innerHTML = extra === 0
-    ? priceHtml(currentModalProduct)
-    : formatPrice(currentModalProduct.price + extra)
+  elements.productModalPrice.innerHTML = extra === 0 ? priceHtml(product) : formatPrice(product.price + extra)
+
+  if (!product.soldOut) {
+    const tiers = promo ? promo.tiers.map((tier) => [tier.quantity, tier.totalPrice]) : []
+    const total = BundlePricing.modalTotal(product.price, tiers, modalQuantity, extra)
+    elements.productModalAdd.textContent = `Agregar ${modalQuantity} · ${formatPrice(total)}`
+  }
+}
+
+function setModalQuantity(quantity) {
+  modalQuantity = Math.max(1, quantity)
+  updateModalPrice()
 }
 
 function renderProductDescription(description) {
@@ -305,18 +361,21 @@ function openProductModal(productId) {
   const product = STATE.products.find((item) => item.id === Number(productId))
   if (!product) return
   currentModalProduct = product
+  const promo = tieredPromoForProduct(product)
+  const featured = BundlePricing.featuredTier(promo)
+  // Preselected: the tier the card shows big, so the modal starts on what was advertised.
+  modalQuantity = featured ? featured.quantity : 1
   elements.productModalName.textContent = product.name
   renderProductDescription(product.description)
   renderModalOptions(product)
-  updateModalPrice()
   hideModalError()
   if (product.soldOut) {
     elements.productModalAdd.disabled = true
     elements.productModalAdd.textContent = 'Agotado'
   } else {
     elements.productModalAdd.disabled = false
-    elements.productModalAdd.textContent = 'Agregar'
   }
+  updateModalPrice()
   if (product.imageUrl) {
     elements.productModalImage.src = product.imageUrl
     elements.productModalImage.style.display = 'block'
@@ -378,7 +437,7 @@ function handleModalAddClick() {
     return
   }
   hideModalError()
-  addToCart(currentModalProduct.id, getModalSelectedOptions())
+  addToCart(currentModalProduct.id, getModalSelectedOptions(), modalQuantity)
   openCart()
   closeProductModal()
 }
@@ -568,15 +627,9 @@ function catalogOptionDelta(productId, optionId) {
   return 0
 }
 
-// The cart in the shape bundle_pricing.js prices - see that file.
+// The cart in the shape bundle_pricing.js prices - see cart_lines.js.
 function pricingLines() {
-  return STATE.cart.map((item) => ({
-    productId: item.id,
-    quantity: item.quantity,
-    unitPrice: item.price,
-    optionDeltas: (item.selectedOptions || []).map((o) =>
-      (typeof o.priceDelta === 'number' ? o.priceDelta : catalogOptionDelta(item.id, o.id))),
-  }))
+  return CartLines.pricingLines(STATE.cart, catalogOptionDelta)
 }
 
 // [{ label, amount }] - one entry per automatic promo discounting the cart right now.
@@ -591,7 +644,7 @@ function computeBundleDiscount() {
 }
 
 function getOrderTotal() {
-  const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const subtotal = CartLines.subtotal(STATE.cart)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
   const bundleDiscount = computeBundleDiscount()
@@ -699,6 +752,10 @@ function productCardHtml(product) {
     : (product.featured ? '<span class="featured-badge">⭐ Recomendado</span>' : '')
   const safeName = escapeHtml(product.name)
   const bundlePromo = !soldOut ? findBundlePromoForProduct(product) : null
+  const featured = BundlePricing.featuredTier(bundlePromo)
+  // Quantity pricing opens the modal even without variants: that's where the customer
+  // picks how many - "+" adding a single unit would skip the advertised price.
+  const opensModal = hasOptionGroups(product) || !!tieredPromoForProduct(product)
   // Always reserve the same square, whether or not there's a real photo - otherwise a
   // no-photo card's text starts flush at the top, out of line with its photo-having
   // neighbors in the same grid row.
@@ -711,16 +768,19 @@ function productCardHtml(product) {
         <div class="product-photo-wrap">${photo}${badge}</div>
         <div>
           <strong>${safeName}</strong>
-          <div class="price">${priceHtml(product)}</div>
+          ${featured
+            ? `<div class="price price-featured-tier">${featured.quantity} x ${formatPrice(featured.totalPrice)}</div>
+               <div class="price-unit">o ${formatPrice(product.price)} c/u</div>`
+            : `<div class="price">${priceHtml(product)}</div>`}
           ${product.prepMinutes ? `<span class="prep-time">⏱ ${product.prepMinutes} min</span>` : ''}
-          ${bundlePromo ? bundleBadgeHtml(bundlePromo) : ''}
+          ${bundlePromo && !featured ? bundleBadgeHtml(bundlePromo) : ''}
         </div>
       </div>
       <div class="card-actions">
         <button type="button" class="details-btn" data-details="${product.id}" aria-label="Ver detalle">Ver</button>
         ${soldOut
           ? '<button type="button" class="sold-out-btn" disabled>Agotado</button>'
-          : hasOptionGroups(product)
+          : opensModal
             ? `<button type="button" class="add-btn" data-details="${product.id}" aria-label="Elegir ${safeName}">+</button>`
             : `<button type="button" class="add-btn" data-add="${product.id}" aria-label="Agregar ${safeName}">+</button>`}
       </div>
@@ -1095,7 +1155,7 @@ function renderPromoNudges() {
 }
 
 function updateSummary() {
-  const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const subtotal = CartLines.subtotal(STATE.cart)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const outOfCoverage = wantsDelivery && !STATE.deliveryCovered
   const shipping = wantsDelivery && STATE.deliveryCovered ? STATE.shippingCost : 0
@@ -1299,22 +1359,10 @@ function renderSuggestions(results) {
   }).join('')
 }
 
-function addToCart(productId, selectedOptions = []) {
+function addToCart(productId, selectedOptions = [], quantity = 1) {
   const product = STATE.products.find((item) => item.id === Number(productId))
   if (!product) return
-  const sortedOptions = [...selectedOptions].sort((a, b) => a.id - b.id)
-  const cartKey = `${product.id}:${sortedOptions.map((o) => o.id).join(',')}`
-  const unitPrice = product.price + sortedOptions.reduce((sum, o) => sum + o.priceDelta, 0)
-
-  const existing = STATE.cart.find((item) => item.cartKey === cartKey)
-  if (existing) {
-    existing.quantity += 1
-  } else {
-    STATE.cart.push({
-      cartKey, id: product.id, name: product.name, price: unitPrice, quantity: 1,
-      selectedOptions: sortedOptions.map((o) => ({ id: o.id, name: o.name, priceDelta: o.priceDelta })),
-    })
-  }
+  STATE.cart = CartLines.addUnits(STATE.cart, product, selectedOptions, quantity)
   saveCart()
   renderCart()
 }
@@ -1373,7 +1421,7 @@ function buildConfirmSummaryHtml() {
   const address = elements.address.value.trim()
   const notes = elements.notes.value.trim()
   const shipping = deliveryMode === 'envio' && STATE.selectedLocation && STATE.deliveryCovered ? STATE.shippingCost : 0
-  const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const subtotal = CartLines.subtotal(STATE.cart)
   const total = getOrderTotal()
 
   const itemsHtml = STATE.cart.map((item) => {
@@ -1526,7 +1574,7 @@ function getMissingFields() {
   if (getDeliveryMode() === 'envio') {
     if (!STATE.selectedLocation) missing.push('confirma tu ubicación en el mapa')
     else if (!STATE.deliveryCovered) missing.push('una dirección dentro de la zona de reparto')
-    const subtotal = STATE.cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    const subtotal = CartLines.subtotal(STATE.cart)
     if (getMinOrderShortfall(subtotal) > 0) {
       missing.push(`el pedido mínimo para despacho (${formatPrice(MIN_DELIVERY_ORDER)})`)
     }
@@ -1709,6 +1757,10 @@ window.addEventListener('load', () => {
     }
     const details = event.target.closest('[data-details]')
     if (details) openProductModal(details.getAttribute('data-details'))
+    const quantitySegment = event.target.closest('[data-modal-quantity]')
+    if (quantitySegment) setModalQuantity(Number(quantitySegment.getAttribute('data-modal-quantity')))
+    const quantityStep = event.target.closest('[data-modal-step]')
+    if (quantityStep) setModalQuantity(modalQuantity + Number(quantityStep.getAttribute('data-modal-step')))
     const couponSlide = event.target.closest('[data-coupon-code]')
     if (couponSlide) {
       elements.couponCode.value = couponSlide.getAttribute('data-coupon-code')

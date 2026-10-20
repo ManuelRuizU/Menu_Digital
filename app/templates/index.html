@@ -252,6 +252,7 @@
     <div id="product-modal-description" class="hint"></div>
     <div id="product-modal-options"></div>
     <div class="price" id="product-modal-price"></div>
+    <div id="product-modal-quantity" class="modal-quantity"></div>
     <p id="product-modal-error" class="modal-error" hidden></p>
     <button type="button" id="product-modal-add" class="button button-primary">Agregar</button>
   </div>
@@ -274,6 +275,7 @@
 {% if not is_closed %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="{{ static_versioned('js/bundle_pricing.js') }}"></script>
+<script src="{{ static_versioned('js/cart_lines.js') }}"></script>
 <script src="{{ static_versioned('js/order_message.js') }}"></script>
 <script src="{{ static_versioned('js/menu.js') }}"></script>
 {% endif %}

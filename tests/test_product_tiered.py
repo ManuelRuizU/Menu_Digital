@@ -1,13 +1,17 @@
 """Quantity pricing ("2 por $4.990, 3 por $6.990") configured from the product editor:
 creating, replacing and removing the product's own tiered BundlePromo, its validations
 against the price being saved, who may change it, and deleting a product that has it."""
+import json
 from datetime import datetime, timedelta
 from html import unescape
+from pathlib import Path
+
+import pytest
 
 from werkzeug.security import generate_password_hash
 
-from app.models import (BUSINESS_TZ, BundlePromo, BundlePromoTier, Category, Order, Product, ProductOption,
-                        ProductOptionGroup, User)
+from app.models import (BUSINESS_TZ, BundlePromo, BundlePromoTier, Category, Order, OrderItem, Product,
+                        ProductOption, ProductOptionGroup, User)
 
 UNIT = 2990
 
@@ -53,12 +57,16 @@ def _create_tiered_promo(db, products, tiers=((2, 4990), (3, 6990)), label='Prec
 
 
 def _form(db, name='Hand roll pollo', price=UNIT, tiers=(('2', '4990'), ('3', '6990'), ('', ''), ('', '')),
-          **overrides):
-    """The product form as the owner's browser sends it: every tier row, blank ones too."""
+          enabled=True, featured='1', **overrides):
+    """The product form as the owner's browser sends it: every tier row, blank ones too,
+    the switch (an unchecked checkbox isn't sent) and the featured-price select."""
     data = {'name': name, 'description': 'Test', 'price': str(price), 'category_id': str(_category(db).id)}
     if tiers is not None:
         data['tier_quantity'] = [q for q, _price in tiers]
         data['tier_price'] = [price for _q, price in tiers]
+        data['featured_quantity'] = featured
+        if enabled:
+            data['tiered_enabled'] = 'on'
     data.update(overrides)
     return data
 
@@ -96,14 +104,23 @@ def test_new_product_with_tiers_creates_its_own_permanent_tiered_promo(client, d
     assert (promo.buy_quantity, promo.pay_quantity) == (None, None)
 
 
-def test_blank_rows_and_no_promo_creates_nothing(client, db):
+def test_switch_off_and_no_promo_creates_nothing(client, db):
     _register_owner(client)
 
-    client.post('/admin/products/new', data=_form(db, tiers=(('', ''), ('', ''))))
+    # Off, even with rows typed: only the regular price.
+    client.post('/admin/products/new', data=_form(db, enabled=False))
 
     assert Product.query.count() == 1
     assert BundlePromo.query.count() == 0
 
+
+def test_switch_on_without_any_tier_asks_for_one(client, db):
+    _register_owner(client)
+
+    resp = client.post('/admin/products/new', data=_form(db, tiers=(('', ''), ('', ''))), follow_redirects=True)
+
+    assert 'Agrega al menos un nivel (ej. 2 por $4.990), o apaga el precio por cantidad.' in _text(resp)
+    assert Product.query.count() == 0
 
 def test_editing_replaces_the_tiers_keeping_a_quantity(client, db):
     # Old and new tier share quantity 2: replacing them must not trip unique(promo_id, quantity).
@@ -119,17 +136,66 @@ def test_editing_replaces_the_tiers_keeping_a_quantity(client, db):
     assert BundlePromoTier.query.count() == 1
 
 
-def test_clearing_every_row_removes_the_promo(client, db):
+def test_switching_off_keeps_the_tiers_and_stops_the_discount(client, db, order_payload):
     _register_owner(client)
     product = _create_product(db)
-    _create_tiered_promo(db, [product])
+    promo = _create_tiered_promo(db, [product], featured_quantity=3)
 
-    _edit(client, product, _form(db, tiers=(('', ''), ('', ''), ('', ''), ('', ''))))
+    # Off with the rows edited in the same save: the saved tiers win, untouched.
+    _edit(client, product, _form(db, enabled=False, tiers=(('2', '4000'), ('', ''))))
 
-    assert BundlePromo.query.count() == 0
-    assert BundlePromoTier.query.count() == 0
-    assert Product.query.count() == 1
+    db.session.expire_all()
+    promo = BundlePromo.query.one()
+    assert promo.is_active is False
+    assert _tiers(promo) == [(2, 4990), (3, 6990)]
+    assert promo.featured_quantity == 3
+    assert client.get('/api/bundle-promos').get_json() == []
 
+    client.post('/api/orders', json=order_payload(items=[{'id': product.id, 'quantity': 3}], phone='56911112222'))
+    order = Order.query.one()
+    assert (order.bundle_discount_amount, order.total_price) == (0, 3 * UNIT)
+
+
+def test_the_editor_shows_switched_off_tiers_ready_to_switch_back_on(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_tiered_promo(db, [product], is_active=False, featured_quantity=3)
+
+    html = client.get(f'/admin/products/{product.id}/edit').data.decode()
+
+    assert 'id="tiered_enabled" name="tiered_enabled" >' in html  # unchecked
+    assert 'value="6990"' in html
+    assert '<option value="3" selected>3 x $6990</option>' in html
+
+
+def test_switching_back_on_restores_the_tiers(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    promo = _create_tiered_promo(db, [product], is_active=False, featured_quantity=3)
+
+    # What the editor sends when the owner just flips the switch: the saved rows as shown.
+    _edit(client, product, _form(db, featured='3'))
+
+    db.session.refresh(promo)
+    assert promo.is_active is True
+    assert _tiers(promo) == [(2, 4990), (3, 6990)]
+    assert promo.featured_quantity == 3
+    assert [p['id'] for p in client.get('/api/bundle-promos').get_json()] == [promo.id]
+
+
+def test_a_price_change_while_switched_off_is_checked_when_switching_back_on(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_tiered_promo(db, [product], is_active=False)
+
+    # Off: its tiers don't apply, so a price that breaks them doesn't block saving.
+    _edit(client, product, _form(db, price=2000, enabled=False))
+    db.session.refresh(product)
+    assert product.price == 2000
+
+    resp = _edit(client, product, _form(db, price=2000))
+    assert 'debe costar menos de $4000' in _text(resp)
+    assert BundlePromo.query.one().is_active is False
 
 def test_a_post_without_tier_fields_leaves_the_promo_alone(client, db):
     _register_owner(client)
@@ -153,18 +219,103 @@ def test_renaming_the_product_renames_the_promo(client, db):
     assert BundlePromo.query.one().label == 'Precio por cantidad - Hand roll pollo teriyaki'
 
 
-def test_saving_makes_a_dated_or_inactive_promo_permanent_and_active(client, db):
+def test_saving_with_the_switch_on_makes_a_dated_promo_permanent(client, db):
     _register_owner(client)
     product = _create_product(db)
-    promo = _create_tiered_promo(db, [product], is_active=False)
-
-    html = client.get(f'/admin/products/{product.id}/edit').data.decode()
-    assert 'Al guardar queda permanente y activo' in html
+    promo = _create_tiered_promo(db, [product], valid_until=_today() + timedelta(days=3))
 
     _edit(client, product, _form(db))
+
     db.session.refresh(promo)
     assert (promo.is_active, promo.valid_from, promo.valid_until) == (True, None, None)
 
+
+# --- the featured price ---
+
+def test_the_featured_tier_is_saved_and_sent_to_the_menu(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+
+    _edit(client, product, _form(db, featured='3'))
+
+    promo = BundlePromo.query.one()
+    assert promo.featured_quantity == 3
+    assert client.get('/api/bundle-promos').get_json()[0]['featuredQuantity'] == 3
+
+
+def test_a_featured_quantity_that_is_not_a_tier_is_rejected(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_tiered_promo(db, [product], featured_quantity=2)
+
+    for featured in ('5', '0', 'abc', '-3'):
+        resp = _edit(client, product, _form(db, featured=featured, tiers=(('2', '4500'), ('3', '6990'))))
+        assert 'debe ser "Suelto" o uno de los niveles' in _text(resp), featured
+
+    db.session.expire_all()
+    promo = BundlePromo.query.one()
+    assert (promo.featured_quantity, _tiers(promo)) == (2, [(2, 4990), (3, 6990)])
+
+
+def test_deleting_the_featured_tier_goes_back_to_the_single_price(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_tiered_promo(db, [product], featured_quantity=3)
+
+    # Without JS the select still says 3, but the owner emptied that row.
+    resp = _edit(client, product, _form(db, featured='3', tiers=(('2', '4990'), ('', ''))))
+
+    assert 'Quitaste el nivel de 3, que era el destacado' in _text(resp)
+    promo = BundlePromo.query.one()
+    assert (promo.featured_quantity, _tiers(promo)) == (1, [(2, 4990)])
+
+
+def test_a_new_product_can_feature_a_tier_typed_in_the_same_save(client, db):
+    _register_owner(client)
+
+    client.post('/admin/products/new', data=_form(db, featured='2'))
+
+    assert BundlePromo.query.one().featured_quantity == 2
+
+
+# --- warning: variants that look like the old hand-made packs ---
+
+def _add_group(db, product, name, options):
+    group = ProductOptionGroup(product_id=product.id, name=name, required=False, multi_select=False)
+    db.session.add(group)
+    db.session.flush()
+    db.session.add_all([ProductOption(group_id=group.id, name=n, price_delta=delta) for n, delta in options])
+    db.session.commit()
+    return group
+
+
+PACK_WARNING = 'Este grupo suma al precio; si era un pack, bórralo: el precio por cantidad ya lo cubre.'
+
+
+def test_warns_on_a_paid_group_that_looks_like_quantities(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_tiered_promo(db, [product])
+    _add_group(db, product, 'full', [('precio', 0), ('2x', 5000), ('3X', 6000)])
+    _add_group(db, product, 'Pack', [('x6', 9000)])
+
+    html = _text(client.get(f'/admin/products/{product.id}/edit'))
+
+    assert html.count(PACK_WARNING) == 2
+
+
+def test_no_pack_warning_for_regular_variants_free_ones_or_when_switched_off(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    promo = _create_tiered_promo(db, [product])
+    _add_group(db, product, 'Extras', [('Extra palta', 500), ('Xtra queso', 700)])
+    _add_group(db, product, 'Relleno', [('3 quesos', 0)])
+    assert PACK_WARNING not in _text(client.get(f'/admin/products/{product.id}/edit'))
+
+    _add_group(db, product, 'full', [('2x', 5000)])
+    promo.is_active = False
+    db.session.commit()
+    assert PACK_WARNING not in _text(client.get(f'/admin/products/{product.id}/edit'))
 
 # --- validation ---
 
@@ -296,6 +447,29 @@ def test_one_product_with_three_free_fillings_counts_as_three_units(client, db, 
     assert order.total_price == 6990
 
 
+MODAL_CASES = json.loads((Path(__file__).parent / 'fixtures' / 'modal_cases.json').read_text(encoding='utf-8'))['cases']
+
+
+@pytest.mark.parametrize('case', MODAL_CASES, ids=[c['name'] for c in MODAL_CASES])
+def test_the_server_charges_what_the_modal_and_the_cart_said(client, db, order_payload, case):
+    # The same vectors tests/js/cart_lines.test.js runs through the modal and the cart:
+    # one line of `quantity` units (what "Agregar N" sends) is stored as quantity=N, and
+    # the order total is the modal's total.
+    _register_owner(client)
+    product = _create_product(db, 'Cheesecake', price=case['unit'])
+    _create_tiered_promo(db, [product], tiers=[tuple(tier) for tier in case['tiers']])
+    item = {'id': product.id, 'quantity': case['quantity']}
+    if case['extra_per_unit']:
+        group = _add_group(db, product, 'Extras', [('Extra', case['extra_per_unit'])])
+        item['options'] = [group.options[0].id]
+
+    resp = client.post('/api/orders', json=order_payload(items=[item], phone='56911112222'))
+
+    assert resp.get_json()['ok'] is True
+    assert OrderItem.query.one().quantity == case['quantity']
+    assert Order.query.one().total_price == case['expected_total']
+
+
 # --- the form ---
 
 def test_form_shows_saved_tiers_with_their_saving_and_blank_rows(client, db):
@@ -305,10 +479,11 @@ def test_form_shows_saved_tiers_with_their_saving_and_blank_rows(client, db):
 
     html = client.get(f'/admin/products/{product.id}/edit').data.decode()
 
-    assert 'Precio por cantidad (opcional)' in html
+    assert 'id="tiered_enabled" name="tiered_enabled" checked' in html
     assert 'ahorra $990' in html   # 2 x 2990 - 4990
     assert 'ahorra $1980' in html  # 3 x 2990 - 6990
-    assert html.count('name="tier_quantity"') == 4  # 2 saved + 2 blank
+    assert html.count('<input name="tier_quantity"') == 4  # 2 saved + 2 blank
+    assert '+ Agregar nivel' in html
 
 
 def test_new_product_form_offers_blank_rows(client, db):
@@ -317,7 +492,8 @@ def test_new_product_form_offers_blank_rows(client, db):
 
     html = client.get('/admin/products/new').data.decode()
 
-    assert html.count('name="tier_quantity"') == 2
+    assert html.count('<input name="tier_quantity"') == 2
+    assert 'id="tiered_enabled" name="tiered_enabled" >' in html  # off by default
 
 
 def test_a_legacy_shared_promo_is_read_only_and_untouched(client, db):
@@ -327,7 +503,7 @@ def test_a_legacy_shared_promo_is_read_only_and_untouched(client, db):
 
     html = _text(client.get(f'/admin/products/{pollo.id}/edit'))
     assert 'compartido con' in html and 'Hand roll salmón' in html
-    assert 'name="tier_quantity"' not in html
+    assert '<input name="tier_quantity"' not in html
 
     # Even a crafted POST with tiers doesn't create a second promo or change the shared one.
     _edit(client, pollo, _form(db, tiers=(('2', '4000'),)))
@@ -346,7 +522,7 @@ def test_staff_sees_the_tiers_read_only_and_cannot_change_them(client, db):
 
     html = _text(client.get(f'/admin/products/{product.id}/edit'))
     assert 'Solo el dueño puede cambiarlo' in html
-    assert 'name="tier_quantity"' not in html
+    assert '<input name="tier_quantity"' not in html
 
     _edit(client, product, _form(db, tiers=(('', ''),)))       # would remove it
     _edit(client, product, _form(db, tiers=(('2', '4000'),)))  # would change it

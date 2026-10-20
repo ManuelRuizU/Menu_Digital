@@ -1,0 +1,175 @@
+{
+  "_comment": "Adding `quantity` units of one product from the menu's modal: what the modal's button says (BundlePricing.modalTotal), what the cart charges for that single line (CartLines + bundleDiscounts) and what the server stores as the order total must all be expected_total. Read by tests/js/cart_lines.test.js and tests/test_product_tiered.py.",
+  "cases": [
+    {
+      "name": "1 unidades",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 0,
+      "quantity": 1,
+      "expected_total": 3500
+    },
+    {
+      "name": "2 unidades",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 0,
+      "quantity": 2,
+      "expected_total": 6500
+    },
+    {
+      "name": "3 unidades",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 0,
+      "quantity": 3,
+      "expected_total": 8990
+    },
+    {
+      "name": "4 unidades",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 0,
+      "quantity": 4,
+      "expected_total": 12490
+    },
+    {
+      "name": "5 unidades",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 0,
+      "quantity": 5,
+      "expected_total": 15490
+    },
+    {
+      "name": "1 unidades con variante +500",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 500,
+      "quantity": 1,
+      "expected_total": 4000
+    },
+    {
+      "name": "2 unidades con variante +500",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 500,
+      "quantity": 2,
+      "expected_total": 7500
+    },
+    {
+      "name": "3 unidades con variante +500",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 500,
+      "quantity": 3,
+      "expected_total": 10490
+    },
+    {
+      "name": "4 unidades con variante +500",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 500,
+      "quantity": 4,
+      "expected_total": 14490
+    },
+    {
+      "name": "5 unidades con variante +500",
+      "unit": 3500,
+      "tiers": [
+        [
+          2,
+          6500
+        ],
+        [
+          3,
+          8990
+        ]
+      ],
+      "extra_per_unit": 500,
+      "quantity": 5,
+      "expected_total": 17990
+    }
+  ]
+}

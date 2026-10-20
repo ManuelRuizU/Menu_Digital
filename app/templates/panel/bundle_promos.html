@@ -65,7 +65,7 @@
                 · {{ tier.quantity }} por ${{ '%.0f'|format(tier.total_price) }}
                 {% if base %}(ahorra ${{ '%.0f'|format(tier.quantity * base - tier.total_price) }}){% endif %}
               {% endfor %}
-              {% if not promo.is_active %}· inactivo{% endif %}
+              {% if not promo.is_active %}· apagado{% endif %}
             </span>
           </div>
         </div>
