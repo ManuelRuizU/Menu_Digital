@@ -8,58 +8,25 @@
 
       <label for="label">Nombre (para identificarla en el panel)</label>
       <input id="label" name="label" required value="{{ promo.label if promo else '' }}"
-             placeholder="Ej. 2x1 en bebidas · Hand rolls 2 por $4.990">
+             placeholder="Ej. 2x1 en bebidas">
 
-      {% if promo %}
-        {# The kind is fixed once created - switching would leave the other kind's fields half-filled. #}
-        <input type="hidden" id="kind" value="{{ promo.kind }}">
-        <p><strong>Tipo:</strong> {{ 'Lleva N, paga M (2x1, 3x2)' if promo.kind == 'buy_pay' else 'Precio por cantidad (2 por $X, 3 por $Y)' }}</p>
-        <p class="muted">El tipo no se puede cambiar. Si necesitas el otro, crea una promoción nueva.</p>
-      {% else %}
-        <label for="kind">Tipo de promoción</label>
-        <select id="kind" name="kind" required>
-          <option value="buy_pay">Lleva N, paga M (2x1, 3x2)</option>
-          <option value="tiered">Precio por cantidad (2 por $X, 3 por $Y)</option>
-        </select>
-      {% endif %}
+      <p class="muted">
+        Para "2 por $X, 3 por $Y" en un producto, configúralo en el editor de ese producto
+        (sección "Precio por cantidad").
+      </p>
 
-      <div id="buy-pay-fields">
-        <label for="buy_quantity">Lleva (cantidad de productos elegibles)</label>
-        <input id="buy_quantity" name="buy_quantity" type="number" step="1" min="2" required
-               value="{{ promo.buy_quantity if promo and promo.buy_quantity is not none else '' }}" placeholder="Ej. 2">
+      <label for="buy_quantity">Lleva (cantidad de productos elegibles)</label>
+      <input id="buy_quantity" name="buy_quantity" type="number" step="1" min="2" required
+             value="{{ promo.buy_quantity if promo and promo.buy_quantity is not none else '' }}" placeholder="Ej. 2">
 
-        <label for="pay_quantity">Paga (cuántos de esos cobra)</label>
-        <input id="pay_quantity" name="pay_quantity" type="number" step="1" min="1" required
-               value="{{ promo.pay_quantity if promo and promo.pay_quantity is not none else '' }}" placeholder="Ej. 1">
-        <p class="muted">
-          Ej. "2x1" = Lleva 2, paga 1. "3x2" = Lleva 3, paga 2. El o los productos más baratos
-          del grupo completo salen gratis - si el cliente lleva de a pares/tríos, el resto (sin
-          completar el grupo) se cobra normal.
-        </p>
-      </div>
-
-      <div id="tiered-fields">
-        <label>Niveles de precio</label>
-        <p class="muted">
-          Cuánto cuestan N unidades juntas, combinando cualquiera de los productos elegibles
-          (ej. 2 por $4.990, 3 por $6.990). Todos los productos deben tener el mismo precio
-          normal, y cada nivel debe costar menos que comprarlos sueltos. Las variantes con
-          costo extra se cobran aparte, completas. Deja vacías las filas que no uses.
-        </p>
-        {% set base = promo.common_base_price if promo else none %}
-        {% for quantity, total_price in tier_rows %}
-          <div class="tier-row">
-            <input name="tier_quantity" type="number" step="1" min="2" placeholder="Cantidad (ej. 2)"
-                   value="{{ quantity if quantity is not none else '' }}" aria-label="Cantidad del nivel">
-            <span>por $</span>
-            <input name="tier_price" type="number" step="1" min="1" placeholder="Precio total (ej. 4990)"
-                   value="{{ total_price if total_price is not none else '' }}" aria-label="Precio total del nivel">
-            {% if quantity and base %}
-              <span class="muted">ahorra ${{ '%.0f'|format(quantity * base - total_price) }}</span>
-            {% endif %}
-          </div>
-        {% endfor %}
-      </div>
+      <label for="pay_quantity">Paga (cuántos de esos cobra)</label>
+      <input id="pay_quantity" name="pay_quantity" type="number" step="1" min="1" required
+             value="{{ promo.pay_quantity if promo and promo.pay_quantity is not none else '' }}" placeholder="Ej. 1">
+      <p class="muted">
+        Ej. "2x1" = Lleva 2, paga 1. "3x2" = Lleva 3, paga 2. El o los productos más baratos
+        del grupo completo salen gratis - si el cliente lleva de a pares/tríos, el resto (sin
+        completar el grupo) se cobra normal.
+      </p>
 
       <label for="product_ids">Productos elegibles</label>
       <select id="product_ids" name="product_ids" multiple size="8" required>
@@ -83,26 +50,4 @@
 
       <button type="submit">Guardar promoción</button>
     </form>
-
-    <script>
-      (function () {
-        const kind = document.getElementById('kind');
-        const buyPay = document.getElementById('buy-pay-fields');
-        const tiered = document.getElementById('tiered-fields');
-
-        // A hidden field must also be disabled: otherwise its "required" blocks the submit,
-        // and a disabled input isn't sent at all.
-        function showField(field, visible) {
-          field.style.display = visible ? 'block' : 'none';
-          field.querySelectorAll('input').forEach(function (input) { input.disabled = !visible; });
-        }
-
-        function toggleKindFields() {
-          showField(buyPay, kind.value === 'buy_pay');
-          showField(tiered, kind.value === 'tiered');
-        }
-        kind.addEventListener('change', toggleKindFields);
-        toggleKindFields();
-      })();
-    </script>
 {% endblock %}

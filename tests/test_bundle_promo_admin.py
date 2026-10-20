@@ -1,5 +1,6 @@
-"""Panel for automatic promos: creating/editing buy_pay and tiered promos, their
-validations, the one-active-promo-per-product rule, and the price-mismatch warnings."""
+"""Panel for automatic promos: Promociones creates/edits only buy_pay (2x1/3x2) promos -
+tiered ones are summarised there and edited from their product (test_product_tiered.py) -
+plus the one-active-promo-per-product rule and the price-mismatch warnings."""
 from datetime import date, timedelta
 from html import unescape
 
@@ -31,6 +32,13 @@ def _tiered_form(products, tiers=(('2', '4990'), ('3', '6990')), **overrides):
         'tier_quantity': [q for q, _price in tiers],
         'tier_price': [price for _q, price in tiers],
     }
+    data.update(overrides)
+    return data
+
+
+def _buy_pay_form(products, **overrides):
+    data = {'label': '2x1', 'buy_quantity': '2', 'pay_quantity': '1',
+            'product_ids': [str(p.id) for p in products]}
     data.update(overrides)
     return data
 
@@ -76,98 +84,42 @@ def test_create_buy_pay_promo_still_works(client, db):
     assert (promo.kind, promo.buy_quantity, promo.pay_quantity, promo.tiers) == ('buy_pay', 2, 1, [])
 
 
-def test_create_requires_choosing_a_kind(client, db):
+def test_create_without_a_kind_is_a_buy_pay(client, db):
+    # The form no longer sends a kind - Promociones only makes 2x1/3x2.
     _register_owner(client)
     product = _create_product(db)
 
-    resp = _post_new(client, {'label': 'X', 'buy_quantity': '2', 'pay_quantity': '1', 'product_ids': [str(product.id)]})
-
-    assert 'elige el tipo de promoción'.encode() in resp.data
-    assert BundlePromo.query.count() == 0
-
-
-def test_create_tiered_promo_saves_sorted_tiers_and_no_buy_pay(client, db):
-    _register_owner(client)
-    pollo, salmon = _create_product(db, 'Hand roll pollo'), _create_product(db, 'Hand roll salmón')
-
-    # Rows out of order, plus the blank extra rows the form always sends.
-    _post_new(client, _tiered_form([pollo, salmon], tiers=(('3', '6990'), ('', ''), ('2', '4990'), ('', ''))))
+    _post_new(client, _buy_pay_form([product]))
 
     promo = BundlePromo.query.one()
-    assert promo.kind == 'tiered'
-    assert (promo.buy_quantity, promo.pay_quantity) == (None, None)
-    assert [(t.quantity, t.total_price) for t in promo.tiers] == [(2, 4990), (3, 6990)]
-    assert {p.id for p in promo.products} == {pollo.id, salmon.id}
+    assert (promo.kind, promo.buy_quantity, promo.pay_quantity) == ('buy_pay', 2, 1)
 
 
-def test_tiered_rejects_missing_or_malformed_tiers(client, db):
-    _register_owner(client)
-    product = _create_product(db)
-    cases = {
-        (('', ''),): 'Agrega al menos un nivel',
-        (('2', ''),): 'Cada nivel necesita',
-        (('', '4990'),): 'Cada nivel necesita',
-        (('1', '2000'),): 'Cada nivel necesita',
-        (('2', '0'),): 'Cada nivel necesita',
-        (('2', '4990'), ('2', '4500')): 'No puedes repetir',
-    }
-    for tiers, message in cases.items():
-        resp = _post_new(client, _tiered_form([product], tiers=tiers))
-        assert message.encode() in resp.data, tiers
-    assert BundlePromo.query.count() == 0
-
-
-def test_tiered_rejects_products_with_different_prices_listing_them(client, db):
-    _register_owner(client)
-    pollo = _create_product(db, 'Hand roll pollo', price=UNIT)
-    premium = _create_product(db, 'Hand roll premium', price=3490)
-
-    resp = _post_new(client, _tiered_form([pollo, premium]))
-
-    html = resp.data.decode()
-    assert 'deben tener el mismo precio' in html
-    assert 'Hand roll pollo ($2990)' in html and 'Hand roll premium ($3490)' in html
-    assert BundlePromo.query.count() == 0
-
-
-def test_tiered_rejects_a_tier_that_is_not_cheaper_than_singles(client, db):
+def test_a_crafted_tiered_post_never_creates_a_tiered_promo(client, db):
+    # Quantity pricing moved to the product editor: kind=tiered from here is ignored.
     _register_owner(client)
     product = _create_product(db)
 
-    resp = _post_new(client, _tiered_form([product], tiers=(('2', '5980'),)))  # exactly 2 x 2990
-
-    assert 'El nivel de 2 debe costar menos de $5980'.encode() in resp.data
+    resp = _post_new(client, _tiered_form([product]))  # no buy/pay numbers
+    assert 'Completa una combinación válida'.encode() in resp.data
     assert BundlePromo.query.count() == 0
+
+    _post_new(client, _tiered_form([product], buy_quantity='3', pay_quantity='2'))
+    promo = BundlePromo.query.one()
+    assert (promo.kind, promo.buy_quantity, promo.pay_quantity, promo.tiers) == ('buy_pay', 3, 2, [])
+
+
+def test_form_no_longer_offers_tiered(client, db):
+    _register_owner(client)
+
+    html = client.get('/admin/bundle-promos/new').data.decode()
+
+    assert 'name="kind"' not in html
+    assert 'tier_quantity' not in html
+    assert 'Precio por cantidad' in html  # points the owner to the product editor
 
 
 # --- editing ---
-
-def test_edit_tiered_changing_a_price_keeps_the_same_quantity(client, db):
-    # Old and new tier share quantity 2: replacing them must not trip unique(promo_id, quantity).
-    _register_owner(client)
-    product = _create_product(db)
-    promo = _create_tiered_promo(db, [product])
-
-    client.post(f'/admin/bundle-promos/{promo.id}/edit',
-                data=_tiered_form([product], tiers=(('2', '4500'), ('3', '6990'))))
-
-    db.session.expire_all()
-    promo = BundlePromo.query.one()
-    assert [(t.quantity, t.total_price) for t in promo.tiers] == [(2, 4500), (3, 6990)]
-
-
-def test_edit_tiered_can_drop_a_tier(client, db):
-    _register_owner(client)
-    product = _create_product(db)
-    promo = _create_tiered_promo(db, [product])
-
-    client.post(f'/admin/bundle-promos/{promo.id}/edit',
-                data=_tiered_form([product], tiers=(('2', '4990'), ('', ''))))
-
-    db.session.expire_all()
-    assert [(t.quantity, t.total_price) for t in BundlePromo.query.one().tiers] == [(2, 4990)]
-    assert BundlePromoTier.query.count() == 1
-
 
 def test_edit_never_changes_the_kind(client, db):
     _register_owner(client)
@@ -184,28 +136,39 @@ def test_edit_never_changes_the_kind(client, db):
     assert (promo.kind, promo.buy_quantity, promo.pay_quantity, promo.tiers) == ('buy_pay', 3, 2, [])
 
 
-def test_form_offers_kind_only_when_creating(client, db):
+def test_editing_a_tiered_promo_goes_to_its_product(client, db):
     _register_owner(client)
     product = _create_product(db)
     promo = _create_tiered_promo(db, [product])
 
-    new_html = client.get('/admin/bundle-promos/new').data.decode()
-    edit_html = client.get(f'/admin/bundle-promos/{promo.id}/edit').data.decode()
+    for method in (client.get, client.post):
+        resp = method(f'/admin/bundle-promos/{promo.id}/edit', data=_tiered_form([product], tiers=(('2', '100'),)))
+        assert resp.status_code == 302
+        assert resp.headers['Location'].endswith(f'/admin/products/{product.id}/edit')
 
-    assert '<select id="kind" name="kind"' in new_html
-    assert '<select id="kind"' not in edit_html
-    assert 'El tipo no se puede cambiar' in edit_html
+    db.session.expire_all()
+    assert [(t.quantity, t.total_price) for t in BundlePromo.query.one().tiers] == [(2, 4990), (3, 6990)]
 
 
-def test_edit_form_shows_saving_next_to_each_tier(client, db):
+def test_a_legacy_shared_tiered_promo_is_not_editable(client, db):
     _register_owner(client)
-    product = _create_product(db)
-    promo = _create_tiered_promo(db, [product])
+    pollo, salmon = _create_product(db, 'Hand roll pollo'), _create_product(db, 'Hand roll salmón')
+    promo = _create_tiered_promo(db, [pollo, salmon])
 
-    html = client.get(f'/admin/bundle-promos/{promo.id}/edit').data.decode()
+    resp = client.get(f'/admin/bundle-promos/{promo.id}/edit', follow_redirects=True)
 
-    assert 'ahorra $990' in html   # 2 x 2990 - 4990
-    assert 'ahorra $1980' in html  # 3 x 2990 - 6990
+    assert 'ya no se edita' in _text(resp)
+
+
+def test_a_tiered_promo_cannot_be_toggled_from_promociones(client, db):
+    _register_owner(client)
+    promo = _create_tiered_promo(db, [_create_product(db)])
+
+    resp = client.post(f'/admin/bundle-promos/{promo.id}/toggle-active', follow_redirects=True)
+
+    assert 'se activa o quita desde el producto' in _text(resp)
+    db.session.refresh(promo)
+    assert promo.is_active is True
 
 
 # --- one active promo per product, for overlapping dates ---
@@ -213,11 +176,11 @@ def test_edit_form_shows_saving_next_to_each_tier(client, db):
 def test_product_cannot_join_a_second_active_promo_with_overlapping_dates(client, db):
     _register_owner(client)
     product = _create_product(db)
-    _create_buy_pay_promo(db, [product], label='2x1 viejo')
+    _create_tiered_promo(db, [product], label='Precio por cantidad - Hand roll pollo')
 
-    resp = _post_new(client, _tiered_form([product]))
+    resp = _post_new(client, _buy_pay_form([product]))
 
-    assert '"Hand roll pollo" ya está en la promo "2x1 viejo"' in _text(resp)
+    assert '"Hand roll pollo" ya está en la promo "Precio por cantidad - Hand roll pollo"' in _text(resp)
     assert BundlePromo.query.count() == 1
 
 
@@ -227,7 +190,7 @@ def test_product_can_join_another_promo_when_dates_do_not_overlap(client, db):
     today = date.today()
     _create_buy_pay_promo(db, [product], valid_from=today, valid_until=today + timedelta(days=7))
 
-    _post_new(client, _tiered_form([product], valid_from=(today + timedelta(days=8)).isoformat()))
+    _post_new(client, _buy_pay_form([product], valid_from=(today + timedelta(days=8)).isoformat()))
 
     assert BundlePromo.query.count() == 2
 
@@ -237,7 +200,7 @@ def test_an_inactive_promo_does_not_block_its_products(client, db):
     product = _create_product(db)
     _create_buy_pay_promo(db, [product], is_active=False)
 
-    _post_new(client, _tiered_form([product]))
+    _post_new(client, _buy_pay_form([product]))
 
     assert BundlePromo.query.count() == 2
 
@@ -245,9 +208,9 @@ def test_an_inactive_promo_does_not_block_its_products(client, db):
 def test_editing_a_promo_does_not_conflict_with_itself(client, db):
     _register_owner(client)
     product = _create_product(db)
-    promo = _create_tiered_promo(db, [product])
+    promo = _create_buy_pay_promo(db, [product])
 
-    resp = client.post(f'/admin/bundle-promos/{promo.id}/edit', data=_tiered_form([product], label='Renombrada'),
+    resp = client.post(f'/admin/bundle-promos/{promo.id}/edit', data=_buy_pay_form([product], label='Renombrada'),
                        follow_redirects=True)
 
     assert 'Promoción guardada'.encode() in resp.data
@@ -257,19 +220,30 @@ def test_editing_a_promo_does_not_conflict_with_itself(client, db):
 def test_activating_a_promo_that_would_overlap_is_blocked(client, db):
     _register_owner(client)
     product = _create_product(db)
-    _create_buy_pay_promo(db, [product], label='2x1 activo')
-    dormant = _create_tiered_promo(db, [product], label='Por cantidad', is_active=False)
+    _create_tiered_promo(db, [product], label='Precio por cantidad - Hand roll pollo')
+    dormant = _create_buy_pay_promo(db, [product], label='2x1', is_active=False)
 
     resp = client.post(f'/admin/bundle-promos/{dormant.id}/toggle-active', follow_redirects=True)
 
-    assert 'ya está en la promo "2x1 activo"' in _text(resp)
+    assert 'ya está en la promo "Precio por cantidad - Hand roll pollo"' in _text(resp)
     db.session.refresh(dormant)
     assert dormant.is_active is False
 
 
-# --- warnings: listing and product edit ---
+# --- listing and warnings ---
 
-def test_listing_flags_a_tiered_promo_whose_prices_drifted(client, db):
+def test_listing_separates_quantity_pricing_and_links_to_the_product(client, db):
+    _register_owner(client)
+    product = _create_product(db)
+    _create_tiered_promo(db, [product])
+
+    html = client.get('/admin/bundle-promos').data.decode()
+
+    assert f'/admin/products/{product.id}/edit' in html
+    assert 'Ningún producto tiene precio por cantidad' not in html
+
+
+def test_listing_flags_a_legacy_shared_tiered_promo_whose_prices_drifted(client, db):
     _register_owner(client)
     pollo = _create_product(db, 'Hand roll pollo')
     premium = _create_product(db, 'Hand roll premium')
@@ -279,8 +253,9 @@ def test_listing_flags_a_tiered_promo_whose_prices_drifted(client, db):
 
     html = client.get('/admin/bundle-promos').data.decode()
 
-    assert 'No se está aplicando: precios distintos' in html
-    assert 'Hand roll pollo ($2990)' in html and 'Hand roll premium ($3490)' in html
+    assert 'compartido entre varios productos' in html
+    assert 'no se está aplicando: precios distintos' in html
+    assert 'Hand roll pollo $2990' in html and 'Hand roll premium $3490' in html
 
 
 def test_listing_shows_tiers_with_savings_when_prices_match(client, db):

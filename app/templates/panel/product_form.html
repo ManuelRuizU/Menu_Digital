@@ -25,6 +25,48 @@
         quieras destacar en el banner de arriba del menú.
       </p>
 
+      <label>Precio por cantidad (opcional)</label>
+      {% if legacy_tiered_promos %}
+        <p class="promo-warning">
+          ⚠ Este producto tiene un precio por cantidad antiguo, compartido con
+          {% for promo in legacy_tiered_promos %}{{ promo.products|rejectattr('id', 'equalto', product.id)|map(attribute='name')|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}.
+          Elimínalo en <a href="{{ url_for('catalog.bundle_promos') }}">Promociones</a> para configurarlo aquí.
+        </p>
+      {% elif not can_edit_tiers %}
+        <p class="muted">
+          {% if tiered_promo %}
+            {% for tier in tiered_promo.tiers %}{{ tier.quantity }} por ${{ '%.0f'|format(tier.total_price) }}{% if not loop.last %} · {% endif %}{% endfor %}.
+            Solo el dueño puede cambiarlo.
+          {% else %}
+            Sin precio por cantidad. Solo el dueño puede configurarlo.
+          {% endif %}
+        </p>
+      {% else %}
+        <p class="muted">
+          Ej: 2 handrolls por $4.990. El cliente elige en la carta. Cada nivel debe costar menos que
+          comprar las unidades sueltas; las variantes con costo extra se cobran aparte. Deja todas las
+          filas vacías para quitarlo.
+        </p>
+        {% if tiered_promo and (not tiered_promo.is_active or tiered_promo.valid_from or tiered_promo.valid_until) %}
+          <p class="promo-warning">
+            ⚠ Hoy está {{ 'desactivado' if not tiered_promo.is_active else 'con vigencia limitada' }}.
+            Al guardar queda permanente y activo.
+          </p>
+        {% endif %}
+        {% for quantity, total_price in tier_rows %}
+          <div class="tier-row">
+            <input name="tier_quantity" type="number" step="1" min="2" placeholder="Cantidad (ej. 2)"
+                   value="{{ quantity if quantity is not none else '' }}" aria-label="Cantidad del nivel">
+            <span>por $</span>
+            <input name="tier_price" type="number" step="1" min="1" placeholder="Precio total (ej. 4990)"
+                   value="{{ total_price if total_price is not none else '' }}" aria-label="Precio total del nivel">
+            {% if tiers_saved and quantity and product %}
+              <span class="muted">ahorra ${{ '%.0f'|format(quantity * product.price - total_price) }}</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+
       <label for="category_id">Categoría</label>
       <select id="category_id" name="category_id" required>
         <option value="">Selecciona una categoría</option>
