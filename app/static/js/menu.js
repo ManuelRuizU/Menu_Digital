@@ -36,6 +36,7 @@ function loadSavedCustomer() {
   try {
     const saved = JSON.parse(localStorage.getItem(CUSTOMER_KEY) || '{}')
     if (saved.name) elements.name.value = saved.name
+    if (saved.lastName) elements.lastName.value = saved.lastName
     if (saved.phone) elements.phone.value = saved.phone
     if (saved.address) elements.address.value = saved.address
   } catch {}
@@ -44,6 +45,7 @@ function loadSavedCustomer() {
 function saveCustomer() {
   localStorage.setItem(CUSTOMER_KEY, JSON.stringify({
     name: elements.name.value.trim(),
+    lastName: elements.lastName.value.trim(),
     phone: elements.phone.value.trim(),
     address: elements.address.value.trim(),
   }))
@@ -69,6 +71,7 @@ const elements = {
   total: document.getElementById('total'),
   address: document.getElementById('address'),
   name: document.getElementById('customer-name'),
+  lastName: document.getElementById('customer-last-name'),
   phone: document.getElementById('phone'),
   checkoutBtn: document.getElementById('checkout-btn'),
   checkoutError: document.getElementById('checkout-error'),
@@ -1401,6 +1404,7 @@ function buildWhatsAppText(order) {
   const paymentMethod = getPaymentMethod()
   const customer = {
     name: elements.name.value.trim() || 'Cliente',
+    lastName: elements.lastName.value.trim(),
     phone: elements.phone.value.trim() || 'Sin teléfono',
     deliveryMode: getDeliveryMode(),
     address: elements.address.value.trim() || 'Dirección no definida',
@@ -1414,7 +1418,7 @@ function buildWhatsAppText(order) {
 }
 
 function buildConfirmSummaryHtml() {
-  const name = elements.name.value.trim() || 'Cliente'
+  const name = OrderMessage.fullName(elements.name.value, elements.lastName.value) || 'Cliente'
   const phone = elements.phone.value.trim() || 'Sin teléfono'
   const deliveryMode = getDeliveryMode()
   const paymentMethod = getPaymentMethod()
@@ -1542,6 +1546,9 @@ async function saveOrder() {
           options: (item.selectedOptions || []).map((o) => o.id),
         })),
         customerName: elements.name.value.trim() || 'Cliente',
+        // Always sent, even blank: its presence is what tells the server this form
+        // requires the last name (a page loaded before it existed doesn't send the key).
+        customerLastName: elements.lastName.value.trim(),
         phone: elements.phone.value.trim(),
         address: elements.address.value.trim(),
         deliveryMode,
@@ -1570,6 +1577,7 @@ async function saveOrder() {
 function getMissingFields() {
   const missing = []
   if (!elements.name.value.trim()) missing.push('tu nombre')
+  if (!elements.lastName.value.trim()) missing.push('tu apellido')
   if (!elements.phone.value.trim()) missing.push('tu teléfono')
   if (getDeliveryMode() === 'envio') {
     if (!STATE.selectedLocation) missing.push('confirma tu ubicación en el mapa')
@@ -1602,6 +1610,7 @@ function showCheckoutError(message) {
 function getInvalidCheckoutFields() {
   const invalid = []
   if (!elements.name.value.trim()) invalid.push(elements.name)
+  if (!elements.lastName.value.trim()) invalid.push(elements.lastName)
   if (!elements.phone.value.trim()) invalid.push(elements.phone)
   if (getDeliveryMode() === 'envio' && (!STATE.selectedLocation || !STATE.deliveryCovered)) {
     invalid.push(elements.address)
@@ -1824,7 +1833,7 @@ window.addEventListener('load', () => {
 
   // Clears that field's own highlight and the banner the moment the customer starts
   // fixing it, instead of leaving the error up until they hit "Enviar" again.
-  ;[elements.name, elements.phone, elements.address].forEach((fieldEl) => {
+  ;[elements.name, elements.lastName, elements.phone, elements.address].forEach((fieldEl) => {
     fieldEl.addEventListener('input', () => {
       fieldEl.classList.remove('field-invalid')
       hideCheckoutError()

@@ -14,13 +14,19 @@
     return gift.couponCode ? `cupón ${gift.couponCode}` : `por compra sobre ${formatPrice(gift.threshold)}`
   }
 
+  // "Nombre Apellido" with single spaces (like the server's clean_name), and no stray
+  // space when either is blank.
+  function fullName (name, lastName) {
+    return [name, lastName].join(' ').split(/\s+/).filter(Boolean).join(' ')
+  }
+
   // order: the create_order response. customer: what the customer typed, already read
-  // from the form - { name, phone, deliveryMode, address, paymentLabel, paymentMethod,
-  // cashAmount, requestedTimeLabel, notes }.
+  // from the form - { name, lastName, phone, deliveryMode, address, paymentLabel,
+  // paymentMethod, cashAmount, requestedTimeLabel, notes }.
   function buildWhatsAppLines (order, customer) {
     const lines = [
       'Hola! Quiero hacer un pedido desde el menú digital:',
-      `Nombre: ${customer.name}`,
+      `Nombre: ${fullName(customer.name, customer.lastName)}`,
       `Teléfono: ${customer.phone}`,
       `Tipo: ${customer.deliveryMode === 'envio' ? 'Despacho' : 'Retiro'}`,
     ]
@@ -69,7 +75,7 @@
     return true
   }
 
-  const api = { formatPrice, buildWhatsAppLines, submitOrder }
+  const api = { formatPrice, fullName, buildWhatsAppLines, submitOrder }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.OrderMessage = api
 })(this)

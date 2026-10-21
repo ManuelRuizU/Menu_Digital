@@ -44,7 +44,7 @@
         <summary>
           <span class="order-summary-line">
             {% if order.daily_number is not none %}<strong>#{{ order.daily_number }}</strong> · {% endif %}
-            {{ order.customer_name }} · {{ order.requested_time_label }} ·
+            {{ order.customer_full_name }} · {{ order.requested_time_label }} ·
             {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }} ·
             <strong>${{ '%.0f'|format(order.total_price) }}</strong>
           </span>
@@ -69,7 +69,7 @@
 
           <div class="order-detail-block">
             <p class="order-detail-label">Cliente</p>
-            <p>{{ order.customer_name }}</p>
+            <p>{{ order.customer_full_name }}</p>
             <p><a href="tel:{{ order.phone_digits }}">{{ order.phone }}</a></p>
             {% if order.delivery_mode == 'envio' and order.address %}<p>{{ order.address }}</p>{% endif %}
           </div>

@@ -48,6 +48,7 @@ def order_payload():
         payload = {
             'items': [],
             'customerName': 'Cliente',
+            'customerLastName': 'Prueba',
             'phone': '56911112222',
             'deliveryMode': 'retira',
             'paymentMethod': 'efectivo',

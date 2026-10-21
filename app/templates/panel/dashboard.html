@@ -146,11 +146,11 @@
     <input id="customer-search" type="search" placeholder="Buscar cliente..." style="margin-bottom:16px;">
 
     {% for order in customers %}
-      <div class="card customer-card" data-search="{{ (order.customer_name ~ ' ' ~ order.phone)|lower }}">
+      <div class="card customer-card" data-search="{{ (order.customer_full_name ~ ' ' ~ order.phone)|lower }}">
         <div class="card-row">
           <div>
-            <strong>{{ order.customer_name }}</strong>
-            <span class="muted">· {{ order.phone }} · {{ order_counts.get(order.phone, 1) }} pedido(s)</span>
+            <strong>{{ order.customer_full_name }}</strong>
+            <span class="muted">· {{ order.phone }} · {{ order_counts[order.id] }} pedido(s)</span>
           </div>
           <span class="muted">Último: {{ order.created_at_local.strftime('%d/%m/%Y %H:%M') }}</span>
         </div>

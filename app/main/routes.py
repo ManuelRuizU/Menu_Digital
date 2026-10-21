@@ -11,7 +11,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
-from app.utils import hex_to_rgb, parse_money, validate_order_fields
+from app.utils import customer_name_parts, hex_to_rgb, parse_money, validate_order_fields
 
 
 def get_owner():
@@ -624,7 +624,7 @@ def apply_coupon_api():
 def create_order():
     data = request.get_json(silent=True) or {}
     items = data.get('items', [])
-    customer_name = data.get('customerName')
+    customer_name, customer_last_name = customer_name_parts(data)
     phone = data.get('phone')
     address = data.get('address')
     delivery_mode = data.get('deliveryMode') or 'retira'
@@ -720,6 +720,7 @@ def create_order():
     try:
         order = Order(
             customer_name=customer_name,
+            customer_last_name=customer_last_name,
             phone=phone,
             address=address,
             delivery_mode=delivery_mode,
@@ -783,7 +784,7 @@ def create_order():
         db.session.commit()
     except Exception:
         db.session.rollback()
-        current_app.logger.exception('Failed to save order for %s (%s)', customer_name, phone)
+        current_app.logger.exception('Failed to save order for %s %s (%s)', customer_name, customer_last_name or '', phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
 
     # The cart's own preview, sent only so a drift between menu.js and this code shows

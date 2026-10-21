@@ -71,16 +71,49 @@ def parse_money(data, field, default=None):
         return default
 
 
+CUSTOMER_NAME_MAX_LENGTH = 60
+
+
+def customer_name_parts(data):
+    """(first_name, last_name) from a create_order payload, as they're SAVED (clean_name).
+    last_name is None when the payload has no customerLastName key at all - a menu page
+    loaded before the last name existed, whose order must still go through - and ''
+    when the key is there but blank (the current form, which requires it)."""
+    def text(key):
+        value = data.get(key)
+        return clean_name(value) if isinstance(value, str) else ''
+    last_name = text('customerLastName') if 'customerLastName' in data else None
+    return text('customerName'), last_name
+
+
+def phone_customer_key(phone):
+    """Who a phone number belongs to, for grouping orders by customer: its digits, and
+    for Chile only the last 9 (the mobile number without the 56 country code), so
+    "+56 9 1234 5678", "56912345678" and "912345678" are the same customer."""
+    digits = re.sub(r'\D', '', phone or '')
+    return digits[-9:]
+
+
 def validate_order_fields(data, delivery_mode):
     """Valida los campos obligatorios de un pedido nuevo, antes de tocar la base.
     Devuelve (ok, error_message) - error_message es None si ok es True.
     Reglas: customer_name, phone y requested_time son obligatorios siempre (y
     requested_time debe venir en formato HH:MM - un valor presente pero mal
-    formado no debe colarse silenciosamente como si fuera válido). address es
-    obligatoria solo si delivery_mode == 'envio' (despacho); en retiro es opcional
-    (el negocio ya sabe su propia dirección de retiro)."""
-    if not (data.get('customerName') or '').strip():
+    formado no debe colarse silenciosamente como si fuera válido). El apellido es
+    obligatorio solo si el payload trae la clave customerLastName (la carta actual
+    siempre la manda; una carta abierta antes del deploy no, y ese pedido se acepta).
+    address es obligatoria solo si delivery_mode == 'envio' (despacho); en retiro es
+    opcional (el negocio ya sabe su propia dirección de retiro)."""
+    first_name, last_name = customer_name_parts(data)
+    if not first_name:
         return False, 'Falta indicar el nombre.'
+    if len(first_name) > CUSTOMER_NAME_MAX_LENGTH:
+        return False, 'El nombre es muy largo.'
+    if last_name is not None:
+        if not last_name:
+            return False, 'Falta indicar el apellido.'
+        if len(last_name) > CUSTOMER_NAME_MAX_LENGTH:
+            return False, 'El apellido es muy largo.'
     if not (data.get('phone') or '').strip():
         return False, 'Falta indicar el teléfono.'
     requested_time = (data.get('requestedTime') or '').strip()
