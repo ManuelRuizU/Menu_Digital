@@ -168,8 +168,16 @@
         <details class="accordion-section" open>
           <summary>Tus datos</summary>
           <div class="accordion-body">
-            <label for="customer-name">Nombre</label>
-            <input id="customer-name" type="text" placeholder="Tu nombre" autocomplete="name">
+            <div class="name-fields">
+              <div class="name-field">
+                <label for="customer-name">Nombre</label>
+                <input id="customer-name" type="text" placeholder="Tu nombre" autocomplete="given-name" maxlength="60">
+              </div>
+              <div class="name-field">
+                <label for="customer-last-name">Apellido</label>
+                <input id="customer-last-name" type="text" placeholder="Tu apellido" autocomplete="family-name" maxlength="60">
+              </div>
+            </div>
 
             <label for="phone">Teléfono</label>
             <input id="phone" type="tel" placeholder="56912345678" autocomplete="tel">

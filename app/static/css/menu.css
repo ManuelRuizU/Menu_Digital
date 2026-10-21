@@ -354,6 +354,10 @@ button, input { font: inherit; }
 .accordion-section[open] summary::after { content: '−'; }
 .accordion-body { display: grid; gap: 12px; padding: 0 16px 16px; }
 .accordion-body label { color: var(--muted); font-size: 0.9rem; }
+/* Nombre / Apellido: stacked on a phone, side by side once there's room. */
+.name-fields { display: grid; gap: 12px; }
+.name-field { display: grid; gap: 12px; min-width: 0; }
+@media (min-width: 641px) { .name-fields { grid-template-columns: 1fr 1fr; } }
 .accordion-body input, .accordion-body textarea { width: 100%; border-radius: 16px; border: 1px solid var(--border); background: var(--tint-1); color: var(--text-strong); padding: 14px 16px; font-family: inherit; }
 .delivery-options { display: flex; gap: 8px; flex-wrap: wrap; }
 .delivery-options label {

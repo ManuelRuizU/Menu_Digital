@@ -169,6 +169,9 @@ class ProductOption(db.Model):
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_name = db.Column(db.String(120), nullable=False)
+    # NULL on orders saved before the last name existed (their customer_name may hold the
+    # full name) and on orders sent by a menu page loaded before that deploy.
+    customer_last_name = db.Column(db.String(60), nullable=True)
     phone = db.Column(db.String(30), nullable=False)
     address = db.Column(db.String(255), nullable=True)
     delivery_mode = db.Column(db.String(20), nullable=False, default='retira')
@@ -201,6 +204,10 @@ class Order(db.Model):
     __table_args__ = (
         db.UniqueConstraint('confirmed_date', 'daily_number'),
     )
+
+    @property
+    def customer_full_name(self):
+        return ' '.join(part for part in (self.customer_name, self.customer_last_name) if part)
 
     @property
     def phone_digits(self):

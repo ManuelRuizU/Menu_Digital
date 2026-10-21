@@ -28,7 +28,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BundlePromoTier, BusinessHours
                          DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup,
                          Subcategory, User)
 from app.uploads import save_image
-from app.utils import clean_name, day_range_utc, normalize_name, parse_money
+from app.utils import clean_name, day_range_utc, normalize_name, parse_money, phone_customer_key
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
 ORDER_STATUS_LABELS = {'Pending': 'Pendiente', 'Confirmed': 'Confirmado', 'Cancelled': 'Cancelado'}
@@ -85,7 +85,7 @@ def _build_courier_message(order):
 
     lines = [
         f'Pedido #{order.daily_number}',
-        f'Cliente: {order.customer_name}',
+        f'Cliente: {order.customer_full_name}',
         f'Teléfono: {order.phone}',
         f'Hora: {order.requested_time_label}',
     ]
@@ -173,7 +173,7 @@ def _print_order_ticket(order, owner):
             printer.text('\n')
 
         printer.set(align='left', bold=False)
-        printer.text(f'Cliente: {order.customer_name}\n')
+        printer.text(f'Cliente: {order.customer_full_name}\n')
         printer.text(f'Tel: {order.phone}\n')
         printer.text(f'Hora: {order.requested_time_label}\n')
         if order.delivery_mode == 'envio' and order.address:
@@ -1576,13 +1576,20 @@ def dashboard():
         Order.confirmed_at >= today_start_utc, Order.confirmed_at < today_end_utc,
     ).count()
 
-    last_order_ids = db.session.query(func.max(Order.id)).group_by(Order.phone)
+    # One card per customer, keyed by phone_customer_key (Chile: the last 9 digits) - in
+    # Python, since the same number arrives as "+56 9 ...", "569..." or "9..." and SQL
+    # has no clean way to normalize that. Each card shows that customer's latest order.
+    latest_order_id, orders_per_customer = {}, {}
+    for order_id, phone in db.session.query(Order.id, Order.phone).all():
+        key = phone_customer_key(phone)
+        latest_order_id[key] = max(order_id, latest_order_id.get(key, 0))
+        orders_per_customer[key] = orders_per_customer.get(key, 0) + 1
     customers = (
-        Order.query.filter(Order.id.in_(last_order_ids))
+        Order.query.filter(Order.id.in_(latest_order_id.values()))
         .order_by(Order.created_at.desc())
         .all()
     )
-    order_counts = dict(db.session.query(Order.phone, func.count(Order.id)).group_by(Order.phone).all())
+    order_counts = {order.id: orders_per_customer[phone_customer_key(order.phone)] for order in customers}
     owner = User.query.filter_by(is_owner=True).first()
 
     # Only counts confirmed orders - a pending order might never have actually closed
@@ -1789,7 +1796,7 @@ def _serialize_agenda_order(order, detour_km=None):
         'id': order.id,
         'dailyNumber': order.daily_number,
         'requestedTime': order.requested_time,
-        'customerName': order.customer_name,
+        'customerName': order.customer_full_name,
         'totalPrice': order.total_price,
         'paymentMethod': PAYMENT_METHOD_LABELS.get(order.payment_method, order.payment_method),
         'paymentStatus': PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status),
@@ -1973,7 +1980,7 @@ def export_orders_csv():
     writer.writerow([
         'ID', 'N° del día', 'Fecha', 'Hora pedido', 'Hora sugerida', 'Cliente', 'Teléfono', 'Tipo de entrega',
         'Dirección', 'Productos', 'Forma de pago', 'Monto con que paga', 'Subtotal', 'Envío',
-        'Total', 'Estado', 'Estado de pago', 'Notas',
+        'Total', 'Estado', 'Estado de pago', 'Notas', 'Nombre', 'Apellido',
     ])
     for order in query.all():
         item_lines = []
@@ -1993,7 +2000,7 @@ def export_orders_csv():
             order.created_at_local.strftime('%Y-%m-%d'),
             order.created_at_local.strftime('%H:%M'),
             order.requested_time or '',
-            order.customer_name,
+            order.customer_full_name,
             order.phone,
             'Despacho' if order.delivery_mode == 'envio' else 'Retiro',
             order.address or '',
@@ -2006,6 +2013,8 @@ def export_orders_csv():
             ORDER_STATUS_LABELS.get(order.status, order.status),
             PAYMENT_STATUS_LABELS.get(order.payment_status, order.payment_status),
             order.notes or '',
+            order.customer_name,
+            order.customer_last_name or '',
         ])
 
     filename = f'pedidos_{start or "todos"}_{end or "hoy"}.csv' if (start or end) else 'pedidos.csv'
@@ -2271,7 +2280,7 @@ def send_route():
 
     unconfirmed = [order for order in marked if order.status != 'Confirmed']
     if unconfirmed:
-        names = ', '.join(order.customer_name for order in unconfirmed)
+        names = ', '.join(order.customer_full_name for order in unconfirmed)
         flash(f'Recorrido enviado con {len(orders)} pedidos. '
               f'Quedaron afuera por no estar confirmados: {names}.')
 

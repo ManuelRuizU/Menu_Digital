@@ -3,7 +3,7 @@
 {% macro order_card(order) %}
   <div class="agenda-card">
     <strong class="daily-number">#{{ order.daily_number if order.daily_number is not none else order.id }}</strong>
-    · {{ order.requested_time or 'Sin hora' }} · {{ order.customer_name }}
+    · {{ order.requested_time or 'Sin hora' }} · {{ order.customer_full_name }}
     · {{ 'Despacho' if order.delivery_mode == 'envio' else 'Retiro' }}
     · ${{ '%.0f'|format(order.total_price) }}
     ·

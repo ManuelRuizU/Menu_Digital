@@ -3,7 +3,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('node:path')
 
-const { buildWhatsAppLines, submitOrder, formatPrice } = require(path.join(__dirname, '../../app/static/js/order_message.js'))
+const { buildWhatsAppLines, submitOrder, formatPrice, fullName } = require(path.join(__dirname, '../../app/static/js/order_message.js'))
 
 const customer = {
   name: 'Ana', phone: '56911112222', deliveryMode: 'envio', address: 'Calle 1', paymentLabel: 'Efectivo',
@@ -39,6 +39,18 @@ test('a gift coupon shows its gift line, not a $0 discount line', () => {
   const text = buildWhatsAppLines(giftCouponOrder, customer).join('\n')
   assert.match(text, /• 1× Mochi - de regalo 🎁 \(cupón REGALO\)/)
   assert.doesNotMatch(text, /Descuento \(REGALO\)/)
+})
+
+test('the message names the customer with first and last name', () => {
+  const text = buildWhatsAppLines(order, { ...customer, name: 'Manuel', lastName: 'Ruiz' }).join('\n')
+  assert.match(text, /^Nombre: Manuel Ruiz$/m)
+})
+
+test('no last name (or a blank one) leaves no stray space', () => {
+  assert.match(buildWhatsAppLines(order, customer).join('\n'), /^Nombre: Ana$/m)
+  assert.equal(fullName('Ana', '   '), 'Ana')
+  assert.equal(fullName(' Ana ', ' Soto   Pérez '), 'Ana Soto Pérez')
+  assert.equal(fullName(undefined, 'Soto'), 'Soto')
 })
 
 test('pickup has no shipping line', () => {
