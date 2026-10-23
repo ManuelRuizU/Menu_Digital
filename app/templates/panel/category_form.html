@@ -3,13 +3,25 @@
 {% block content %}
     <h1>Editar categoría</h1>
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <label for="name">Nombre</label>
       <input id="name" name="name" required maxlength="50" value="{{ name }}" placeholder="Ej: Bebidas">
       <p class="muted">
         Así aparece en la carta y en el menú de secciones. Sus subcategorías y productos no cambian.
+      </p>
+
+      <label for="image">Imagen para "Explora el menú" (opcional)</label>
+      {% if category.image_filename %}
+        <img src="{{ url_for('static', filename='uploads/categories/' + category.image_filename) }}" alt=""
+             class="category-image-preview">
+        <label class="checkbox-row"><input type="checkbox" name="remove_image"> Quitar imagen</label>
+      {% endif %}
+      <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp">
+      <p class="muted">
+        Recomendado: 600×400 px (3:2), con el plato al centro. Si no subes una, el recuadro usa la foto
+        del primer producto de la categoría que tenga foto; sin ninguna, se muestra con los colores del tema.
       </p>
 
       <div class="inline-actions">

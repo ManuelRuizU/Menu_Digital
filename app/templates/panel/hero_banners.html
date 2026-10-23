@@ -1,0 +1,58 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Banners{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Banners</h1>
+      <a href="{{ url_for('catalog.new_hero_banner') }}"><button type="button">Nuevo banner</button></a>
+    </div>
+    <p class="muted">
+      El carrusel grande de arriba de la carta. Primero van estos banners, en este orden; después,
+      solos, los cupones marcados "Mostrar en el banner". Activos: {{ active_count }} de {{ max_active }}.
+    </p>
+
+    {% for banner in banners %}
+      <div class="card banner-card">
+        <div class="banner-row">
+          <img class="banner-thumb" src="{{ url_for('static', filename='uploads/banners/' + banner.desktop_image) }}" alt="">
+          <div class="banner-summary">
+            <strong>{{ banner.title or 'Sin título' }}</strong>
+            <span class="muted">
+              {% if not banner.is_active %}Inactivo{% else %}Activo{% endif %}
+              {% if banner.valid_from or banner.valid_until %}
+                · {{ banner.valid_from.strftime('%d-%m-%Y') if banner.valid_from else 'sin inicio' }}
+                a {{ banner.valid_until.strftime('%d-%m-%Y') if banner.valid_until else 'sin fin' }}
+              {% endif %}
+              {% if banner.button_label %}
+                · Botón "{{ banner.button_label }}" →
+                {% if banner.target_type == 'product' %}{{ banner.target_product.name if banner.target_product else '¿?' }}
+                {% else %}{{ banner.target_category.name if banner.target_category else '¿?' }}{% endif %}
+              {% endif %}
+              {% if banner.mobile_image %}· con imagen móvil{% endif %}
+            </span>
+          </div>
+        </div>
+        <div class="inline-actions">
+          <form method="post" action="{{ url_for('catalog.move_hero_banner', banner_id=banner.id, direction='up') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary" aria-label="Subir" {{ 'disabled' if loop.first else '' }}>↑</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.move_hero_banner', banner_id=banner.id, direction='down') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary" aria-label="Bajar" {{ 'disabled' if loop.last else '' }}>↓</button>
+          </form>
+          <a href="{{ url_for('catalog.edit_hero_banner', banner_id=banner.id) }}"><button type="button">Editar</button></a>
+          <form method="post" action="{{ url_for('catalog.toggle_hero_banner', banner_id=banner.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">{{ 'Desactivar' if banner.is_active else 'Activar' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('catalog.delete_hero_banner', banner_id=banner.id) }}"
+                onsubmit="return confirm('¿Eliminar este banner?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger">Eliminar</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">Aún no tienes banners. Mientras tanto, el carrusel muestra solo los cupones del banner (o no aparece).</p>
+    {% endfor %}
+{% endblock %}

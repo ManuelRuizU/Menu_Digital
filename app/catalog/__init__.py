@@ -2,4 +2,4 @@ from flask import Blueprint
 
 catalog = Blueprint('catalog', __name__, url_prefix='/admin')
 
-from app.catalog import routes
+from app.catalog import banners, routes  # noqa: E402,F401 - registers the routes

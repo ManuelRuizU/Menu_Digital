@@ -30,7 +30,7 @@ function loadSavedCart() {
   }
 }
 
-const STATE = { products: [], bannerCoupons: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, requestedForTomorrow: false }
+const STATE = { products: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, requestedForTomorrow: false }
 
 function loadSavedCustomer() {
   try {
@@ -52,9 +52,6 @@ function saveCustomer() {
 }
 
 const elements = {
-  featuredBanner: document.getElementById('featured-banner'),
-  featuredBannerTrack: document.getElementById('featured-banner-track'),
-  featuredBannerDots: document.getElementById('featured-banner-dots'),
   productsGrid: document.getElementById('products-grid'),
   productSearch: document.getElementById('product-search'),
   cartItems: document.getElementById('cart-items'),
@@ -832,7 +829,6 @@ function renderProductGrid(filterTerm = '') {
 
 function renderProducts() {
   elements.productCount.textContent = STATE.products.length
-  renderFeaturedBanner()
   if (!STATE.products.length) {
     elements.productsGrid.innerHTML = '<p class="hint">No hay productos disponibles.</p>'
     elements.navLinks.innerHTML = ''
@@ -841,158 +837,6 @@ function renderProducts() {
 
   renderNav(groupProducts(STATE.products))
   renderProductGrid(elements.productSearch.value)
-}
-
-let featuredBannerTimer = null
-let featuredBannerIndex = 0
-let featuredBannerSlideCount = 0
-
-function goToFeaturedSlide(index) {
-  featuredBannerIndex = index
-  elements.featuredBannerTrack.style.transform = `translateX(-${index * 100}%)`
-  elements.featuredBannerDots.querySelectorAll('.featured-dot').forEach((dot, dotIndex) => {
-    dot.classList.toggle('active', dotIndex === index)
-  })
-}
-
-function startFeaturedBannerAutoplay() {
-  clearInterval(featuredBannerTimer)
-  featuredBannerTimer = featuredBannerSlideCount > 1
-    ? setInterval(() => goToFeaturedSlide((featuredBannerIndex + 1) % featuredBannerSlideCount), 5000)
-    : null
-}
-
-function initFeaturedBannerSwipe() {
-  const track = elements.featuredBannerTrack
-  let startX = 0
-  let currentX = 0
-  let dragging = false
-  let containerWidth = 0
-
-  track.addEventListener('touchstart', (event) => {
-    if (featuredBannerSlideCount < 2) return
-    startX = event.touches[0].clientX
-    currentX = startX
-    dragging = true
-    containerWidth = elements.featuredBanner.offsetWidth || 1
-    clearInterval(featuredBannerTimer)
-    track.style.transition = 'none'
-  }, { passive: true })
-
-  track.addEventListener('touchmove', (event) => {
-    if (!dragging) return
-    currentX = event.touches[0].clientX
-    const deltaPercent = ((currentX - startX) / containerWidth) * 100
-    track.style.transform = `translateX(calc(-${featuredBannerIndex * 100}% + ${deltaPercent}%))`
-  }, { passive: true })
-
-  track.addEventListener('touchend', () => {
-    if (!dragging) return
-    dragging = false
-    track.style.transition = ''
-    const deltaX = currentX - startX
-    const threshold = containerWidth * 0.15
-    if (deltaX < -threshold && featuredBannerIndex < featuredBannerSlideCount - 1) {
-      goToFeaturedSlide(featuredBannerIndex + 1)
-    } else if (deltaX > threshold && featuredBannerIndex > 0) {
-      goToFeaturedSlide(featuredBannerIndex - 1)
-    } else {
-      goToFeaturedSlide(featuredBannerIndex)
-    }
-    startFeaturedBannerAutoplay()
-  })
-}
-
-function formatDateDMY(isoDate) {
-  const [year, month, day] = isoDate.split('-')
-  return `${day}-${month}-${year}`
-}
-
-// One full-width layout for every banner slide: with an image, the image covers the
-// whole slide and the text sits on top of a dark contrast layer (so white text reads on
-// any photo the owner uploads); without one, a primary-to-accent gradient with the text
-// centered. Navigation (dots, swipe, autoplay) only moves the track - untouched here.
-function featuredSlideHtml({ attrs, imageUrl, label, big, title, detail }) {
-  return `
-    <button type="button" class="featured-slide ${imageUrl ? 'featured-slide-has-image' : 'featured-slide-no-image'}" ${attrs}>
-      ${imageUrl ? `<img src="${imageUrl}" alt="" class="featured-slide-bg">` : ''}
-      <div class="featured-slide-info">
-        <span class="featured-slide-label">${label}</span>
-        ${big ? `<span class="featured-slide-big">${big}</span>` : ''}
-        <strong>${title}</strong>
-        ${detail ? `<div class="featured-slide-price">${detail}</div>` : ''}
-      </div>
-    </button>
-  `
-}
-
-function productSlideHtml(product) {
-  return featuredSlideHtml({
-    attrs: `data-details="${product.id}"`,
-    imageUrl: product.imageUrl,
-    label: '⭐ Recomendado',
-    title: escapeHtml(product.name),
-    detail: priceHtml(product),
-  })
-}
-
-function couponSlideHtml(coupon) {
-  const validityText = coupon.validUntil ? `Válido hasta ${formatDateDMY(coupon.validUntil)}` : ''
-  const scopeText = coupon.scope === 'order' ? 'En toda tu compra' : 'En productos seleccionados'
-  const safeCode = escapeHtml(coupon.code)
-  const discountText = coupon.kind === 'fixed' ? formatPrice(coupon.fixedAmount) : `${coupon.discountPercent}%`
-  const isGift = coupon.kind === 'product'
-  const safeGiftName = isGift ? escapeHtml(coupon.giftProductName) : ''
-  const headline = isGift ? `🎁 ${safeGiftName} gratis con ${safeCode}` : `${discountText} OFF con ${safeCode}`
-  const minOrderText = coupon.minOrderAmount ? `Con compra sobre ${formatPrice(coupon.minOrderAmount)}` : ''
-  const detailText = [isGift ? `${safeGiftName} de regalo` : scopeText, minOrderText, validityText]
-    .filter(Boolean).join(' · ')
-
-  if (coupon.bannerImageUrl) {
-    // The owner's own artwork carries the visual - one headline line on top of it.
-    return featuredSlideHtml({
-      attrs: `data-coupon-code="${safeCode}"`,
-      imageUrl: coupon.bannerImageUrl,
-      label: '🏷️ Cupón',
-      title: headline,
-      detail: [minOrderText, validityText].filter(Boolean).join(' · '),
-    })
-  }
-  // No artwork: the discount itself, large, is the visual.
-  return featuredSlideHtml({
-    attrs: `data-coupon-code="${safeCode}"`,
-    label: '🏷️ Usa el código',
-    big: isGift ? '🎁' : `-${discountText}`,
-    title: safeCode,
-    detail: detailText,
-  })
-}
-
-function renderFeaturedBanner() {
-  if (!elements.featuredBanner) return
-  const couponSlides = STATE.bannerCoupons.map(couponSlideHtml)
-  const productSlides = STATE.products.filter((product) => product.featured && !product.soldOut).map(productSlideHtml)
-  const slides = [...couponSlides, ...productSlides]
-
-  clearInterval(featuredBannerTimer)
-  featuredBannerSlideCount = slides.length
-
-  if (!slides.length) {
-    elements.featuredBanner.hidden = true
-    elements.featuredBannerTrack.innerHTML = ''
-    elements.featuredBannerDots.innerHTML = ''
-    return
-  }
-
-  elements.featuredBanner.hidden = false
-  elements.featuredBannerTrack.innerHTML = slides.join('')
-
-  elements.featuredBannerDots.innerHTML = slides.length > 1
-    ? slides.map((_, index) => `<button type="button" class="featured-dot" data-slide="${index}" aria-label="Ir a la promoción ${index + 1}"></button>`).join('')
-    : ''
-
-  goToFeaturedSlide(0)
-  startFeaturedBannerAutoplay()
 }
 
 function getUpsellSuggestions(limit = 2) {
@@ -1256,13 +1100,6 @@ async function loadProducts() {
   } catch (error) {
     STATE.products = []
     elements.productsGrid.innerHTML = '<p class="hint">No se pudieron cargar los productos.</p>'
-  }
-
-  try {
-    const resp = await fetch('/api/banner-coupons')
-    STATE.bannerCoupons = resp.ok ? await resp.json() : []
-  } catch (error) {
-    STATE.bannerCoupons = []
   }
 
   try {
@@ -1709,16 +1546,6 @@ window.addEventListener('load', () => {
   elements.cartClose.addEventListener('click', closeCart)
   elements.cartBackdrop.addEventListener('click', closeCart)
   initCartSwipeToClose()
-  if (elements.featuredBannerTrack) initFeaturedBannerSwipe()
-
-  if (elements.featuredBannerDots) {
-    elements.featuredBannerDots.addEventListener('click', (event) => {
-      const dot = event.target.closest('[data-slide]')
-      if (!dot) return
-      goToFeaturedSlide(Number(dot.getAttribute('data-slide')))
-      startFeaturedBannerAutoplay()
-    })
-  }
 
   elements.navToggle.addEventListener('click', openNav)
   elements.navClose.addEventListener('click', closeNav)
@@ -1758,6 +1585,12 @@ window.addEventListener('load', () => {
   document.body.addEventListener('click', (event) => {
     const navLink = event.target.closest('[data-target]')
     if (navLink) {
+      // An "Explora el menú" tile or a banner button can point at a category the search
+      // box is currently filtering out - clear the search so the section exists again.
+      if (!document.getElementById(navLink.getAttribute('data-target')) && elements.productSearch.value) {
+        elements.productSearch.value = ''
+        renderProductGrid('')
+      }
       const target = document.getElementById(navLink.getAttribute('data-target'))
       closeNav()
       // A promo nudge lives in the cart - on mobile that's a sheet covering the menu.

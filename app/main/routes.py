@@ -11,6 +11,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
+from app.storefront import explore_categories, hero_slides
 from app.utils import customer_name_parts, hex_to_rgb, parse_money, validate_order_fields
 
 
@@ -141,8 +142,15 @@ def index():
                                           hours_today.opens_at, hours_today.closes_at)
     )
 
+    # The top of the menu, built here so the carousel's first slide is in the HTML.
+    today = datetime.now(BUSINESS_TZ).date()
+    menu_products = (Product.query.filter_by(is_active=True)
+                     .order_by(Product.category_id, Product.subcategory_id, Product.name).all())
+
     return render_template(
         'index.html',
+        hero_slides=hero_slides(today, active_banner_coupons()),
+        explore_categories=explore_categories(menu_products),
         is_closed=(is_closed_temporarily or closed_by_schedule),
         closed_message=closed_message,
         theme=theme,
@@ -241,14 +249,13 @@ def whatsapp_number_api():
     return jsonify({'whatsappNumber': number})
 
 
-@main.route('/api/banner-coupons')
-def banner_coupons_api():
+def active_banner_coupons():
     """Coupons the owner opted to show in the public menu's banner carousel - only the
     checks that don't need a customer yet (active, dated, total uses left); the per-customer
     limit and a final re-check still happen when the code is actually applied/redeemed."""
     today = datetime.now(BUSINESS_TZ).date()
-    candidates = Coupon.query.filter_by(show_in_banner=True, is_active=True).all()
-    payload = []
+    candidates = Coupon.query.filter_by(show_in_banner=True, is_active=True).order_by(Coupon.id).all()
+    coupons = []
     for coupon in candidates:
         if coupon.valid_from and today < coupon.valid_from:
             continue
@@ -259,6 +266,16 @@ def banner_coupons_api():
         # Don't advertise a gift that would be rejected the moment it's applied.
         if coupon.kind == 'product' and not _gift_product_is_available(coupon.gift_product):
             continue
+        coupons.append(coupon)
+    return coupons
+
+
+@main.route('/api/banner-coupons')
+def banner_coupons_api():
+    """The menu now renders these slides itself (see index); kept for anything that
+    still reads it."""
+    payload = []
+    for coupon in active_banner_coupons():
         payload.append({
             'code': coupon.code,
             'kind': coupon.kind,
