@@ -28,23 +28,23 @@
 <div class="page-shell">
   <header class="hero">
     <button type="button" id="nav-toggle" class="hamburger-btn" aria-label="Ver categorías">☰</button>
+    {% if logo_url %}
+      <img src="{{ logo_url }}" alt="" class="business-logo" width="48" height="48">
+    {% endif %}
     <div class="hero-info">
-      {% if logo_url %}
-        <img src="{{ logo_url }}" alt="{{ business_name }}" class="business-logo">
-      {% endif %}
       <h1 class="business-name">{{ business_name }}</h1>
-      {% if slogan %}
-        <p class="business-slogan">{{ slogan }}</p>
-      {% endif %}
       {% if business_address %}
         {% if maps_url %}
-          <a href="{{ maps_url }}" target="_blank" rel="noopener" class="business-address">📍 {{ business_address }}</a>
+          <a href="{{ maps_url }}" target="_blank" rel="noopener" class="business-address" title="{{ business_address }}">📍 {{ business_address }}</a>
         {% else %}
-          <p class="business-address">{{ business_address }}</p>
+          <p class="business-address" title="{{ business_address }}">📍 {{ business_address }}</p>
         {% endif %}
       {% endif %}
       {% if opens_at and closes_at %}
-        <p class="business-hours">🕒 Atendemos de {{ opens_at }} a {{ closes_at }}</p>
+        {# A day closed all day never gets here: the whole page is the "Cerrado" screen. #}
+        <p class="business-hours{{ ' is-closed' if outside_hours_now else '' }}">
+          🕒 {% if outside_hours_now %}Cerrado ahora · <span class="nowrap">hoy {{ opens_at }} – {{ closes_at }}</span>{% else %}<span class="nowrap">Hoy {{ opens_at }} – {{ closes_at }}</span>{% endif %}
+        </p>
       {% endif %}
     </div>
   </header>
@@ -61,10 +61,88 @@
     <div id="nav-links"></div>
   </aside>
 
-  <div id="featured-banner" class="featured-banner" hidden>
-    <div id="featured-banner-track" class="featured-banner-track"></div>
-    <div id="featured-banner-dots" class="featured-banner-dots"></div>
-  </div>
+  {% if hero_slides %}
+    {% set slide_count = hero_slides|length %}
+    <section id="hero-carousel" class="hero-carousel{{ ' is-single' if slide_count == 1 else '' }}"
+             aria-roledescription="carrusel" aria-label="Destacados">
+      <div class="hero-viewport">
+        <div class="hero-track">
+          {% for slide in hero_slides %}
+            {% set tag = 'button' if slide.kind == 'coupon' else 'div' %}
+            <{{ tag }} {% if tag == 'button' %}type="button" data-coupon-code="{{ slide.code }}"{% endif %}
+               class="hero-slide hero-slide-{{ slide.kind }} {{ 'has-image' if slide.image else 'no-image' }}"
+               role="group" aria-roledescription="diapositiva" aria-label="{{ loop.index }} de {{ slide_count }}">
+              {% if slide.image %}
+                <picture class="hero-picture">
+                  {% if slide.mobile_image %}<source media="(max-width: 640px)" srcset="{{ slide.mobile_image }}">{% endif %}
+                  <img class="hero-img" src="{{ slide.image }}" alt="{{ slide.title or '' }}"
+                       {% if slide.image_half %}srcset="{{ slide.image_half }} 960w, {{ slide.image }} 1920w" sizes="(max-width: 1160px) 100vw, 1120px"{% endif %}
+                       {% if loop.first %}fetchpriority="high"{% else %}loading="lazy"{% endif %} decoding="async">
+                </picture>
+              {% endif %}
+              {% if slide.kind == 'banner' %}
+                {% if slide.title or slide.text or slide.button %}
+                  <span class="hero-copy">
+                    {% if slide.title %}<span class="hero-title">{{ slide.title }}</span>{% endif %}
+                    {% if slide.text %}<span class="hero-text">{{ slide.text }}</span>{% endif %}
+                    {% if slide.button %}
+                      {% set label, target_kind, target_id = slide.button %}
+                      <button type="button" class="hero-cta"
+                              {% if target_kind == 'product' %}data-details="{{ target_id }}"{% else %}data-target="cat-{{ target_id }}"{% endif %}>{{ label }}</button>
+                    {% endif %}
+                  </span>
+                {% endif %}
+              {% else %}
+                <span class="hero-copy">
+                  <span class="hero-label">{{ slide.label }}</span>
+                  {% if slide.big %}<span class="hero-big">{{ slide.big }}</span>{% endif %}
+                  {% if slide.image %}
+                    <span class="hero-title">{{ slide.title }}</span>
+                  {% else %}
+                    <span class="hero-code">{{ slide.title }}</span>
+                  {% endif %}
+                  {% if slide.detail %}<span class="hero-text">{{ slide.detail }}</span>{% endif %}
+                  <span class="hero-cta hero-cta-coupon">Usar código</span>
+                </span>
+              {% endif %}
+            </{{ tag }}>
+          {% endfor %}
+        </div>
+      </div>
+      {% if slide_count > 1 %}
+        <button type="button" class="hero-arrow hero-arrow-prev" data-step="-1" aria-label="Anterior">‹</button>
+        <button type="button" class="hero-arrow hero-arrow-next" data-step="1" aria-label="Siguiente">›</button>
+        <div class="hero-dots">
+          {% for slide in hero_slides %}
+            <button type="button" class="hero-dot{{ ' active' if loop.first else '' }}" data-slide="{{ loop.index0 }}"
+                    aria-label="Ir a la diapositiva {{ loop.index }}"></button>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if explore_categories %}
+    {# Two rows that slide sideways together; 4 or fewer is a static 2×2. #}
+    {% set explore_static = explore_categories|length <= 4 %}
+    <section id="explore" class="home-row explore{{ ' is-static' if explore_static else '' }}" aria-labelledby="home-explore-title">
+      <h2 class="home-row-title" id="home-explore-title">Explora nuestro menú</h2>
+      <div class="explore-frame">
+        <div class="explore-grid" id="explore-grid">
+          {% for category in explore_categories %}
+            <button type="button" class="explore-tile{{ '' if category.image else ' no-image' }}" data-target="cat-{{ category.id }}">
+              {% if category.image %}<img src="{{ category.image }}" alt="" loading="lazy" decoding="async">{% endif %}
+              <span class="explore-tile-name">{{ category.name }}</span>
+            </button>
+          {% endfor %}
+        </div>
+        {% if not explore_static %}
+          <button type="button" class="explore-arrow explore-arrow-prev" data-step="-1" aria-label="Ver categorías anteriores" aria-controls="explore-grid" hidden>‹</button>
+          <button type="button" class="explore-arrow explore-arrow-next" data-step="1" aria-label="Ver más categorías" aria-controls="explore-grid" hidden>›</button>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
 
   <main class="layout">
     <section class="panel product-panel">
@@ -285,6 +363,8 @@
 <script src="{{ static_versioned('js/bundle_pricing.js') }}"></script>
 <script src="{{ static_versioned('js/cart_lines.js') }}"></script>
 <script src="{{ static_versioned('js/order_message.js') }}"></script>
+<script src="{{ static_versioned('js/hero_carousel.js') }}"></script>
+<script src="{{ static_versioned('js/explore_scroller.js') }}"></script>
 <script src="{{ static_versioned('js/menu.js') }}"></script>
 {% endif %}
 {% endblock %}

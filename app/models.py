@@ -90,6 +90,9 @@ class User(UserMixin, db.Model):
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False)
+    # Optional tile photo for "Explora el menú"; without it the tile borrows the first
+    # product photo of the category (see app/storefront.py).
+    image_filename = db.Column(db.String(255), nullable=True)
     subcategories = db.relationship('Subcategory', backref='category', lazy=True)
 
     __table_args__ = (
@@ -123,7 +126,7 @@ class Product(db.Model):
     image_filename = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sold_out = db.Column(db.Boolean, nullable=False, default=False)
-    is_featured = db.Column(db.Boolean, nullable=False, default=False)  # ⭐ badge + banner slides
+    is_featured = db.Column(db.Boolean, nullable=False, default=False)  # ⭐ badge on its card
     # Prioritized in the cart's "También te podría interesar" - independent of is_featured.
     suggest_in_cart = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text('0'))
     stock_quantity = db.Column(db.Integer, nullable=True)
@@ -458,3 +461,36 @@ class BusinessHours(db.Model):
 
     def __repr__(self):
         return f'<BusinessHours {self.day_name}>'
+
+
+HERO_TARGET_TYPES = ('none', 'product', 'category')
+MAX_ACTIVE_HERO_BANNERS = 5
+
+
+class HeroBanner(db.Model):
+    """A slide the owner uploads for the big carousel at the top of the menu, shown
+    before the coupons that are flagged "Mostrar en el banner". valid_from/valid_until
+    are Santiago calendar days, both inclusive (same as coupons)."""
+    id = db.Column(db.Integer, primary_key=True)
+    desktop_image = db.Column(db.String(255), nullable=False)
+    mobile_image = db.Column(db.String(255), nullable=True)
+    title = db.Column(db.String(80), nullable=True)
+    text = db.Column(db.String(200), nullable=True)
+    button_label = db.Column(db.String(30), nullable=True)
+    target_type = db.Column(db.String(10), nullable=False, default='none')
+    target_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
+    target_category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
+    target_product = db.relationship('Product', backref='hero_banners')
+    target_category = db.relationship('Category', backref='hero_banners')
+    position = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    valid_from = db.Column(db.Date, nullable=True)
+    valid_until = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def is_current(self, today):
+        return ((not self.valid_from or today >= self.valid_from)
+                and (not self.valid_until or today <= self.valid_until))
+
+    def __repr__(self):
+        return f'<HeroBanner {self.id} {self.title or ""}>'

@@ -1,0 +1,155 @@
+{% extends "panel/_layout.html" %}
+{% block title %}{{ 'Editar banner' if banner else 'Nuevo banner' }}{% endblock %}
+{% block content %}
+    <h1>{{ 'Editar banner' if banner else 'Nuevo banner' }}</h1>
+
+    <p class="banner-guide">
+      📐 <strong>Escritorio 1920×640 (3:1)</strong> · <strong>Móvil 1080×1080 (1:1)</strong>, opcional;
+      si falta, se recorta la de escritorio al centro. Deja lo importante (texto, plato) al centro.
+    </p>
+
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label for="desktop_image">Imagen de escritorio{{ '' if banner else ' (obligatoria)' }}</label>
+      <input type="file" id="desktop_image" name="desktop_image" accept="image/png,image/jpeg,image/webp" {{ '' if banner else 'required' }}>
+      {% if banner %}<p class="muted">Déjala vacía para mantener la actual.</p>{% endif %}
+
+      <label for="mobile_image">Imagen móvil (opcional)</label>
+      <input type="file" id="mobile_image" name="mobile_image" accept="image/png,image/jpeg,image/webp">
+      {% if banner and banner.mobile_image %}
+        <label class="checkbox-row"><input type="checkbox" id="remove_mobile_image" name="remove_mobile_image"> Quitar la imagen móvil (usar la de escritorio recortada)</label>
+      {% endif %}
+
+      <p class="muted" style="margin-top:18px;">Vista previa</p>
+      <div class="banner-previews">
+        <figure>
+          <div class="banner-preview banner-preview-desktop" id="preview-desktop"
+               data-saved="{{ url_for('static', filename='uploads/banners/' + banner.desktop_image) if banner else '' }}">
+            <img alt="" hidden>
+            <div class="banner-preview-copy"><strong></strong><span></span><em></em></div>
+          </div>
+          <figcaption class="muted">Escritorio (3:1)</figcaption>
+        </figure>
+        <figure>
+          <div class="banner-preview banner-preview-mobile" id="preview-mobile"
+               data-saved="{{ url_for('static', filename='uploads/banners/' + banner.mobile_image) if banner and banner.mobile_image else '' }}">
+            <img alt="" hidden>
+            <div class="banner-preview-copy"><strong></strong><span></span><em></em></div>
+          </div>
+          <figcaption class="muted">Móvil (1:1)</figcaption>
+        </figure>
+      </div>
+
+      <label for="title">Título (opcional)</label>
+      <input id="title" name="title" maxlength="80" value="{{ values.title }}" placeholder="Ej. Llegó el Halloween roll">
+
+      <label for="text">Texto (opcional)</label>
+      <input id="text" name="text" maxlength="200" value="{{ values.text }}" placeholder="Ej. Solo hasta el domingo">
+
+      <label for="target_type">Botón</label>
+      <select id="target_type" name="target_type">
+        <option value="none" {{ 'selected' if values.target_type == 'none' else '' }}>Sin botón</option>
+        <option value="product" {{ 'selected' if values.target_type == 'product' else '' }}>Abre un producto</option>
+        <option value="category" {{ 'selected' if values.target_type == 'category' else '' }}>Lleva a una categoría</option>
+      </select>
+
+      <div id="button-fields">
+        <label for="button_label">Texto del botón</label>
+        <input id="button_label" name="button_label" maxlength="30" value="{{ values.button_label }}" placeholder="Ej. Ver promo">
+
+        <div id="target-product-field">
+          <label for="target_product_id">Producto</label>
+          <select id="target_product_id" name="target_product_id">
+            <option value="">Elige un producto</option>
+            {% for product in products %}
+              <option value="{{ product.id }}" {{ 'selected' if values.target_product_id == product.id else '' }}>{{ product.name }}</option>
+            {% endfor %}
+          </select>
+          <p class="muted">Si el producto se agota o se desactiva, el banner se sigue mostrando, sin botón.</p>
+        </div>
+
+        <div id="target-category-field">
+          <label for="target_category_id">Categoría</label>
+          <select id="target_category_id" name="target_category_id">
+            <option value="">Elige una categoría</option>
+            {% for category in categories %}
+              <option value="{{ category.id }}" {{ 'selected' if values.target_category_id == category.id else '' }}>{{ category.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label for="valid_from">Mostrar desde (opcional)</label>
+      <input type="date" id="valid_from" name="valid_from" value="{{ values.valid_from }}">
+      <label for="valid_until">Mostrar hasta (opcional, incluido)</label>
+      <input type="date" id="valid_until" name="valid_until" value="{{ values.valid_until }}">
+
+      <label class="checkbox-row"><input type="checkbox" name="is_active" {{ 'checked' if values.is_active else '' }}> Activo (máximo {{ max_active }})</label>
+
+      <div class="inline-actions">
+        <button type="submit">Guardar banner</button>
+        <a href="{{ url_for('catalog.hero_banners') }}"><button type="button" class="secondary">Cancelar</button></a>
+      </div>
+    </form>
+
+    <script>
+      // Live preview of both crops: the chosen file (or the saved image), with the title,
+      // text and button laid over it. textContent only - nothing typed becomes HTML.
+      (function () {
+        const desktopInput = document.getElementById('desktop_image')
+        const mobileInput = document.getElementById('mobile_image')
+        const removeMobile = document.getElementById('remove_mobile_image')
+        const previews = {
+          desktop: document.getElementById('preview-desktop'),
+          mobile: document.getElementById('preview-mobile'),
+        }
+        let desktopUrl = previews.desktop.dataset.saved || ''
+        let mobileUrl = previews.mobile.dataset.saved || ''
+
+        function fileUrl (input) {
+          return input.files && input.files[0] ? URL.createObjectURL(input.files[0]) : ''
+        }
+        function setImage (box, url) {
+          const img = box.querySelector('img')
+          img.hidden = !url
+          if (url) img.src = url
+          box.classList.toggle('is-empty', !url)
+        }
+        function renderImages () {
+          setImage(previews.desktop, desktopUrl)
+          const useMobile = mobileUrl && !(removeMobile && removeMobile.checked)
+          setImage(previews.mobile, useMobile ? mobileUrl : desktopUrl)
+        }
+        function renderCopy () {
+          const title = document.getElementById('title').value.trim()
+          const text = document.getElementById('text').value.trim()
+          const hasButton = document.getElementById('target_type').value !== 'none'
+          const label = hasButton ? document.getElementById('button_label').value.trim() : ''
+          Object.values(previews).forEach((box) => {
+            box.querySelector('strong').textContent = title
+            box.querySelector('span').textContent = text
+            const button = box.querySelector('em')
+            button.textContent = label
+            button.hidden = !label
+            box.classList.toggle('has-copy', !!(title || text || label))
+          })
+        }
+        function syncTarget () {
+          const type = document.getElementById('target_type').value
+          document.getElementById('button-fields').hidden = type === 'none'
+          document.getElementById('target-product-field').hidden = type !== 'product'
+          document.getElementById('target-category-field').hidden = type !== 'category'
+          renderCopy()
+        }
+
+        desktopInput.addEventListener('change', () => { desktopUrl = fileUrl(desktopInput) || previews.desktop.dataset.saved || ''; renderImages() })
+        mobileInput.addEventListener('change', () => { mobileUrl = fileUrl(mobileInput) || previews.mobile.dataset.saved || ''; renderImages() })
+        if (removeMobile) removeMobile.addEventListener('change', renderImages)
+        ;['title', 'text', 'button_label'].forEach((id) => document.getElementById(id).addEventListener('input', renderCopy))
+        document.getElementById('target_type').addEventListener('change', syncTarget)
+        renderImages()
+        syncTarget()
+      })()
+    </script>
+{% endblock %}

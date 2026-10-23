@@ -33,6 +33,9 @@ class Config:
     PRODUCT_ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
     COUPON_UPLOAD_DIR = os.path.join(BASE_DIR, 'app/static/uploads/coupons')
     COUPON_ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+    BANNER_UPLOAD_DIR = os.path.join(BASE_DIR, 'app/static/uploads/banners')
+    CATEGORY_UPLOAD_DIR = os.path.join(BASE_DIR, 'app/static/uploads/categories')
+    IMAGE_ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
     MAX_CONTENT_LENGTH = 12 * 1024 * 1024  # 12 MB - raw phone photos come in large; the server compresses them on save
 
     # Secure by default (cookie only sent over HTTPS) - both documented deployment paths

@@ -3,6 +3,7 @@ import csv
 import json
 import os
 import re
+import secrets
 from datetime import datetime
 from io import BytesIO, StringIO
 from urllib.parse import quote
@@ -27,7 +28,7 @@ from app.main.routes import compute_bundle_discount, compute_coupon_discount, ge
 from app.models import (BUSINESS_TZ, BundlePromo, BundlePromoTier, BusinessHours, Category, Coupon, Courier, DeliveryRadiusTier,
                          DeliveryZone, Order, OrderItem, OrderItemOption, Product, ProductOption, ProductOptionGroup,
                          Subcategory, User)
-from app.uploads import save_image
+from app.uploads import delete_image, save_image, save_image_with_half
 from app.utils import clean_name, day_range_utc, normalize_name, parse_money, phone_customer_key
 
 PAYMENT_METHOD_LABELS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'tarjeta': 'Tarjeta al recibir'}
@@ -327,13 +328,30 @@ def edit_category(category_id):
     if _category_name_taken(name, exclude_id=category.id):
         return _redisplay('Ya existe una categoría con ese nombre.')
 
+    # The "Explora el menú" tile photo. A new name each upload (so no browser keeps the
+    # old one cached); the previous file goes only once the new one is committed.
+    upload_dir = current_app.config['CATEGORY_UPLOAD_DIR']
+    old_image, new_image = category.image_filename, None
+    image = request.files.get('image')
+    if image and image.filename:
+        new_image = save_image(None, image, upload_dir, f'category_{category.id}_{secrets.token_hex(4)}',
+                               current_app.config['IMAGE_ALLOWED_EXTENSIONS'], max_dimension=800)
+        if new_image is None:
+            return _redisplay('La imagen de la categoría debe ser una imagen (png, jpg, jpeg o webp).')
+        category.image_filename = new_image
+    elif request.form.get('remove_image') == 'on':
+        category.image_filename = None
+
     category.name = name
     try:
         db.session.commit()
     except IntegrityError:
         # Same safety net as create_category: the UniqueConstraint is the real guarantee.
         db.session.rollback()
+        delete_image(upload_dir, new_image)
         return _redisplay('Ya existe una categoría con ese nombre.')
+    if old_image and old_image != category.image_filename:
+        delete_image(upload_dir, old_image)
 
     flash('Categoría guardada')
     return redirect(url_for('catalog.categories'))
@@ -347,9 +365,14 @@ def delete_category(category_id):
     if category.subcategories:
         flash('Elimina primero las subcategorías de esta categoría.')
         return redirect(url_for('catalog.categories'))
+    if category.hero_banners:
+        flash('No se puede eliminar: es el destino del botón de un banner. Cambia ese banner primero.')
+        return redirect(url_for('catalog.categories'))
 
+    image = category.image_filename
     db.session.delete(category)
     db.session.commit()
+    delete_image(current_app.config['CATEGORY_UPLOAD_DIR'], image)
     flash('Categoría eliminada')
     return redirect(url_for('catalog.categories'))
 
@@ -807,6 +830,8 @@ def _product_delete_blockers(product):
         codes = _join_with_y([f"'{c.code}'" for c in product.gift_coupons])
         word = 'del cupón' if len(product.gift_coupons) == 1 else 'de los cupones'
         reasons.append(f'es el producto de regalo {word} {codes}')
+    if product.hero_banners:
+        reasons.append('es el destino del botón de un banner')
     return reasons
 
 
@@ -1223,12 +1248,15 @@ def _save_coupon(coupon):
 
     image = request.files.get('banner_image')
     if image and image.filename:
-        new_filename = save_image(
+        # Full width of the carousel: 1920 plus a 960 copy for phones (older uploads
+        # stay at their 1000px and simply have no copy).
+        new_filename = save_image_with_half(
             existing_filename=coupon.banner_image_filename,
             file_storage=image,
             upload_dir=current_app.config['COUPON_UPLOAD_DIR'],
             filename_stub=f'coupon_{coupon.id}',
             allowed_extensions=current_app.config['COUPON_ALLOWED_EXTENSIONS'],
+            max_dimension=1920,
         )
         if new_filename is None:
             db.session.rollback()
