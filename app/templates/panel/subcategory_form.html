@@ -10,9 +10,9 @@
       <input id="name" name="name" required maxlength="50" value="{{ name }}" placeholder="Ej: Hand rolls">
 
       <label for="description">Descripción (opcional)</label>
-      <input id="description" name="description" maxlength="200" value="{{ description }}"
-             placeholder="Ej: pollo, camarón, salmón, apanados y fritos">
-      <p class="muted">Se muestra en la carta bajo el nombre de la subcategoría. Déjala vacía para quitarla.</p>
+      <textarea id="description" name="description" maxlength="200" rows="3"
+                placeholder="Ej: pollo, camarón, salmón, apanados y fritos">{{ description }}</textarea>
+      <p class="muted">Se muestra en la carta bajo el nombre de la subcategoría. Usa Enter para separar los ítems; se respeta en la carta. Déjala vacía para quitarla.</p>
 
       <label for="category_id">Categoría</label>
       <select id="category_id" name="category_id" required data-current="{{ subcategory.category_id }}">

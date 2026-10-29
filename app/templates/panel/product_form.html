@@ -10,7 +10,8 @@
       <input id="name" name="name" required value="{{ product.name if product else '' }}">
 
       <label for="description">Descripción</label>
-      <textarea id="description" name="description" rows="3" required>{{ product.description if product else '' }}</textarea>
+      <textarea id="description" name="description" rows="5" required>{{ product.description if product else '' }}</textarea>
+      <p class="muted">Usa Enter para separar los ítems; se respeta en la carta. Si empiezas una línea con "-" o "•", se muestra como viñeta.</p>
 
       <label for="price">Precio</label>
       <input id="price" name="price" type="number" step="1" min="0" required value="{{ product.price if product else '' }}">
