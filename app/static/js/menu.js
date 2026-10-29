@@ -2,14 +2,15 @@
 // scripts just after gets the new menu.js without the <script> tags for its companion
 // files - every price and the order sending would then throw. Reload once to get a
 // matching page (the sessionStorage flag stops a reload loop if they're truly missing).
-if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined' || typeof CartLines === 'undefined') {
+if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined' || typeof CartLines === 'undefined' ||
+    typeof DescriptionFormat === 'undefined') {
   let alreadyRetried = false
   try {
     alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
     if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
   } catch {}
   if (!alreadyRetried) window.location.reload()
-  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js not loaded')
+  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js not loaded')
 }
 try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
 
@@ -337,24 +338,10 @@ function setModalQuantity(quantity) {
   updateModalPrice()
 }
 
+// One item per line, as the owner typed it (or the older "·"-separated style) - see
+// description_format.js. Built with textContent only: nothing typed becomes HTML.
 function renderProductDescription(description) {
-  const container = elements.productModalDescription
-  container.textContent = ''
-  // El dueño separa renglones tecleando "·" a mano (no es un salto de línea real),
-  // por eso partimos por ese caracter en vez de usar white-space: pre-line.
-  const segments = (description || '').split('·').map((segment) => segment.trim()).filter(Boolean)
-  if (segments.length < 2) {
-    container.textContent = segments[0] || ''
-    return
-  }
-  const list = document.createElement('ul')
-  list.className = 'description-list'
-  segments.forEach((segment) => {
-    const item = document.createElement('li')
-    item.textContent = segment
-    list.appendChild(item)
-  })
-  container.appendChild(list)
+  DescriptionFormat.render(elements.productModalDescription, description)
 }
 
 function openProductModal(productId) {
@@ -819,7 +806,7 @@ function renderProductGrid(filterTerm = '') {
       ${category.subcategories.map((sub) => `
         <div class="menu-subsection" id="sub-${category.id}-${sub.id || 'none'}">
           ${sub.name ? `<h3 class="menu-subsection-title">${escapeHtml(sub.name)}</h3>` : ''}
-          ${sub.name && sub.description ? `<p class="menu-subsection-description">${escapeHtml(sub.description)}</p>` : ''}
+          ${sub.name && sub.description ? `<div class="menu-subsection-description">${DescriptionFormat.toHtml(sub.description, escapeHtml)}</div>` : ''}
           <div class="products-grid">${sub.products.map(productCardHtml).join('')}</div>
         </div>
       `).join('')}

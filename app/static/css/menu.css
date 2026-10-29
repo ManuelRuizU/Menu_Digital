@@ -358,6 +358,9 @@ button.hero-slide { cursor: pointer; }
 .card-actions .add-btn:hover { transform: translateY(-1px); opacity: 0.95; }
 .details-btn { flex-shrink: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--tint-1); color: var(--muted); font-size: 0.85rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .details-btn:hover { color: var(--text-strong); border-color: var(--tint-3); }
+/* Descriptions keep the owner's line breaks (white-space: pre-line on escaped text). */
+.description-text { margin: 0; white-space: pre-line; line-height: 1.5; }
+.description-text + .description-list, .description-list + .description-text { margin-top: 8px; }
 .description-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .description-list li { line-height: 1.5; }
 .product-card.sold-out { opacity: 0.6; }
@@ -571,6 +574,8 @@ body.nav-open { overflow: hidden; }
    (its 10px bottom margin is pulled back) so they read as one unit, then the usual
    space before the product grid. */
 .menu-subsection-description { margin: -6px 0 12px; font-size: 0.85rem; line-height: 1.4; color: var(--muted); }
+.menu-subsection-description .description-text { line-height: 1.4; }
+.menu-subsection-description .description-list { gap: 2px; }
 
 /* Desktop: the cart column stays in view while scrolling the carta (it scrolls inside
    itself if it's taller than the window). Mobile keeps the bottom sheet below. */

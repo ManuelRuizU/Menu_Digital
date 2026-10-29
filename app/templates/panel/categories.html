@@ -28,7 +28,7 @@
           <div class="subitem">
             <div>
               <span>{{ sub.name }}</span>
-              {% if sub.description %}<br><small class="muted">{{ sub.description }}</small>{% endif %}
+              {% if sub.description %}<br><small class="muted" style="white-space:pre-line;">{{ sub.description }}</small>{% endif %}
             </div>
             <div class="inline-actions">
               <a href="{{ url_for('catalog.edit_subcategory', subcategory_id=sub.id) }}"><button type="button" class="secondary">Editar</button></a>
