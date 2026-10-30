@@ -177,14 +177,6 @@
       <p id="gift-hint" class="hint gift-hint" hidden></p>
       <div id="promo-nudges" class="promo-nudges"></div>
 
-      <div class="coupon-box">
-        <div class="coupon-inputs">
-          <input id="coupon-code" type="text" placeholder="¿Tienes un cupón?" autocomplete="off">
-          <button type="button" id="coupon-apply-btn">Aplicar</button>
-        </div>
-        <p id="coupon-message" class="coupon-message"></p>
-      </div>
-
       <div class="summary">
         <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
         <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
@@ -261,6 +253,17 @@
             <input id="phone" type="tel" placeholder="56912345678" autocomplete="tel">
           </div>
         </details>
+
+        {# After delivery and address (changing either re-prices the order and drops an
+           applied coupon) and after the phone (per-customer coupons need it). #}
+        <div class="coupon-box">
+          <label for="coupon-code" class="coupon-title">¿Tienes un código de descuento?</label>
+          <div class="coupon-inputs">
+            <input id="coupon-code" type="text" placeholder="Escribe tu código" autocomplete="off">
+            <button type="button" id="coupon-apply-btn">Aplicar</button>
+          </div>
+          <p id="coupon-message" class="coupon-message"></p>
+        </div>
 
         <details class="accordion-section" open>
           <summary>Pago</summary>
