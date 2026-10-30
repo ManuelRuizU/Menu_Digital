@@ -3,14 +3,14 @@
 // files - every price and the order sending would then throw. Reload once to get a
 // matching page (the sessionStorage flag stops a reload loop if they're truly missing).
 if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined' || typeof CartLines === 'undefined' ||
-    typeof DescriptionFormat === 'undefined' || typeof CouponUI === 'undefined') {
+    typeof DescriptionFormat === 'undefined' || typeof CouponUI === 'undefined' || typeof DeliveryStatus === 'undefined') {
   let alreadyRetried = false
   try {
     alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
     if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
   } catch {}
   if (!alreadyRetried) window.location.reload()
-  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js / coupon_ui.js not loaded')
+  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js / coupon_ui.js / delivery_status.js not loaded')
 }
 try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
 
@@ -31,7 +31,7 @@ function loadSavedCart() {
   }
 }
 
-const STATE = { products: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, couponPending: null, couponOffers: [], couponReminderShown: false, requestedForTomorrow: false }
+const STATE = { products: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingPending: false, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, couponPending: null, couponOffers: [], couponReminderShown: false, requestedForTomorrow: false }
 
 function loadSavedCustomer() {
   try {
@@ -91,11 +91,22 @@ const elements = {
   cartPanel: document.getElementById('cart-panel'),
   cartBackdrop: document.getElementById('cart-backdrop'),
   cartClose: document.getElementById('cart-close'),
+  cartStep1: document.getElementById('cart-step-1'),
+  cartStep2: document.getElementById('cart-step-2'),
+  cartStep1Title: document.getElementById('cart-step-1-title'),
+  cartStep2Title: document.getElementById('cart-step-2-title'),
+  cartContinue: document.getElementById('cart-continue'),
+  cartContinueTotal: document.getElementById('cart-continue-total'),
+  cartBack: document.getElementById('cart-back'),
+  step1Subtotal: document.getElementById('step-1-subtotal'),
+  step1Coupon: document.getElementById('step-1-coupon'),
+  checkoutTotal: document.getElementById('checkout-total'),
+  savingsNote: document.getElementById('savings-note'),
   cartFab: document.getElementById('cart-fab'),
   cartFabCount: document.getElementById('cart-fab-count'),
   cartFabTotal: document.getElementById('cart-fab-total'),
-  deliveryMapBlock: document.getElementById('delivery-map-block'),
-  addressLabel: document.getElementById('address-label'),
+  deliveryAddressBlock: document.getElementById('delivery-address-block'),
+  deliveryStatus: document.getElementById('delivery-status'),
   cashBlock: document.getElementById('cash-block'),
   cashAmount: document.getElementById('cash-amount'),
   changeHint: document.getElementById('change-hint'),
@@ -445,7 +456,25 @@ function closeProductModal() {
   document.body.classList.remove('modal-open')
 }
 
+// The cart's two steps share the panel: 1 "Tu pedido", 2 "Finalizar pedido". Only one
+// is shown; the other keeps its fields (and their values) in the page, just hidden.
+// focus moves keyboard and screen-reader users to the new step's title.
+function showCartStep(step, focus = true) {
+  const second = step === 2 && STATE.cart.length > 0
+  elements.cartStep1.hidden = second
+  elements.cartStep2.hidden = !second
+  elements.cartPanel.dataset.step = second ? '2' : '1'
+  elements.cartPanel.scrollTop = 0
+  if (focus) (second ? elements.cartStep2Title : elements.cartStep1Title).focus({ preventScroll: true })
+}
+
+function currentCartStep() {
+  return elements.cartPanel.dataset.step === '2' ? 2 : 1
+}
+
 function openCart() {
+  // Always from the top of the order - step 2 is one tap away with "Continuar".
+  showCartStep(1, false)
   elements.cartPanel.classList.add('open')
   elements.cartBackdrop.classList.add('open')
   document.body.classList.add('cart-open')
@@ -698,6 +727,45 @@ function renderCouponOffers() {
     </details>` : '')
 }
 
+// The line under Retiro / Despacho - see delivery_status.js.
+function updateDeliveryStatus(total) {
+  const status = DeliveryStatus.deliveryStatus({
+    mode: getDeliveryMode(),
+    pickupAddress: elements.deliveryStatus.dataset.pickupAddress,
+    hasLocation: Boolean(STATE.selectedLocation),
+    pending: STATE.shippingPending,
+    covered: STATE.deliveryCovered,
+    shipping: STATE.shippingCost,
+    total,
+  }, formatPrice)
+  elements.deliveryStatus.textContent = status.text
+  elements.deliveryStatus.className = `delivery-status-text is-${status.tone}`
+}
+
+// A total that changes (shipping worked out, coupon, promo) is highlighted for a moment
+// on the button itself - a tint, no movement (and no transition with reduced motion).
+const amountFlashTimers = new WeakMap()
+function setAmount(el, text) {
+  const changed = el.textContent !== text && el.textContent !== '' && el.textContent !== '$0'
+  el.textContent = text
+  if (!changed) return
+  el.classList.add('amount-changed')
+  clearTimeout(amountFlashTimers.get(el))
+  amountFlashTimers.set(el, setTimeout(() => el.classList.remove('amount-changed'), 1200))
+}
+
+// Step 1 doesn't have the coupon box - just a line saying a coupon is on (or waiting),
+// so a coupon saved from the banner is visible right where the cart opens.
+function renderStep1Coupon() {
+  const applied = STATE.appliedCoupon
+  const pending = STATE.couponPending
+  const text = applied ? `🏷️ ${CouponUI.appliedText(applied, formatPrice).replace(/^✓ /, '')}`
+    : pending ? `🏷️ ${pending.message || pending.code}` : ''
+  elements.step1Coupon.textContent = text
+  elements.step1Coupon.classList.toggle('is-applied', Boolean(applied))
+  elements.step1Coupon.hidden = !text || !STATE.cart.length
+}
+
 let toastTimer = null
 function showToast(message) {
   if (!elements.toast) return
@@ -798,11 +866,9 @@ function getPaymentMethod() {
 
 function toggleDeliveryFields() {
   const isDelivery = getDeliveryMode() === 'envio'
-  // The address input itself stays visible in both modes - in retiro it's an
-  // optional plain text field (no map needed, the customer picks it up in person);
-  // in despacho it's required and paired with the map/pin for shipping cost.
-  elements.addressLabel.textContent = isDelivery ? 'Dirección' : 'Dirección (opcional — para futuros despachos)'
-  elements.deliveryMapBlock.style.display = isDelivery ? 'grid' : 'none'
+  // Address and map only for Despacho, right under the choice. Hidden, they keep their
+  // value (and the confirmed pin) for when the customer switches back.
+  elements.deliveryAddressBlock.hidden = !isDelivery
   // The map was created while its container may have been hidden (display:none),
   // so Leaflet needs a nudge to recompute its size once it becomes visible.
   if (isDelivery && map) setTimeout(() => map.invalidateSize(), 0)
@@ -1053,7 +1119,7 @@ function renderProducts() {
   renderProductGrid(elements.productSearch.value)
 }
 
-function getUpsellSuggestions(limit = 2) {
+function getUpsellSuggestions(limit = 4) {
   const cartIds = new Set(STATE.cart.map((item) => item.id))
   const candidates = STATE.products.filter((product) => !product.soldOut && !cartIds.has(product.id))
   // Only what the owner marked (suggestInCart - not featured, the ⭐ badge and the
@@ -1073,12 +1139,13 @@ function renderUpsellSuggestions() {
     elements.upsellSuggestions.innerHTML = ''
     return
   }
+  // One compact row that slides sideways - it never pushes the order down.
   elements.upsellSuggestions.innerHTML = `
     <p class="upsell-title">También te podría interesar</p>
-    <div class="upsell-list">
+    <div class="upsell-list" role="list">
       ${suggestions.map((product) => `
-        <div class="upsell-item">
-          <span>${escapeHtml(product.name)}</span>
+        <div class="upsell-item" role="listitem">
+          <span class="upsell-name">${escapeHtml(product.name)}</span>
           <span class="upsell-price">${priceHtml(product)}</span>
           ${hasOptionGroups(product)
             ? `<button type="button" data-details="${product.id}" aria-label="Elegir ${escapeHtml(product.name)}">+</button>`
@@ -1089,8 +1156,23 @@ function renderUpsellSuggestions() {
   `
 }
 
+// What one unit of this product saves against its struck-through price (0 without one).
+function offerSavingPerUnit(productId) {
+  const product = STATE.products.find((p) => p.id === productId)
+  return product && product.originalPrice > product.price ? product.originalPrice - product.price : 0
+}
+
+// { [cartKey]: { amount, promoLabels } } - preview only, from the same pricing the
+// summary uses (create_order prices the real order).
+function getLineSavings() {
+  const promos = BundlePricing.bundleDiscounts(STATE.bundlePromos, pricingLines())
+    .map(({ promo, amount }) => ({ label: promo.label, productIds: promo.productIds, amount }))
+  return CartLines.lineSavings(STATE.cart, offerSavingPerUnit, promos)
+}
+
 function renderCart() {
   const cart = STATE.cart
+  const savings = getLineSavings()
   if (!cart.length) {
     elements.cartItems.innerHTML = '<p class="hint">Aún no hay productos en el carrito.</p>'
   } else {
@@ -1102,6 +1184,7 @@ function renderCart() {
             ? `<small class="cart-item-options">${item.selectedOptions.map((o) => escapeHtml(o.name)).join(', ')}</small>`
             : ''}
           <small class="cart-item-price">${formatPrice(item.price)} c/u</small>
+          ${savings[item.cartKey] ? `<small class="cart-item-saving">¡Ahorras ${formatPrice(savings[item.cartKey].amount)}!${savings[item.cartKey].promoLabels.length ? ` · ${escapeHtml(savings[item.cartKey].promoLabels.join(', '))}` : ''}</small>` : ''}
         </div>
         <div class="cart-item-controls">
           <div>
@@ -1115,6 +1198,8 @@ function renderCart() {
     `).join('')
   }
   renderUpsellSuggestions()
+  // Step 2 with nothing to order makes no sense - back to "Tu pedido".
+  if (!cart.length && currentCartStep() === 2) showCartStep(1)
   updateSummary()
 }
 
@@ -1236,6 +1321,15 @@ function updateSummary() {
   if (elements.discountRow) elements.discountRow.hidden = !discount
   if (elements.discount) elements.discount.textContent = `-${formatPrice(discount)}`
   elements.total.textContent = outOfCoverage ? '—' : formatPrice(total)
+  elements.step1Subtotal.textContent = formatPrice(subtotal)
+  elements.cartContinueTotal.textContent = formatPrice(outOfCoverage ? subtotal - bundleDiscount - discount : total)
+  setAmount(elements.checkoutTotal, outOfCoverage ? '—' : formatPrice(total))
+  updateDeliveryStatus(total)
+  elements.cartContinue.disabled = !STATE.cart.length
+  renderStep1Coupon()
+  const saving = CartLines.totalSavings(getLineSavings()) + discount
+  elements.savingsNote.hidden = !(saving > 0 && STATE.cart.length)
+  elements.savingsNote.textContent = `Estás ahorrando ${formatPrice(saving)}`
   renderCartGiftLine(currentGift(total))
   updateGiftHint(total)
 
@@ -1293,13 +1387,17 @@ async function setLocation(lat, lng, label, precise = true) {
     map.setView([lat, lng], 16)
   }
   elements.addressHint.textContent = `Buscando costo de envío para: ${label}...`
+  STATE.shippingPending = true
+  updateSummary()
 
   const { covered, shippingCost } = await fetchShippingCost(lat, lng)
   STATE.shippingCost = shippingCost
   STATE.deliveryCovered = covered
+  STATE.shippingPending = false
   scheduleCouponRefresh()
+  // The cost and the new total go in the line under Retiro / Despacho (updateDeliveryStatus).
   const baseMessage = covered
-    ? `Dirección confirmada: ${label} · Envío: ${formatPrice(shippingCost)}`
+    ? `Dirección confirmada: ${label}`
     : `${label} está fuera de nuestra zona de reparto. Elige "Retiro" o prueba otra dirección.`
   const precisionWarning = precise ? '' : ' ⚠️ Esta búsqueda no incluye el número exacto: arrastra el pin 🛵 hasta tu ubicación real.'
   elements.addressHint.textContent = baseMessage + precisionWarning
@@ -1599,7 +1697,9 @@ async function saveOrder() {
         // requires the last name (a page loaded before it existed doesn't send the key).
         customerLastName: elements.lastName.value.trim(),
         phone: elements.phone.value.trim(),
-        address: elements.address.value.trim(),
+        // Only for Despacho: in Retiro the field is hidden, so whatever it holds from an
+        // earlier visit isn't something the customer is sending now.
+        address: deliveryMode === 'envio' ? elements.address.value.trim() : '',
         deliveryMode,
         paymentMethod: getPaymentMethod(),
         cashAmount: getPaymentMethod() === 'efectivo' ? Number(elements.cashAmount.value) || null : null,
@@ -1781,7 +1881,9 @@ window.addEventListener('load', () => {
   togglePaymentFields()
 
   elements.cartFab.addEventListener('click', openCart)
-  elements.cartClose.addEventListener('click', closeCart)
+  document.querySelectorAll('[data-cart-close]').forEach((button) => button.addEventListener('click', closeCart))
+  elements.cartContinue.addEventListener('click', () => showCartStep(2))
+  elements.cartBack.addEventListener('click', () => showCartStep(1))
   elements.cartBackdrop.addEventListener('click', closeCart)
   initCartSwipeToClose()
 

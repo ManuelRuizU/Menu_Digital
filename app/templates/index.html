@@ -160,13 +160,17 @@
     </section>
 
     <div id="cart-backdrop" class="cart-backdrop"></div>
-    <aside id="cart-panel" class="panel cart-panel">
+    {# Two steps in the same panel (menu.js showCartStep): "Tu pedido" (what you're
+       buying) and "Finalizar pedido" (delivery, your data, coupon, payment). Opening the
+       cart always shows step 1; the fields of step 2 keep their values either way. #}
+    <aside id="cart-panel" class="panel cart-panel" data-step="1">
+      <section id="cart-step-1" class="cart-step" aria-labelledby="cart-step-1-title">
       <div class="section-header">
         <div>
-          <p class="section-label">Tu carrito</p>
-          <h2>Pedido</h2>
+          <p class="section-label">Tu carrito · paso 1 de 2</p>
+          <h2 id="cart-step-1-title" tabindex="-1">Tu pedido</h2>
         </div>
-        <button type="button" id="cart-close" class="cart-close" aria-label="Cerrar carrito">✕</button>
+        <button type="button" id="cart-close" class="cart-close" data-cart-close aria-label="Cerrar carrito">✕</button>
       </div>
       <div id="cart-items" class="cart-items">
         <p class="hint">Aún no hay productos en el carrito.</p>
@@ -177,14 +181,23 @@
       <p id="gift-hint" class="hint gift-hint" hidden></p>
       <div id="promo-nudges" class="promo-nudges"></div>
 
-      <div class="summary">
-        <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
-        <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
-        <div id="bundle-discount-rows" class="summary-rows"></div>
-        <div id="discount-row" class="summary-row discount-row" hidden><span>Descuento</span><strong id="discount">$0</strong></div>
-        <div class="summary-row total"><span>Total</span><strong id="total">$0</strong></div>
+      <div class="summary summary-step-1">
+        <div class="summary-row"><span>Subtotal</span><strong id="step-1-subtotal">$0</strong></div>
+        <p id="step-1-coupon" class="step-1-coupon" hidden></p>
       </div>
+      <div class="cart-step-footer">
+        <button type="button" id="cart-continue" class="button button-primary">Continuar · <span id="cart-continue-total">$0</span></button>
+      </div>
+      </section>
 
+      <section id="cart-step-2" class="cart-step" aria-labelledby="cart-step-2-title" hidden>
+      <div class="section-header">
+        <div>
+          <button type="button" id="cart-back" class="cart-back">← Volver a tu pedido</button>
+          <h2 id="cart-step-2-title" tabindex="-1">Finalizar pedido</h2>
+        </div>
+        <button type="button" class="cart-close" data-cart-close aria-label="Cerrar carrito">✕</button>
+      </div>
       {% set payment_options = [] %}
       {% if accepts_cash %}{% set _ = payment_options.append(('efectivo', 'Efectivo')) %}{% endif %}
       {% if accepts_transfer %}{% set _ = payment_options.append(('transferencia', 'Transferencia')) %}{% endif %}
@@ -200,8 +213,26 @@
                 <label><input type="radio" name="delivery-mode" value="retira" checked> Retiro</label>
                 <label><input type="radio" name="delivery-mode" value="envio"> Despacho</label>
               </div>
-              <p id="min-order-hint" class="hint" style="display:none;"></p>
             {% endif %}
+            {# What the chosen option means for this order, kept current by menu.js
+               (updateDeliveryStatus): pickup address, or the shipping cost the server
+               worked out and the new total, or why it can't be delivered. #}
+            <div class="delivery-status" aria-live="polite">
+              <p id="delivery-status" class="delivery-status-text" data-pickup-address="{{ business_address or '' }}">
+                Retiro en {{ business_address or 'el local' }} · sin costo
+              </p>
+              <p id="min-order-hint" class="delivery-status-text is-warning" style="display:none;"></p>
+            </div>
+
+            {# Only for Despacho, right under the choice: the address and its map pin. #}
+            <div id="delivery-address-block" class="delivery-address-block" hidden>
+              <label id="address-label" for="address">Dirección</label>
+              <input id="address" type="text" placeholder="Escribe tu dirección" autocomplete="street-address">
+              <div id="delivery-map-block">
+                <div id="address-hint" class="hint">Busca tu dirección; si no aparece exacta, ajusta el pin del mapa a tu ubicación real.</div>
+                <div id="map" class="map" data-lat="{{ business_lat }}" data-lng="{{ business_lng }}"></div>
+              </div>
+            </div>
 
             <label for="requested-time">Horario sugerido</label>
             <input id="requested-time" type="time"
@@ -225,13 +256,6 @@
                 A esta hora solo puedes agendar. Nuestras entregas son de {{ opens_at }} a {{ closes_at }}.
               {% endif %}
             </p>
-
-            <label id="address-label" for="address">Dirección</label>
-            <input id="address" type="text" placeholder="Escribe tu dirección" autocomplete="street-address">
-            <div id="delivery-map-block" style="display:none;">
-              <div id="address-hint" class="hint">Busca tu dirección; si no aparece exacta, ajusta el pin del mapa a tu ubicación real.</div>
-              <div id="map" class="map" data-lat="{{ business_lat }}" data-lng="{{ business_lng }}"></div>
-            </div>
           </div>
         </details>
 
@@ -303,6 +327,15 @@
         </details>
       </div>
 
+      <div class="summary summary-full">
+        <div class="summary-row"><span>Subtotal</span><strong id="subtotal">$0</strong></div>
+        <div class="summary-row"><span>Envío</span><strong id="shipping">$0</strong></div>
+        <div id="bundle-discount-rows" class="summary-rows"></div>
+        <div id="discount-row" class="summary-row discount-row" hidden><span>Descuento</span><strong id="discount">$0</strong></div>
+        <div class="summary-row total"><span>Total</span><strong id="total">$0</strong></div>
+        <p id="savings-note" class="savings-note" hidden></p>
+      </div>
+
       <div id="tomorrow-confirm" class="tomorrow-confirm" hidden>
         <p id="tomorrow-confirm-text"></p>
         <div class="tomorrow-confirm-actions">
@@ -311,7 +344,10 @@
         </div>
       </div>
       <p id="checkout-error" class="modal-error" hidden></p>
-      <button id="checkout-btn" class="button button-primary">Enviar por WhatsApp</button>
+      <div class="cart-step-footer">
+        <button id="checkout-btn" class="button button-primary">Enviar por WhatsApp · <span id="checkout-total">$0</span></button>
+      </div>
+      </section>
     </aside>
   </main>
 
@@ -383,6 +419,7 @@
 <script src="{{ static_versioned('js/description_format.js') }}"></script>
 <script src="{{ static_versioned('js/order_message.js') }}"></script>
 <script src="{{ static_versioned('js/coupon_ui.js') }}"></script>
+<script src="{{ static_versioned('js/delivery_status.js') }}"></script>
 <script src="{{ static_versioned('js/hero_carousel.js') }}"></script>
 <script src="{{ static_versioned('js/explore_scroller.js') }}"></script>
 <script src="{{ static_versioned('js/menu.js') }}"></script>

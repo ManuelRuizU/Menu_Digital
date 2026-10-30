@@ -389,10 +389,12 @@ button.hero-slide { cursor: pointer; }
    colored price, no gradient button competing with the cart items above. */
 .upsell-title { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .upsell-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.upsell-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.upsell-item { display: flex; align-items: center; gap: 10px; background: transparent; border: 1px solid var(--border); border-radius: 14px; padding: 8px 10px 8px 12px; }
-.upsell-item span:first-child { flex: 1; color: var(--text); font-size: 0.85rem; }
-.upsell-price { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+.upsell-list { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; padding-bottom: 2px; }
+.upsell-list::-webkit-scrollbar { display: none; }
+.upsell-item { flex: 0 0 auto; max-width: 210px; scroll-snap-align: start; display: flex; align-items: center; gap: 8px; background: transparent; border: 1px solid var(--border); border-radius: 14px; padding: 6px 8px 6px 12px; }
+.upsell-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 0.85rem; }
+.upsell-price { flex-shrink: 0; color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+.upsell-price .original-price { display: none; }
 .upsell-item button { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-strong); font-size: 1rem; font-weight: 600; line-height: 1; cursor: pointer; }
 .upsell-item button:hover { background: var(--tint-1); }
 .cart-items { display: flex; flex-direction: column; gap: 12px; }
@@ -401,6 +403,7 @@ button.hero-slide { cursor: pointer; }
 .cart-item small { color: var(--muted); }
 /* What the customer is paying per unit - the most important number on the card, so
    not the faintest one: full text color and weight instead of the muted <small>. */
+.cart-item .cart-item-saving { display: block; margin-top: 4px; color: rgb(var(--success-rgb)); font-weight: 700; font-size: 0.8rem; }
 .cart-item .cart-item-price { display: block; margin-top: 2px; color: var(--text-strong); font-size: 0.9rem; font-weight: 700; }
 .cart-item-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .cart-item-controls .qty-btn { width: 28px; height: 28px; border: none; border-radius: 8px; background: var(--tint-2); color: var(--text-strong); font-size: 1rem; font-weight: 700; cursor: pointer; line-height: 1; }
@@ -415,11 +418,11 @@ button.hero-slide { cursor: pointer; }
 /* The code box: dashed in the theme's main color over a light tint of it, "Aplicar"
    outlined (never filled - "Enviar por WhatsApp" is the one filled button). Green once
    applied. No animations. */
-.coupon-box { display: grid; gap: 8px; padding: 14px; border: 1.5px dashed var(--primary); border-radius: 16px; background: rgba(var(--primary-rgb), 0.09); }
+.coupon-box { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 14px; border: 1.5px dashed var(--primary); border-radius: 16px; background: rgba(var(--primary-rgb), 0.09); }
 .coupon-box.is-applied { border-color: rgb(var(--success-rgb)); background: rgba(var(--success-rgb), 0.12); }
 .coupon-title { font-weight: 700; color: var(--text-strong); font-size: 0.95rem; }
 .coupon-inputs { display: flex; gap: 8px; }
-.coupon-inputs input { flex: 1; min-width: 0; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
+.coupon-inputs input { flex: 1; min-width: 0; width: 100%; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
 .coupon-inputs input::placeholder { color: var(--muted); text-transform: none; }
 .coupon-inputs button { flex-shrink: 0; border: 1.5px solid var(--primary); border-radius: 14px; background: transparent; color: var(--primary); padding: 10px 16px; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
 .coupon-inputs button:disabled { opacity: 0.6; cursor: wait; }
@@ -465,7 +468,7 @@ button.hero-slide { cursor: pointer; }
 /* Shipping not calculated yet (delivery with no address) - a prompt, not an amount. */
 .summary-row .summary-pending { font-weight: 500; font-style: italic; color: var(--accent); }
 .summary-row.total { font-size: 1.1rem; color: var(--text-strong); font-weight: 700; }
-.accordion { display: grid; gap: 10px; margin-top: 18px; }
+.accordion { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 18px; }
 .accordion-section { border: 1px solid var(--border); border-radius: 18px; background: var(--tint-1); overflow: hidden; }
 .accordion-section summary { cursor: pointer; padding: 14px 16px; font-weight: 700; list-style: none; }
 .accordion-section summary::-webkit-details-marker { display: none; }
@@ -648,7 +651,7 @@ body.nav-open { overflow: hidden; }
     display: block;
     width: 44px;
     height: 4px;
-    margin: 10px auto 0;
+    margin: 0 auto 12px;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--primary), var(--accent));
   }
@@ -820,3 +823,35 @@ body.modal-open { overflow: hidden; }
 .suggestion-item:last-child { border-bottom: none; }
 
 .suggestion-item:hover { background: var(--tint-2); }
+
+/* --- The cart in two steps (menu.js showCartStep) --- */
+.cart-step[hidden] { display: none; }
+.cart-step h2:focus { outline: none; }
+.cart-step h2:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 6px; }
+.cart-back { display: inline-block; margin: 0 0 6px; padding: 4px 0; border: none; background: none; color: var(--primary); font: inherit; font-size: 0.9rem; font-weight: 700; cursor: pointer; }
+.summary-step-1 { margin-top: 18px; }
+.step-1-coupon { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.step-1-coupon.is-applied { color: rgb(var(--success-rgb)); font-weight: 700; }
+.step-1-coupon[hidden] { display: none; }
+.savings-note { margin: 2px 0 0; padding: 8px 12px; border-radius: 12px; background: rgba(var(--success-rgb), 0.12); color: rgb(var(--success-rgb)); font-weight: 700; text-align: center; }
+.savings-note[hidden] { display: none; }
+/* The step's button stays at the bottom of the panel while its content scrolls; the
+   negative margins take its background to the panel's edges (the panel has padding). */
+.cart-step-footer { position: sticky; bottom: -22px; z-index: 2; margin: 18px -22px -22px; padding: 12px 22px 22px; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--border); }
+html[data-theme="cafeteria"] .cart-step-footer { margin-left: -34px; margin-right: -34px; margin-bottom: -32px; padding-left: 34px; padding-right: 34px; bottom: -32px; }
+.cart-step-footer .button:disabled { background: var(--tint-2); color: var(--muted); cursor: not-allowed; }
+
+/* The line under Retiro / Despacho (menu.js updateDeliveryStatus). */
+.delivery-status { display: grid; gap: 4px; margin-top: -4px; }
+.delivery-status-text { margin: 0; font-size: 0.88rem; color: var(--muted); }
+.delivery-status-text.is-ok { color: var(--text); }
+.delivery-status-text.is-warning { color: var(--accent); font-weight: 600; }
+.delivery-address-block { display: grid; gap: 12px; }
+.delivery-address-block[hidden] { display: none; }
+#delivery-map-block { display: grid; gap: 12px; }
+/* A total that just changed: a short tint behind the amount, no movement. */
+.amount-changed { background: rgba(255,255,255,0.28); border-radius: 6px; box-shadow: 0 0 0 3px rgba(255,255,255,0.28); }
+#checkout-total { transition: background-color 0.4s ease, box-shadow 0.4s ease; }
+@media (prefers-reduced-motion: reduce) {
+  #checkout-total { transition: none; }
+}

@@ -91,3 +91,28 @@ test('option order does not make a different line', () => {
   assert.equal(cart[0].quantity, 3)
   assert.equal(cart[0].price, 10400)
 })
+
+test('lineSavings: offer price per unit, single-line promo, mixed promo on its last line', () => {
+  const { lineSavings, totalSavings } = require('../../app/static/js/cart_lines.js')
+  const cart = [
+    { cartKey: '1:', id: 1, quantity: 2 }, // offer: was 4500, now 3200
+    { cartKey: '2:', id: 2, quantity: 2 }, // 2x1 on its own
+    { cartKey: '3:', id: 3, quantity: 1 }, // mixed 2x1 with product 4
+    { cartKey: '4:', id: 4, quantity: 1 },
+    { cartKey: '5:', id: 5, quantity: 3 }, // nothing
+  ]
+  const offer = (id) => (id === 1 ? 1300 : 0)
+  const promos = [
+    { label: '2x1 Jugos', productIds: [2], amount: 4200 },
+    { label: '2x1 Rolls', productIds: [3, 4], amount: 5990 },
+    { label: 'Sin carrito', productIds: [99], amount: 1000 },
+  ]
+  const savings = lineSavings(cart, offer, promos)
+  assert.deepEqual(savings, {
+    '1:': { amount: 2600, promoLabels: [] },
+    '2:': { amount: 4200, promoLabels: [] },
+    '4:': { amount: 5990, promoLabels: ['2x1 Rolls'] },
+  })
+  assert.equal(totalSavings(savings), 12790)
+  assert.deepEqual(lineSavings([], offer, promos), {})
+})
