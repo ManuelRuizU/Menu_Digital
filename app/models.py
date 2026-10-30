@@ -331,6 +331,29 @@ class CouponRedemption(db.Model):
         return f'<CouponRedemption coupon_id={self.coupon_id} order_id={self.order_id}>'
 
 
+
+# Where a coupon attempt came from in the menu, and what happened. 'shown'/'declined'
+# are the reminder before sending (shown, then "Enviar sin cupón"); 'used' is a coupon
+# that went out in a saved order.
+COUPON_ATTEMPT_SOURCES = ('card', 'banner', 'reminder', 'manual')
+COUPON_ATTEMPT_RESULTS = ('applied', 'rejected', 'shown', 'declined', 'used')
+
+
+class CouponAttempt(db.Model):
+    """One coupon attempt in the menu - for the panel's "Uso de cupones" numbers only.
+    Holds no personal data on purpose: no phone, IP, name or cart. Just the code as
+    typed (uppercased), so codes that don't exist can be counted too."""
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(30), nullable=False)
+    source = db.Column(db.String(12), nullable=True)  # NULL: an order from a menu page older than this log
+    result = db.Column(db.String(10), nullable=False)
+    reason = db.Column(db.String(20), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f'<CouponAttempt {self.code} {self.source} {self.result}>'
+
+
 bundle_promo_product = db.Table(
     'bundle_promo_product',
     db.Column('bundle_promo_id', db.Integer, db.ForeignKey('bundle_promo.id'), primary_key=True),

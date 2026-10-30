@@ -3,14 +3,14 @@
 // files - every price and the order sending would then throw. Reload once to get a
 // matching page (the sessionStorage flag stops a reload loop if they're truly missing).
 if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined' || typeof CartLines === 'undefined' ||
-    typeof DescriptionFormat === 'undefined') {
+    typeof DescriptionFormat === 'undefined' || typeof CouponUI === 'undefined') {
   let alreadyRetried = false
   try {
     alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
     if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
   } catch {}
   if (!alreadyRetried) window.location.reload()
-  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js not loaded')
+  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js / coupon_ui.js not loaded')
 }
 try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
 
@@ -31,7 +31,7 @@ function loadSavedCart() {
   }
 }
 
-const STATE = { products: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, requestedForTomorrow: false }
+const STATE = { products: [], bundlePromos: [], cart: loadSavedCart(), selectedLocation: null, shippingCost: 0, deliveryCovered: true, appliedCoupon: null, couponPending: null, couponOffers: [], couponReminderShown: false, requestedForTomorrow: false }
 
 function loadSavedCustomer() {
   try {
@@ -63,7 +63,17 @@ const elements = {
   promoNudges: document.getElementById('promo-nudges'),
   discountRow: document.getElementById('discount-row'),
   discount: document.getElementById('discount'),
+  couponBox: document.getElementById('coupon-box'),
+  couponOffers: document.getElementById('coupon-offers'),
   couponCode: document.getElementById('coupon-code'),
+  couponRemove: document.getElementById('coupon-remove'),
+  couponReminder: document.getElementById('coupon-reminder'),
+  couponReminderBackdrop: document.getElementById('coupon-reminder-backdrop'),
+  couponReminderText: document.getElementById('coupon-reminder-text'),
+  couponReminderError: document.getElementById('coupon-reminder-error'),
+  couponReminderApply: document.getElementById('coupon-reminder-apply'),
+  couponReminderSkip: document.getElementById('coupon-reminder-skip'),
+  toast: document.getElementById('toast'),
   couponApplyBtn: document.getElementById('coupon-apply-btn'),
   couponMessage: document.getElementById('coupon-message'),
   total: document.getElementById('total'),
@@ -483,64 +493,281 @@ let map, marker, suggestions = []
 
 function saveCart() {
   localStorage.setItem(CART_KEY, JSON.stringify(STATE.cart))
-  clearAppliedCoupon()
+  scheduleCouponRefresh()
 }
 
-function clearAppliedCoupon(message) {
-  if (!STATE.appliedCoupon) return
-  STATE.appliedCoupon = null
-  if (elements.couponMessage) {
-    elements.couponMessage.textContent = message || 'Tu carrito cambió, vuelve a aplicar el cupón.'
-    elements.couponMessage.className = 'coupon-message coupon-message-info'
+// --- Coupons -----------------------------------------------------------------------
+// A coupon is either applied (STATE.appliedCoupon: the server said yes, with the amount)
+// or waiting (STATE.couponPending: kept, but not counted - the cart is short of its
+// minimum, empty, or doesn't have its products yet). Any change to the cart, delivery
+// mode or address re-checks it on the server instead of dropping it: it moves between
+// the two on its own. create_order validates it once more - the server decides.
+
+let couponRefreshTimer = null
+let couponRequestSeq = 0
+// The re-check in flight, if any - "Enviar" waits for it so the order goes out with
+// what the server last said about this exact cart.
+let couponCheckPromise = null
+
+function keepCoupon(coupon) {
+  CouponUI.saveKept(sessionStorage, coupon)
+}
+
+function couponPayload(code, source) {
+  const deliveryMode = getDeliveryMode()
+  return {
+    code,
+    source: source || null,
+    phone: elements.phone.value.trim(),
+    deliveryMode,
+    items: STATE.cart.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      options: (item.selectedOptions || []).map((o) => o.id),
+    })),
+    lat: deliveryMode === 'envio' && STATE.selectedLocation ? STATE.selectedLocation.lat : null,
+    lng: deliveryMode === 'envio' && STATE.selectedLocation ? STATE.selectedLocation.lng : null,
   }
 }
 
-async function applyCoupon() {
-  const code = elements.couponCode.value.trim()
-  if (!code) return
+async function postJson(url, body) {
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const data = await response.json().catch(() => ({}))
+  return { ...data, ok: response.ok && data.ok !== false }
+}
+
+function setCouponMessage(text, tone) {
+  elements.couponMessage.textContent = text || ''
+  elements.couponMessage.className = `coupon-message${tone ? ` coupon-message-${tone}` : ''}`
+}
+
+// The box's look follows the state: green with "✓ CÓDIGO aplicado" when applied.
+function renderCouponBox() {
+  const applied = STATE.appliedCoupon
+  elements.couponBox.classList.toggle('is-applied', Boolean(applied))
+  elements.couponRemove.hidden = !(applied || STATE.couponPending)
+  if (applied) {
+    elements.couponCode.value = applied.code
+    setCouponMessage(CouponUI.appliedText(applied, formatPrice), 'ok')
+  } else if (STATE.couponPending) {
+    elements.couponCode.value = STATE.couponPending.code
+    setCouponMessage(STATE.couponPending.message, 'info')
+  }
+  renderCouponOffers()
+}
+
+function setApplied(data, source) {
+  STATE.appliedCoupon = { code: data.code, kind: data.kind, discountPercent: data.discountPercent, fixedAmount: data.fixedAmount, giftProductName: data.giftProductName, scope: data.scope, discountAmount: data.discountAmount, source }
+  STATE.couponPending = null
+  keepCoupon({ code: data.code, source })
+}
+
+function setPending(code, source, message, logged) {
+  STATE.appliedCoupon = null
+  STATE.couponPending = { code, source, message, logged }
+  keepCoupon({ code, source })
+}
+
+function dropCoupon() {
+  STATE.appliedCoupon = null
+  STATE.couponPending = null
+  keepCoupon(null)
+}
+
+// A customer's own attempt (manual box, coupon card, banner, reminder) - logged on the
+// server under that source. Resolves to true when the coupon ended up applied.
+async function applyCoupon(rawCode, source) {
+  const code = String(rawCode || '').trim().toUpperCase()
+  if (!code) return false
+  if (!STATE.cart.length) {
+    setPending(code, source, `${code} se aplicará cuando agregues productos.`, false)
+    renderCouponBox()
+    updateSummary()
+    return false
+  }
+  const seq = ++couponRequestSeq
   elements.couponApplyBtn.disabled = true
   elements.couponApplyBtn.textContent = 'Aplicando...'
-  elements.couponMessage.textContent = ''
-
-  const deliveryMode = getDeliveryMode()
+  let data
   try {
-    const response = await fetch('/api/apply-coupon', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        phone: elements.phone.value.trim(),
-        deliveryMode,
-        items: STATE.cart.map((item) => ({
-          id: item.id,
-          quantity: item.quantity,
-          options: (item.selectedOptions || []).map((o) => o.id),
-        })),
-        lat: deliveryMode === 'envio' && STATE.selectedLocation ? STATE.selectedLocation.lat : null,
-        lng: deliveryMode === 'envio' && STATE.selectedLocation ? STATE.selectedLocation.lng : null,
-      }),
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data.ok) {
-      STATE.appliedCoupon = null
-      elements.couponMessage.textContent = data.message || 'No se pudo aplicar el cupón.'
-      elements.couponMessage.className = 'coupon-message coupon-message-error'
-    } else {
-      STATE.appliedCoupon = { code: data.code, kind: data.kind, discountPercent: data.discountPercent, fixedAmount: data.fixedAmount, giftProductName: data.giftProductName, scope: data.scope, discountAmount: data.discountAmount }
-      elements.couponMessage.textContent = data.kind === 'product'
-        ? `Cupón ${data.code} aplicado: te llevas ${data.giftProductName} de regalo`
-        : `Cupón ${data.code} aplicado: -${formatPrice(data.discountAmount)}`
-      elements.couponMessage.className = 'coupon-message coupon-message-ok'
-    }
+    data = await postJson('/api/apply-coupon', couponPayload(code, source))
   } catch (error) {
-    STATE.appliedCoupon = null
-    elements.couponMessage.textContent = 'No se pudo conectar con el servidor. Intenta de nuevo.'
-    elements.couponMessage.className = 'coupon-message coupon-message-error'
+    data = { ok: false, message: 'No se pudo conectar con el servidor. Intenta de nuevo.' }
   }
-
   elements.couponApplyBtn.disabled = false
   elements.couponApplyBtn.textContent = 'Aplicar'
+  if (seq !== couponRequestSeq) return Boolean(STATE.appliedCoupon)
+  if (data.ok) {
+    setApplied(data, source)
+  } else if (data.waits) {
+    setPending(data.code || code, source, data.message, true)
+  } else {
+    dropCoupon()
+    setCouponMessage(data.message || 'No se pudo aplicar el cupón.', CouponUI.messageTone(data))
+    if (data.reason === 'phone_required') {
+      elements.phone.focus()
+      elements.phone.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }
+  renderCouponBox()
   updateSummary()
+  return Boolean(STATE.appliedCoupon)
+}
+
+// The menu's own re-check after a change - not a customer attempt, so not logged,
+// except a coupon saved from the banner with an empty cart: its first real check is
+// the customer's attempt, under 'banner'.
+async function recheckCoupon() {
+  const current = STATE.appliedCoupon || STATE.couponPending
+  if (!current) return
+  if (!STATE.cart.length) {
+    if (STATE.appliedCoupon) setPending(current.code, current.source, `${current.code} se aplicará cuando agregues productos.`, true)
+    renderCouponBox()
+    updateSummary()
+    return
+  }
+  const logAs = STATE.couponPending && !STATE.couponPending.logged ? current.source : null
+  const seq = ++couponRequestSeq
+  let data
+  try {
+    data = await postJson('/api/apply-coupon', couponPayload(current.code, logAs))
+  } catch (error) {
+    return // offline: keep what we had; create_order validates it anyway
+  }
+  if (seq !== couponRequestSeq) return
+  if (data.ok) {
+    setApplied(data, current.source)
+  } else if (data.waits) {
+    setPending(data.code || current.code, current.source, data.message, true)
+  } else {
+    dropCoupon()
+    setCouponMessage(data.message || 'Tu cupón ya no se puede usar.', CouponUI.messageTone(data))
+  }
+  renderCouponBox()
+  updateSummary()
+}
+
+async function refreshCouponOffers() {
+  if (!STATE.cart.length) {
+    STATE.couponOffers = []
+    renderCouponOffers()
+    return STATE.couponOffers
+  }
+  try {
+    const data = await postJson('/api/cart-coupons', couponPayload(null, null))
+    STATE.couponOffers = data.ok && Array.isArray(data.coupons) ? data.coupons : []
+  } catch (error) {
+    STATE.couponOffers = []
+  }
+  renderCouponOffers()
+  return STATE.couponOffers
+}
+
+function scheduleCouponRefresh() {
+  clearTimeout(couponRefreshTimer)
+  couponCheckPromise = new Promise((resolve) => {
+    couponRefreshTimer = setTimeout(() => {
+      Promise.all([recheckCoupon(), refreshCouponOffers()]).finally(resolve)
+    }, 300)
+  })
+}
+
+// The coupon card: the server's offers minus the one already applied - the best one,
+// then the rest behind "Ver N cupones más".
+function renderCouponOffers() {
+  if (!elements.couponOffers) return
+  const appliedCode = STATE.appliedCoupon && STATE.appliedCoupon.code
+  const offers = STATE.couponOffers.filter((offer) => offer.code !== appliedCode)
+  const offerHtml = (offer) => {
+    const lines = CouponUI.offerLines(offer, formatPrice)
+    return `
+      <div class="coupon-offer${lines.canApply ? '' : ' is-short'}">
+        <div class="coupon-offer-text">
+          <strong>🏷️ ${escapeHtml(lines.title)}</strong>
+          <span>${escapeHtml(lines.detail)}</span>
+          ${lines.saving ? `<span class="coupon-offer-saving">${escapeHtml(lines.saving)}</span>` : ''}
+        </div>
+        ${lines.canApply ? `<button type="button" class="coupon-offer-apply" data-coupon-apply="${escapeHtml(offer.code)}" aria-label="Aplicar el cupón ${escapeHtml(offer.code)}">Aplicar</button>` : ''}
+      </div>`
+  }
+  const [first, ...rest] = offers
+  elements.couponOffers.innerHTML = !first ? '' : offerHtml(first) + (rest.length ? `
+    <details class="coupon-offers-more">
+      <summary>Ver ${rest.length} cupón${rest.length === 1 ? '' : 'es'} más</summary>
+      ${rest.map(offerHtml).join('')}
+    </details>` : '')
+}
+
+let toastTimer = null
+function showToast(message) {
+  if (!elements.toast) return
+  elements.toast.textContent = message
+  elements.toast.hidden = false
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { elements.toast.hidden = true }, 4000)
+}
+
+// --- Reminder before sending ---------------------------------------------------------
+// Shown between "Enviar por WhatsApp" and the confirm summary, never after it: WhatsApp
+// still opens from the confirm summary's own tap (handleConfirmSend), so nothing here
+// sits between that gesture and window.open (iOS Safari blocks a delayed popup).
+let reminderOffer = null
+
+function logReminder(code, result) {
+  postJson('/api/coupon-event', { code, result }).catch(() => {})
+}
+
+function closeCouponReminder() {
+  elements.couponReminder.classList.remove('open')
+  elements.couponReminderBackdrop.classList.remove('open')
+  document.body.classList.remove('modal-open')
+}
+
+function showCouponReminder(offer) {
+  reminderOffer = offer
+  STATE.couponReminderShown = true
+  elements.couponReminderText.textContent = CouponUI.reminderText(offer, formatPrice)
+  elements.couponReminderError.hidden = true
+  elements.couponReminderApply.hidden = false
+  elements.couponReminderApply.disabled = false
+  elements.couponReminderApply.textContent = 'Aplicar y enviar'
+  elements.couponReminder.classList.add('open')
+  elements.couponReminderBackdrop.classList.add('open')
+  document.body.classList.add('modal-open')
+  elements.couponReminderApply.focus()
+  logReminder(offer.code, 'shown')
+}
+
+async function proceedToConfirm() {
+  if (couponCheckPromise) await couponCheckPromise
+  const offer = CouponUI.reminderOffer(STATE.appliedCoupon ? STATE.couponOffers : await refreshCouponOffers(),
+    { applied: Boolean(STATE.appliedCoupon), alreadyShown: STATE.couponReminderShown })
+  if (offer) {
+    showCouponReminder(offer)
+    return
+  }
+  openConfirmModal()
+}
+
+async function acceptCouponReminder() {
+  if (!reminderOffer) return
+  elements.couponReminderApply.disabled = true
+  elements.couponReminderApply.textContent = 'Aplicando...'
+  const applied = await applyCoupon(reminderOffer.code, 'reminder')
+  if (applied) {
+    closeCouponReminder()
+    openConfirmModal()
+    return
+  }
+  elements.couponReminderError.textContent = elements.couponMessage.textContent || 'No se pudo aplicar el cupón.'
+  elements.couponReminderError.hidden = false
+  elements.couponReminderApply.hidden = true
+}
+
+function skipCouponReminder() {
+  if (reminderOffer) logReminder(reminderOffer.code, 'declined')
+  closeCouponReminder()
+  openConfirmModal()
 }
 
 function formatPrice(value) {
@@ -1070,7 +1297,7 @@ async function setLocation(lat, lng, label, precise = true) {
   const { covered, shippingCost } = await fetchShippingCost(lat, lng)
   STATE.shippingCost = shippingCost
   STATE.deliveryCovered = covered
-  clearAppliedCoupon()
+  scheduleCouponRefresh()
   const baseMessage = covered
     ? `Dirección confirmada: ${label} · Envío: ${formatPrice(shippingCost)}`
     : `${label} está fuera de nuestra zona de reparto. Elige "Retiro" o prueba otra dirección.`
@@ -1312,16 +1539,14 @@ function resetCartAfterOrder() {
   // creates a duplicate Order the encargado has to notice and cancel by hand.
   STATE.cart = []
   STATE.requestedForTomorrow = false
-  // Null it out before saveCart() so its own clearAppliedCoupon() call becomes a
-  // no-op (it early-returns when there's nothing applied) instead of overwriting the
-  // UI with a "tu carrito cambió, vuelve a aplicar el cupón" message that makes no
-  // sense right after a successful order.
-  STATE.appliedCoupon = null
-  if (elements.couponCode) elements.couponCode.value = ''
-  if (elements.couponMessage) {
-    elements.couponMessage.textContent = ''
-    elements.couponMessage.className = 'coupon-message'
-  }
+  // The coupon goes with the order (and out of this tab's storage) - the next order
+  // starts clean, reminder included.
+  dropCoupon()
+  STATE.couponOffers = []
+  STATE.couponReminderShown = false
+  elements.couponCode.value = ''
+  setCouponMessage('', null)
+  renderCouponBox()
   saveCart()  // persists the emptied cart to localStorage too - not just STATE.cart
   renderCart()  // repaints cart items + upsell suggestions + every summary hint
 }
@@ -1384,6 +1609,7 @@ async function saveOrder() {
         lat: STATE.selectedLocation ? STATE.selectedLocation.lat : null,
         lng: STATE.selectedLocation ? STATE.selectedLocation.lng : null,
         couponCode: STATE.appliedCoupon ? STATE.appliedCoupon.code : null,
+        couponSource: STATE.appliedCoupon ? STATE.appliedCoupon.source : null,
         // Only compared server-side to catch a drifted preview (logged) - never used to price.
         expectedTotal: getOrderTotal(),
       }),
@@ -1499,7 +1725,7 @@ async function handleCheckout() {
     return
   }
   hideTomorrowConfirm()
-  openConfirmModal()
+  await proceedToConfirm()
 }
 
 window.addEventListener('load', () => {
@@ -1515,12 +1741,37 @@ window.addEventListener('load', () => {
   document.querySelectorAll('input[name="delivery-mode"]').forEach((input) => {
     input.addEventListener('change', () => {
       toggleDeliveryFields()
-      clearAppliedCoupon()
+      scheduleCouponRefresh()
       updateSummary()
     })
   })
 
-  elements.couponApplyBtn.addEventListener('click', applyCoupon)
+  elements.couponApplyBtn.addEventListener('click', () => applyCoupon(elements.couponCode.value, 'manual'))
+  elements.couponCode.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    applyCoupon(elements.couponCode.value, 'manual')
+  })
+  elements.couponRemove.addEventListener('click', () => {
+    dropCoupon()
+    elements.couponCode.value = ''
+    setCouponMessage('', null)
+    renderCouponBox()
+    updateSummary()
+  })
+  // Per-customer coupons depend on the phone: the card and a waiting code re-check.
+  elements.phone.addEventListener('change', scheduleCouponRefresh)
+  elements.couponReminderApply.addEventListener('click', acceptCouponReminder)
+  elements.couponReminderSkip.addEventListener('click', skipCouponReminder)
+  elements.couponReminderBackdrop.addEventListener('click', skipCouponReminder)
+
+  // A coupon kept from earlier in this tab (e.g. saved from the banner) waits until
+  // the server checks it against the restored cart.
+  const keptCoupon = CouponUI.loadKept(sessionStorage)
+  if (keptCoupon) {
+    setPending(keptCoupon.code, keptCoupon.source, `Revisando ${keptCoupon.code}...`, true)
+    renderCouponBox()
+  }
 
   document.querySelectorAll('input[name="payment-method"]').forEach((input) => {
     input.addEventListener('change', togglePaymentFields)
@@ -1592,11 +1843,14 @@ window.addEventListener('load', () => {
     if (quantityStep) setModalQuantity(modalQuantity + Number(quantityStep.getAttribute('data-modal-step')))
     const couponSlide = event.target.closest('[data-coupon-code]')
     if (couponSlide) {
-      elements.couponCode.value = couponSlide.getAttribute('data-coupon-code')
-      openCart()
-      if (elements.phone.value.trim()) applyCoupon()
-      else elements.couponCode.focus()
+      // With an empty cart it's kept (this tab) and applies with the first product.
+      const code = couponSlide.getAttribute('data-coupon-code')
+      applyCoupon(code, 'banner')
+      if (STATE.cart.length) openCart()
+      else showToast(`Listo: ${code} se aplicará cuando agregues productos.`)
     }
+    const offerApply = event.target.closest('[data-coupon-apply]')
+    if (offerApply) applyCoupon(offerApply.getAttribute('data-coupon-apply'), 'card')
     const add = event.target.closest('[data-add]')
     const remove = event.target.closest('[data-remove]')
     const increment = event.target.closest('[data-increment]')
@@ -1672,7 +1926,7 @@ window.addEventListener('load', () => {
     STATE.requestedForTomorrow = true
     hideTomorrowConfirm()
     hideCheckoutError()
-    openConfirmModal()
+    proceedToConfirm()
   })
   elements.tomorrowConfirmNo.addEventListener('click', () => {
     hideTomorrowConfirm()

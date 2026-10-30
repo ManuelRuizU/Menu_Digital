@@ -3,7 +3,10 @@
 {% block content %}
     <div class="card-row">
       <h1>Cupones</h1>
-      <a href="{{ url_for('catalog.create_coupon') }}"><button type="button">Nuevo cupón</button></a>
+      <div class="inline-actions">
+        <a href="{{ url_for('catalog.coupon_usage') }}"><button type="button" class="secondary">Ver uso</button></a>
+        <a href="{{ url_for('catalog.create_coupon') }}"><button type="button">Nuevo cupón</button></a>
+      </div>
     </div>
 
     {% for coupon in coupons %}
