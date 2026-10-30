@@ -282,7 +282,7 @@
            applied coupon) and after the phone (per-customer coupons need it). #}
         <div id="coupon-offers" class="coupon-offers" aria-live="polite"></div>
         <div id="coupon-box" class="coupon-box">
-          <label for="coupon-code" class="coupon-title"><span aria-hidden="true">🏷️</span> ¿Tienes un código de descuento?</label>
+          <label for="coupon-code" class="coupon-title"><span aria-hidden="true">🏷️</span> <span id="coupon-title-text">¿Tienes un código de descuento?</span></label>
           <div class="coupon-inputs">
             <input id="coupon-code" type="text" placeholder="Escribe tu código" autocomplete="off" maxlength="30">
             <button type="button" id="coupon-apply-btn">Aplicar</button>
@@ -305,7 +305,7 @@
               <p id="cash-total-hint" class="hint"></p>
               <label for="cash-amount">¿Con cuánto pagas?</label>
               <div id="quick-cash-buttons" class="delivery-options"></div>
-              <input id="cash-amount" type="number" min="0" step="1" placeholder="10000">
+              <input id="cash-amount" type="number" min="0" step="1" placeholder="">
               <div id="change-hint" class="hint"></div>
             </div>
 

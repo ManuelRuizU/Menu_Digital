@@ -9,6 +9,8 @@
   const SOURCES = ['card', 'banner', 'reminder', 'manual']
   // A rejection worded as a thank-you, not as an error.
   const FRIENDLY_REASONS = ['already_used']
+  // Up to this many cards show; past it, the first ones and "Ver todos los cupones (N)".
+  const OFFERS_SHOWN = 3
 
   // { title, detail, saving, canApply } for one /api/cart-coupons entry.
   function offerLines (offer, formatPrice) {
@@ -20,6 +22,21 @@
       detail: offer.description,
       saving: offer.kind === 'product' ? '' : `Ahorras ${formatPrice(offer.saving)}`,
       canApply: true,
+    }
+  }
+
+  // How the cart's coupon section is laid out. offers: the server's list (it puts the
+  // ones that apply first, by saving), minus the one already applied. With no public
+  // coupon, no title and nothing to show - and the manual box asks for "un código".
+  function offersLayout (offers) {
+    const count = offers.length
+    const folded = count > OFFERS_SHOWN
+    return {
+      title: count ? `🎁 Cupones disponibles para ti (${count})` : '',
+      shown: folded ? offers.slice(0, OFFERS_SHOWN) : offers,
+      more: folded ? offers.slice(OFFERS_SHOWN) : [],
+      moreLabel: folded ? `Ver todos los cupones (${count})` : '',
+      manualTitle: count ? '¿Tienes otro código?' : '¿Tienes un código de descuento?',
     }
   }
 
@@ -71,7 +88,7 @@
     } catch {}
   }
 
-  const api = { STORAGE_KEY, offerLines, appliedText, reminderText, reminderOffer, messageTone, loadKept, saveKept }
+  const api = { STORAGE_KEY, offerLines, offersLayout, appliedText, reminderText, reminderOffer, messageTone, loadKept, saveKept }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.CouponUI = api
 })(this)

@@ -351,7 +351,7 @@ def test_coupon_box_comes_after_delivery_address_and_phone(client, db):
     _register_owner(client)
     html = _home(client)
     assert ('<label for="coupon-code" class="coupon-title"><span aria-hidden="true">🏷️</span> '
-            '¿Tienes un código de descuento?</label>') in html
+            '<span id="coupon-title-text">¿Tienes un código de descuento?</span></label>') in html
     positions = [html.index(marker) for marker in
                  ('id="address"', 'id="phone"', 'id="coupon-code"', 'name="payment-method"', 'id="checkout-btn"')]
     assert positions == sorted(positions)

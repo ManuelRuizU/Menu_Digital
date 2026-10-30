@@ -63,3 +63,28 @@ test('kept coupon: saved, loaded, cleared; junk and broken storage are "nothing"
   assert.equal(CouponUI.loadKept(broken), null)
   assert.doesNotThrow(() => CouponUI.saveKept(broken, { code: 'X', source: 'card' }))
 })
+
+test('offersLayout: no public coupon, no section; the box asks for "un código"', () => {
+  assert.deepEqual(CouponUI.offersLayout([]), {
+    title: '', shown: [], more: [], moreLabel: '', manualTitle: '¿Tienes un código de descuento?',
+  })
+})
+
+test('offersLayout: up to 3 coupons all show, no "Ver todos"', () => {
+  const offers = [{ code: 'A' }, { code: 'B' }, { code: 'C' }]
+  const one = CouponUI.offersLayout(offers.slice(0, 1))
+  assert.equal(one.title, '🎁 Cupones disponibles para ti (1)')
+  assert.equal(one.manualTitle, '¿Tienes otro código?')
+  const three = CouponUI.offersLayout(offers)
+  assert.deepEqual(three.shown.map((o) => o.code), ['A', 'B', 'C'])
+  assert.deepEqual(three.more, [])
+  assert.equal(three.moreLabel, '')
+})
+
+test('offersLayout: 4 or more show the first 3 (the server sorts them) and "Ver todos"', () => {
+  const layout = CouponUI.offersLayout([{ code: 'A' }, { code: 'B' }, { code: 'C' }, { code: 'D' }, { code: 'E' }])
+  assert.equal(layout.title, '🎁 Cupones disponibles para ti (5)')
+  assert.deepEqual(layout.shown.map((o) => o.code), ['A', 'B', 'C'])
+  assert.deepEqual(layout.more.map((o) => o.code), ['D', 'E'])
+  assert.equal(layout.moreLabel, 'Ver todos los cupones (5)')
+})

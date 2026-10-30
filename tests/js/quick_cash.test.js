@@ -30,3 +30,12 @@ test('nothing to pay, nothing to suggest; cents round up', () => {
 test('the bills can change per country', () => {
   assert.deepEqual(quickCashAmounts(870, [100, 500, 1000]), [870, 900, 1000])
 })
+
+test('placeholder: the largest suggestion, never below the total; none with nothing to pay', () => {
+  const { placeholderAmount } = require('../../app/static/js/quick_cash.js')
+  assert.equal(placeholderAmount(27480), 40000)
+  assert.equal(placeholderAmount(20000), 20000)
+  assert.equal(placeholderAmount(63500), 70000)
+  assert.equal(placeholderAmount(0), null)
+  for (const total of [1, 999, 4200, 30000, 99999]) assert.ok(placeholderAmount(total) >= total)
+})
