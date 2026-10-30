@@ -40,7 +40,34 @@
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   }
 
-  const api = { addUnits, pricingLines, subtotal }
+  // { [cartKey]: { amount, promoLabels } } - what each line saves, for the cart's
+  // "¡Ahorras $X!": its offer price (offerSavingPerUnit(productId): the struck-through
+  // price minus the price, per unit) plus the automatic promos it takes part in.
+  // promoDiscounts: [{ label, productIds, amount }] as bundle_pricing.js computed them;
+  // a promo mixing several lines is credited once, to the last of them, with its label
+  // (it can't be split per line truthfully). Lines that save nothing are left out.
+  function lineSavings (cart, offerSavingPerUnit, promoDiscounts) {
+    const result = {}
+    const credit = (line, amount, label) => {
+      if (!(amount > 0)) return
+      const entry = result[line.cartKey] || (result[line.cartKey] = { amount: 0, promoLabels: [] })
+      entry.amount += amount
+      if (label) entry.promoLabels.push(label)
+    }
+    cart.forEach((line) => credit(line, (offerSavingPerUnit(line.id) || 0) * line.quantity, null))
+    ;(promoDiscounts || []).forEach((promo) => {
+      const ids = new Set(promo.productIds || [])
+      const lines = cart.filter((line) => ids.has(line.id))
+      if (lines.length) credit(lines[lines.length - 1], promo.amount, lines.length > 1 ? promo.label : null)
+    })
+    return result
+  }
+
+  function totalSavings (savings) {
+    return Object.values(savings).reduce((sum, entry) => sum + entry.amount, 0)
+  }
+
+  const api = { addUnits, pricingLines, subtotal, lineSavings, totalSavings }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.CartLines = api
 })(this)
