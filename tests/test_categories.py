@@ -416,7 +416,7 @@ def test_categories_panel_has_edit_next_to_delete(client, db):
 
     html = client.get('/admin/categories').data.decode()
 
-    assert '<small class="muted">pollo, camarón, salmón</small>' in html
+    assert '<small class="muted" style="white-space:pre-line;">pollo, camarón, salmón</small>' in html
     assert f'href="/admin/categories/{category.id}/edit"' in html
     assert f'href="/admin/subcategories/{sub.id}/edit"' in html
 

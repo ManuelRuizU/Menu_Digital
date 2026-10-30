@@ -408,7 +408,8 @@ button.hero-slide { cursor: pointer; }
 .cart-item-gift { border-style: dashed; border-color: var(--accent); background: rgba(var(--accent-rgb), 0.08); box-shadow: none; }
 .cart-item-gift small { color: var(--text-strong); }
 .cart-item-gift-price { align-self: center; font-weight: 800; font-size: 0.85rem; color: var(--accent); letter-spacing: 0.04em; }
-.coupon-box { margin-top: 16px; }
+.coupon-box { display: grid; gap: 8px; }
+.coupon-title { font-weight: 700; color: var(--text-strong); font-size: 0.95rem; }
 .coupon-inputs { display: flex; gap: 8px; }
 .coupon-inputs input { flex: 1; border-radius: 14px; border: 1px solid var(--border); background: var(--tint-1); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
 .coupon-inputs input::placeholder { color: var(--muted); text-transform: none; }

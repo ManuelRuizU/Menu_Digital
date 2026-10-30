@@ -343,3 +343,14 @@ def test_category_image_upload_and_removal(client, db, upload_dirs):
 
 def test_clp_formats_like_the_menu():
     assert clp(8990) == '$8.990' and clp(1500000) == '$1.500.000' and clp(0) == '$0'
+
+
+def test_coupon_box_comes_after_delivery_address_and_phone(client, db):
+    # Changing the delivery mode or the address drops an applied coupon, so the box sits
+    # after them (and after the phone, which per-customer coupons need) - before payment.
+    _register_owner(client)
+    html = _home(client)
+    assert '<label for="coupon-code" class="coupon-title">¿Tienes un código de descuento?</label>' in html
+    positions = [html.index(marker) for marker in
+                 ('id="address"', 'id="phone"', 'id="coupon-code"', 'name="payment-method"', 'id="checkout-btn"')]
+    assert positions == sorted(positions)
