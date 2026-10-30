@@ -264,7 +264,9 @@ def test_apply_coupon_rejects_below_min_order_amount(client, db):
     resp = _apply(client, product, quantity=2)  # 2000 < 3000
 
     assert resp.status_code == 400
-    assert resp.get_json()['message'] == 'Este cupón requiere una compra mínima de $3000.'
+    body = resp.get_json()
+    assert body['message'] == 'PRIMERACOMPRA requiere una compra mínima de $3.000: te faltan $1.000.'
+    assert (body['reason'], body['missing'], body['waits']) == ('min_order', 1000, True)
 
 
 def test_apply_coupon_accepts_exactly_at_min_order_amount(client, db):
@@ -611,7 +613,8 @@ def test_gift_coupon_rejected_when_gift_unavailable(client, db):
         })
 
         assert resp.status_code == 400, fields
-        assert resp.get_json()['message'] == 'El producto de regalo de este cupón no está disponible.'
+        assert resp.get_json()['message'] == f'El regalo de REGALO{i} ({gift.name}) no está disponible ahora.'
+        assert resp.get_json()['reason'] == 'gift_unavailable'
 
 
 def test_gift_coupon_replaces_the_automatic_threshold_gift(client, db, order_payload):

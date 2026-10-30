@@ -1,6 +1,7 @@
 import json
 import math
 import re
+from collections import namedtuple
 from datetime import datetime
 
 from flask import current_app, jsonify, render_template, request, url_for
@@ -11,7 +12,8 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
-from app.storefront import explore_categories, hero_slides
+from app.coupon_attempts import clean_code, clean_source, log_attempt
+from app.storefront import clp, coupon_benefit_text, explore_categories, hero_slides
 from app.utils import customer_name_parts, hex_to_rgb, parse_money, validate_order_fields
 
 
@@ -525,12 +527,46 @@ def _coupon_gift_is_available(coupon, order_lines):
     return product.stock_quantity >= in_cart + 1
 
 
-def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
-    """Calcula el monto del descuento del cupón sobre el carrito actual.
-    NO valida vigencia ni límites de uso — eso es responsabilidad de
-    validate_coupon(). Devuelve (discount_amount, error) donde error solo
-    aparece si el cupón scope='products' ya no tiene productos aplicables
-    en el carrito (razón de carrito, no de tiempo).
+# Rejections that depend on the cart, not on the coupon itself: the menu keeps the code
+# waiting (and re-applies it on its own) instead of dropping it.
+COUPON_CART_REASONS = ('min_order', 'not_in_cart', 'gift_unavailable')
+
+# discount: amount off (0 for a gift coupon); reason: None when it applies, else one of
+# the keys of coupon_message; missing: how much more to buy, for 'min_order'.
+CouponCheck = namedtuple('CouponCheck', 'discount reason message missing')
+
+
+def coupon_message(reason, code, coupon=None, missing=0):
+    """The customer-facing text for a rejection - one place for the cart box, the coupon
+    card, the reminder and create_order. 'already_used' is a thank-you, not an error."""
+    code = code or (coupon.code if coupon else '')
+    if reason == 'not_found':
+        return f'No encontramos el código «{code}». Revisa que esté bien escrito.' if code \
+            else 'No encontramos ese código. Revisa que esté bien escrito.'
+    if reason == 'not_yet':
+        return f'El código {code} empieza a funcionar el {coupon.valid_from.strftime("%d/%m")}.'
+    if reason == 'expired':
+        return f'El código {code} venció el {coupon.valid_until.strftime("%d/%m")}.'
+    if reason == 'exhausted':
+        return f'El código {code} ya se agotó.'
+    if reason == 'phone_required':
+        return f'Escribe tu teléfono para usar el código {code}.'
+    if reason == 'already_used':
+        return f'Ya usaste {code} en un pedido anterior; ¡gracias por volver!'
+    if reason == 'min_order':
+        return (f'{code} requiere una compra mínima de {clp(coupon.min_order_amount)}: '
+                f'te faltan {clp(missing)}.')
+    if reason == 'not_in_cart':
+        return f'{code} no aplica a los productos de tu carrito.'
+    if reason == 'gift_unavailable':
+        gift = coupon.gift_product.name if coupon and coupon.gift_product else 'el regalo'
+        return f'El regalo de {code} ({gift}) no está disponible ahora.'
+    return f'No se pudo aplicar el código {code}.'
+
+
+def _coupon_cart_check(coupon, subtotal, shipping_cost, order_lines):
+    """(discount_amount, reason) of the coupon on the current cart - reason None when it
+    applies. Doesn't look at dates or usage limits (check_coupon does).
 
     kind='fixed' descuenta fixed_amount, con tope en lo aplicable: un cupón de
     $5000 sobre $3000 descuenta $3000, nunca deja el total negativo.
@@ -539,7 +575,7 @@ def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
     create_order) - solo valida que el regalo esté disponible."""
     if coupon.kind == 'product':
         if not _coupon_gift_is_available(coupon, order_lines):
-            return 0, 'El producto de regalo de este cupón no está disponible.'
+            return 0, 'gift_unavailable'
         return 0, None
 
     if coupon.scope == 'products':
@@ -547,7 +583,7 @@ def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
         applicable = sum(unit_price * quantity for product, quantity, _options, unit_price in order_lines
                           if product.id in coupon_product_ids)
         if applicable <= 0:
-            return 0, 'Este cupón no aplica a los productos de tu carrito.'
+            return 0, 'not_in_cart'
     else:
         applicable = subtotal + (shipping_cost if coupon.applies_to_shipping else 0)
 
@@ -556,72 +592,106 @@ def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
     return round(applicable * coupon.discount_percent / 100), None
 
 
-def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
+def compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines):
+    """Calcula el monto del descuento del cupón sobre el carrito actual.
+    NO valida vigencia ni límites de uso — eso es responsabilidad de
+    validate_coupon(). Devuelve (discount_amount, error) donde error solo
+    aparece por una razón del carrito (no aplica a sus productos, regalo sin stock)."""
+    discount, reason = _coupon_cart_check(coupon, subtotal, shipping_cost, order_lines)
+    return discount, (coupon_message(reason, None, coupon) if reason else None)
+
+
+def check_coupon(coupon, phone, subtotal, shipping_cost, order_lines, code=None, check_customer=True):
     """subtotal must already have the 2x1 discount taken out (it's what the minimum
-    purchase is compared against).
-    Returns (discount_amount, error_message) - error_message is None on success.
+    purchase is compared against). code is what the customer typed, for the "not found"
+    message. check_customer=False skips the per-customer limit - for the cart's coupon
+    card before the phone is known (applying still checks it).
     Re-checks every limit against the database (redemption rows), never a client-sent number."""
+    def reject(reason, missing=0):
+        return CouponCheck(0, reason, coupon_message(reason, code, coupon, missing), missing)
+
     if coupon is None or not coupon.is_active:
-        return 0, 'Ese cupón no existe o ya no está activo.'
+        return reject('not_found')
 
     today = datetime.now(BUSINESS_TZ).date()
     if coupon.valid_from and today < coupon.valid_from:
-        return 0, 'Este cupón todavía no está vigente.'
+        return reject('not_yet')
     if coupon.valid_until and today > coupon.valid_until:
-        return 0, 'Este cupón ya venció.'
+        return reject('expired')
 
     if coupon.max_total_uses is not None:
         total_used = CouponRedemption.query.filter_by(coupon_id=coupon.id).count()
         if total_used >= coupon.max_total_uses:
-            return 0, 'Este cupón ya alcanzó su límite de usos.'
+            return reject('exhausted')
 
     phone_digits = normalize_phone(phone)
-    if coupon.max_uses_per_customer is not None:
+    if coupon.max_uses_per_customer is not None and check_customer:
         if not phone_digits:
-            return 0, 'Ingresa tu teléfono antes de aplicar el cupón.'
+            return reject('phone_required')
         customer_used = CouponRedemption.query.filter_by(coupon_id=coupon.id, phone_digits=phone_digits).count()
         if customer_used >= coupon.max_uses_per_customer:
-            return 0, 'Ya usaste este cupón antes.'
+            return reject('already_used')
 
     # subtotal here is already products minus the 2x1 (both callers pass it that way).
     # Shipping doesn't count - it's a service, not a purchase - and neither does this
     # coupon's own discount, which would make the minimum circular.
     if coupon.min_order_amount is not None and subtotal < coupon.min_order_amount:
-        return 0, f'Este cupón requiere una compra mínima de ${coupon.min_order_amount:.0f}.'
+        return reject('min_order', coupon.min_order_amount - subtotal)
 
-    return compute_coupon_discount(coupon, subtotal, shipping_cost, order_lines)
+    discount, reason = _coupon_cart_check(coupon, subtotal, shipping_cost, order_lines)
+    if reason:
+        return reject(reason)
+    return CouponCheck(discount, None, None, 0)
+
+
+def validate_coupon(coupon, phone, subtotal, shipping_cost, order_lines):
+    """(discount_amount, error_message) - error_message is None on success."""
+    check = check_coupon(coupon, phone, subtotal, shipping_cost, order_lines)
+    return check.discount, check.message
+
+
+def _preview_shipping(data, delivery_mode):
+    """Shipping for a cart preview: 0 for pickup, no pin yet, or outside the zones."""
+    if delivery_mode != 'envio':
+        return 0
+    try:
+        lat = float(data.get('lat'))
+        lng = float(data.get('lng'))
+    except (TypeError, ValueError):
+        return 0
+    cost, covered = compute_shipping_cost(lat, lng)
+    return cost if covered else 0
 
 
 @main.route('/api/apply-coupon', methods=['POST'])
 @csrf.exempt
 @limiter.limit('30 per minute')
 def apply_coupon_api():
+    """The cart's coupon preview. source ('card', 'banner', 'reminder', 'manual') is sent
+    only for a customer's own attempt, and only those are logged - the menu re-checking
+    an applied coupon after a cart change sends none."""
     data = request.get_json(silent=True) or {}
     items = data.get('items', [])
     phone = data.get('phone')
     delivery_mode = data.get('deliveryMode') or 'retira'
+    source = clean_source(data.get('source'))
+    code = clean_code(data.get('code'))
 
     order_lines, subtotal, error = _resolve_cart_items(items)
     if error:
         return jsonify({'ok': False, 'message': error}), 400
 
-    shipping_cost = 0
-    if delivery_mode == 'envio':
-        try:
-            lat = float(data.get('lat'))
-            lng = float(data.get('lng'))
-        except (TypeError, ValueError):
-            lat = lng = None
-        if lat is not None and lng is not None:
-            cost, covered = compute_shipping_cost(lat, lng)
-            shipping_cost = cost if covered else 0
-
+    shipping_cost = _preview_shipping(data, delivery_mode)
     bundle_discount = compute_bundle_discount(order_lines, _get_active_bundle_promos())
 
-    coupon = _resolve_coupon(data.get('code'))
-    discount_amount, error = validate_coupon(coupon, phone, subtotal - bundle_discount, shipping_cost, order_lines)
-    if error:
-        return jsonify({'ok': False, 'message': error}), 400
+    coupon = _resolve_coupon(code)
+    check = check_coupon(coupon, phone, subtotal - bundle_discount, shipping_cost, order_lines, code=code)
+    if source:
+        log_attempt(code, source, 'rejected' if check.reason else 'applied', check.reason)
+    if check.reason:
+        return jsonify({'ok': False, 'message': check.message, 'reason': check.reason, 'missing': check.missing,
+                        'code': coupon.code if coupon and check.reason != 'not_found' else code,
+                        'waits': check.reason in COUPON_CART_REASONS}), 400
 
     return jsonify({
         'ok': True,
@@ -631,8 +701,65 @@ def apply_coupon_api():
         'fixedAmount': coupon.fixed_amount,
         'giftProductName': coupon.gift_product.name if coupon.kind == 'product' else None,
         'scope': coupon.scope,
-        'discountAmount': discount_amount,
+        'discountAmount': check.discount,
     })
+
+
+@main.route('/api/cart-coupons', methods=['POST'])
+@csrf.exempt
+@limiter.limit('60 per minute')
+def cart_coupons_api():
+    """The public coupons (the banner's) against the current cart, for the cart's coupon
+    card: the ones that apply - with what they save, worked out here - first, biggest
+    saving first; then the ones short of their minimum purchase, with how much is
+    missing. Coupons that can't apply for any other reason are left out."""
+    data = request.get_json(silent=True) or {}
+    order_lines, subtotal, error = _resolve_cart_items(data.get('items', []))
+    if error or not order_lines:
+        return jsonify({'ok': True, 'coupons': []})
+    phone = data.get('phone')
+    has_phone = bool(normalize_phone(phone))
+    shipping_cost = _preview_shipping(data, data.get('deliveryMode') or 'retira')
+    products_subtotal = subtotal - compute_bundle_discount(order_lines, _get_active_bundle_promos())
+
+    offers = []
+    for coupon in active_banner_coupons():
+        check = check_coupon(coupon, phone, products_subtotal, shipping_cost, order_lines,
+                             check_customer=has_phone)
+        if check.reason not in (None, 'min_order'):
+            continue
+        is_gift = coupon.kind == 'product'
+        saving = coupon.gift_product.price if is_gift else check.discount
+        if check.reason is None and saving <= 0:
+            continue
+        offers.append({
+            'code': coupon.code,
+            'kind': coupon.kind,
+            'description': coupon_benefit_text(coupon),
+            'giftProductName': coupon.gift_product.name if is_gift else None,
+            'status': 'ok' if check.reason is None else 'min_order',
+            'saving': saving if check.reason is None else 0,
+            'missing': check.missing,
+            'needsPhone': coupon.max_uses_per_customer is not None and not has_phone,
+        })
+    offers.sort(key=lambda offer: (offer['status'] != 'ok', -offer['saving'], offer['missing'], offer['code']))
+    return jsonify({'ok': True, 'coupons': offers})
+
+
+@main.route('/api/coupon-event', methods=['POST'])
+@csrf.exempt
+@limiter.limit('30 per minute')
+def coupon_event_api():
+    """The reminder before sending: 'shown', or 'declined' ("Enviar sin cupón"). Its
+    "Aplicar y enviar" goes through /api/apply-coupon with source 'reminder'. Only
+    existing coupons - nothing else can be written to the log through here."""
+    data = request.get_json(silent=True) or {}
+    result = data.get('result')
+    coupon = _resolve_coupon(clean_code(data.get('code')))
+    if result not in ('shown', 'declined') or coupon is None:
+        return jsonify({'ok': False}), 400
+    log_attempt(coupon.code, 'reminder', result)
+    return jsonify({'ok': True})
 
 
 @main.route('/api/orders', methods=['POST'])
@@ -803,6 +930,15 @@ def create_order():
         db.session.rollback()
         current_app.logger.exception('Failed to save order for %s %s (%s)', customer_name, customer_last_name or '', phone)
         return jsonify({'ok': False, 'message': 'No se pudo guardar el pedido.'}), 500
+
+    if coupon:
+        # Where the coupon came from (card, banner, reminder, manual) - NULL from a page
+        # older than the log. After the order's own commit: a failure here can't lose it.
+        try:
+            log_attempt(coupon.code, data.get('couponSource'), 'used')
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception('Order %s: could not log the coupon use', order.id)
 
     # The cart's own preview, sent only so a drift between menu.js and this code shows
     # up in the logs instead of in a customer complaint - never used to price anything.

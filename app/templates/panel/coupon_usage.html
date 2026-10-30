@@ -1,0 +1,70 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Uso de cupones{% endblock %}
+{% set cell = 'padding:8px 6px;' %}
+{% set num = 'padding:8px 6px;text-align:right;' %}
+{% block content %}
+    <div class="card-row">
+      <h1>Uso de cupones</h1>
+      <a href="{{ url_for('catalog.coupons') }}"><button type="button" class="secondary">Volver a cupones</button></a>
+    </div>
+    <p class="muted">
+      Últimos
+      {% for choice in day_choices %}
+        {% if choice == days %}<strong>{{ choice }} días</strong>{% else %}<a href="{{ url_for('catalog.coupon_usage', days=choice) }}">{{ choice }} días</a>{% endif %}{{ ' · ' if not loop.last }}
+      {% endfor %}
+    </p>
+
+    <h2>Pedidos</h2>
+    {% set without = report.orders_valid - report.orders_with_coupon %}
+    <div class="card">
+      <p><strong>{{ report.orders_with_coupon }}</strong> de {{ report.orders_valid }} pedidos usaron un cupón
+        {% if report.orders_valid %}({{ (100 * report.orders_with_coupon / report.orders_valid)|round|int }}%){% endif %}
+        · descuento total ${{ '{:,}'.format(report.discount_total).replace(',', '.') }}</p>
+      <p><strong>{{ report.missed }}</strong> de {{ without }} pedidos sin cupón cumplían un cupón del banner
+        {% if report.missed_saving %}· ahorro que no tomaron: ${{ '{:,}'.format(report.missed_saving).replace(',', '.') }}{% endif %}</p>
+      <p class="muted">No cuenta pedidos cancelados. "Cumplían" es una estimación con la configuración actual de cada cupón.</p>
+    </div>
+
+    <h2>Recordatorio antes de enviar</h2>
+    <div class="card">
+      {% set r = usage.reminder %}
+      <p>Se mostró <strong>{{ r.shown }}</strong> veces · aplicaron el cupón <strong>{{ r.applied }}</strong>
+        · enviaron sin cupón <strong>{{ r.declined }}</strong>{% if r.rejected %} · no se pudo aplicar {{ r.rejected }}{% endif %}</p>
+    </div>
+
+    <h2>Intentos por cupón y origen</h2>
+    {% for entry in usage.codes %}
+      <div class="card" style="margin-bottom:16px;">
+        <strong>{{ entry.code }}</strong>
+        <span class="muted">· usado en {{ entry.totals.used }} pedido{{ 's' if entry.totals.used != 1 }}</span>
+        <table style="width:100%;border-collapse:collapse;margin-top:8px;">
+          <thead>
+            <tr style="text-align:left;">
+              <th style="{{ cell }}">Origen</th>
+              <th style="{{ num }}">Aplicado</th>
+              <th style="{{ num }}">Rechazado</th>
+              <th style="{{ num }}">En pedidos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for source, results in entry.by_source.items() %}
+              <tr style="border-top:1px solid rgba(255,255,255,0.08);">
+                <td style="{{ cell }}">{{ source_labels.get(source, source) }}</td>
+                <td style="{{ num }}">{{ results.applied }}</td>
+                <td style="{{ num }}">{{ results.rejected }}</td>
+                <td style="{{ num }}">{{ results.used }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if entry.rejected_by_reason %}
+          <p class="muted" style="margin-top:8px;">Rechazos:
+            {% for reason, count in entry.rejected_by_reason.most_common() %}{{ reason_labels.get(reason, reason) }} {{ count }}{{ ' · ' if not loop.last }}{% endfor %}
+          </p>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="muted">Todavía no hay intentos de cupón en estos días.</p>
+    {% endfor %}
+    <p class="muted">Sin datos personales: solo el código, de dónde vino, el resultado y la fecha. Se guardan {{ retention_days }} días.</p>
+{% endblock %}

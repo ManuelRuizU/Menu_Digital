@@ -84,6 +84,18 @@ def coupon_slide(coupon):
     return slide
 
 
+def coupon_benefit_text(coupon):
+    """What the coupon gives, in a line: the cart's coupon card and its reminder."""
+    if coupon.kind == 'product':
+        return f'Llévate gratis {coupon.gift_product.name}' if coupon.gift_product else 'Un regalo con tu pedido'
+    amount = clp(coupon.fixed_amount or 0) if coupon.kind == 'fixed' else f'{coupon.discount_percent or 0:g}%'
+    if coupon.scope == 'products':
+        names = [product.name for product in coupon.products]
+        where = ', '.join(names[:2]) + (f' y {len(names) - 2} más' if len(names) > 2 else '')
+        return f'{amount} de descuento en {where}'
+    return f'{amount} de descuento en tu pedido' + (' (incluye el envío)' if coupon.applies_to_shipping else '')
+
+
 def hero_slides(today, banner_coupons):
     """Owner banners first (active, in their dates, by position), then the coupons the
     caller already filtered for the banner (active, dated, uses left, gift in stock)."""

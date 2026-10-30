@@ -102,7 +102,7 @@
                     <span class="hero-code">{{ slide.title }}</span>
                   {% endif %}
                   {% if slide.detail %}<span class="hero-text">{{ slide.detail }}</span>{% endif %}
-                  <span class="hero-cta hero-cta-coupon">Usar código</span>
+                  <span class="hero-cta hero-cta-coupon">Usar cupón</span>
                 </span>
               {% endif %}
             </{{ tag }}>
@@ -256,13 +256,15 @@
 
         {# After delivery and address (changing either re-prices the order and drops an
            applied coupon) and after the phone (per-customer coupons need it). #}
-        <div class="coupon-box">
-          <label for="coupon-code" class="coupon-title">¿Tienes un código de descuento?</label>
+        <div id="coupon-offers" class="coupon-offers" aria-live="polite"></div>
+        <div id="coupon-box" class="coupon-box">
+          <label for="coupon-code" class="coupon-title"><span aria-hidden="true">🏷️</span> ¿Tienes un código de descuento?</label>
           <div class="coupon-inputs">
-            <input id="coupon-code" type="text" placeholder="Escribe tu código" autocomplete="off">
+            <input id="coupon-code" type="text" placeholder="Escribe tu código" autocomplete="off" maxlength="30">
             <button type="button" id="coupon-apply-btn">Aplicar</button>
           </div>
-          <p id="coupon-message" class="coupon-message"></p>
+          <p id="coupon-message" class="coupon-message" role="status"></p>
+          <button type="button" id="coupon-remove" class="coupon-remove" hidden>Quitar cupón</button>
         </div>
 
         <details class="accordion-section" open>
@@ -356,6 +358,19 @@
     <button type="button" id="confirm-modal-send" class="button button-primary">Confirmar y enviar por WhatsApp</button>
     <button type="button" id="confirm-modal-edit" class="button">Seguir editando</button>
   </div>
+
+  {# Before the confirm summary, never after it: WhatsApp still opens from that summary's
+     own tap. Once per order, only when a public coupon applies to this cart. #}
+  <div id="coupon-reminder-backdrop" class="modal-backdrop"></div>
+  <div id="coupon-reminder" class="modal coupon-reminder" role="dialog" aria-modal="true" aria-labelledby="coupon-reminder-text">
+    <p class="coupon-reminder-icon" aria-hidden="true">🏷️</p>
+    <h3 id="coupon-reminder-text"></h3>
+    <p id="coupon-reminder-error" class="coupon-message coupon-message-error" hidden></p>
+    <button type="button" id="coupon-reminder-apply" class="button button-primary">Aplicar y enviar</button>
+    <button type="button" id="coupon-reminder-skip" class="button">Enviar sin cupón</button>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </div>
 {% endif %}
 {% endblock %}
@@ -367,6 +382,7 @@
 <script src="{{ static_versioned('js/cart_lines.js') }}"></script>
 <script src="{{ static_versioned('js/description_format.js') }}"></script>
 <script src="{{ static_versioned('js/order_message.js') }}"></script>
+<script src="{{ static_versioned('js/coupon_ui.js') }}"></script>
 <script src="{{ static_versioned('js/hero_carousel.js') }}"></script>
 <script src="{{ static_versioned('js/explore_scroller.js') }}"></script>
 <script src="{{ static_versioned('js/menu.js') }}"></script>

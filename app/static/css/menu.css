@@ -1,4 +1,5 @@
 :root {
+  --success-rgb: 52,199,123;
   color-scheme: dark;
   font-family: 'Inter', system-ui, sans-serif;
   --bg-start: #061523;
@@ -27,6 +28,7 @@
 
 html[data-theme="claro"] {
   color-scheme: light;
+  --success-rgb: 38,122,72;
   --bg-start: #efece2;
   --bg-end: #e8e4d6;
   --surface: #ffffff;
@@ -77,6 +79,7 @@ html[data-theme="urbano"] {
 
 html[data-theme="cafeteria"] {
   color-scheme: light;
+  --success-rgb: 38,122,72;
   --bg-start: #eeeeea;
   --bg-end: #e6e6e0;
   --surface: #ffffff;
@@ -102,6 +105,7 @@ html[data-theme="cafeteria"] {
 
 html[data-theme="trattoria"] {
   color-scheme: light;
+  --success-rgb: 38,122,72;
   --bg-start: #f7ecd8;
   --bg-end: #f0e2c6;
   --surface: #fffaf0;
@@ -408,17 +412,43 @@ button.hero-slide { cursor: pointer; }
 .cart-item-gift { border-style: dashed; border-color: var(--accent); background: rgba(var(--accent-rgb), 0.08); box-shadow: none; }
 .cart-item-gift small { color: var(--text-strong); }
 .cart-item-gift-price { align-self: center; font-weight: 800; font-size: 0.85rem; color: var(--accent); letter-spacing: 0.04em; }
-.coupon-box { display: grid; gap: 8px; }
+/* The code box: dashed in the theme's main color over a light tint of it, "Aplicar"
+   outlined (never filled - "Enviar por WhatsApp" is the one filled button). Green once
+   applied. No animations. */
+.coupon-box { display: grid; gap: 8px; padding: 14px; border: 1.5px dashed var(--primary); border-radius: 16px; background: rgba(var(--primary-rgb), 0.09); }
+.coupon-box.is-applied { border-color: rgb(var(--success-rgb)); background: rgba(var(--success-rgb), 0.12); }
 .coupon-title { font-weight: 700; color: var(--text-strong); font-size: 0.95rem; }
 .coupon-inputs { display: flex; gap: 8px; }
-.coupon-inputs input { flex: 1; border-radius: 14px; border: 1px solid var(--border); background: var(--tint-1); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
+.coupon-inputs input { flex: 1; min-width: 0; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); padding: 10px 14px; font-family: inherit; font-size: 0.9rem; text-transform: uppercase; }
 .coupon-inputs input::placeholder { color: var(--muted); text-transform: none; }
-.coupon-inputs button { flex-shrink: 0; border: none; border-radius: 14px; background: var(--tint-2); color: var(--text-strong); padding: 10px 16px; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
-.coupon-message { margin: 6px 0 0; font-size: 0.82rem; }
+.coupon-inputs button { flex-shrink: 0; border: 1.5px solid var(--primary); border-radius: 14px; background: transparent; color: var(--primary); padding: 10px 16px; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+.coupon-inputs button:disabled { opacity: 0.6; cursor: wait; }
+.coupon-box.is-applied .coupon-inputs button { border-color: rgb(var(--success-rgb)); color: rgb(var(--success-rgb)); }
+.coupon-message { margin: 0; font-size: 0.85rem; }
 .coupon-message:empty { display: none; }
-.coupon-message.coupon-message-ok { color: var(--primary); }
-.coupon-message.coupon-message-error { color: var(--accent); }
+.coupon-message.coupon-message-ok { color: rgb(var(--success-rgb)); font-weight: 700; }
+.coupon-message.coupon-message-error { color: var(--danger); }
 .coupon-message.coupon-message-info { color: var(--muted); }
+.coupon-message.coupon-message-thanks { color: var(--text); }
+.coupon-remove { justify-self: start; border: none; background: none; padding: 0; color: var(--muted); font-size: 0.8rem; text-decoration: underline; cursor: pointer; }
+.coupon-remove[hidden] { display: none; }
+/* The public coupons that fit this cart, worked out by the server. */
+.coupon-offers { display: grid; gap: 8px; }
+.coupon-offers:empty { display: none; }
+.coupon-offer { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid rgba(var(--primary-rgb), 0.45); border-radius: 16px; background: rgba(var(--primary-rgb), 0.09); }
+.coupon-offer-text { display: grid; gap: 2px; flex: 1; min-width: 0; font-size: 0.85rem; color: var(--text); }
+.coupon-offer-text strong { color: var(--text-strong); font-size: 0.95rem; font-weight: 700; }
+.coupon-offer-saving { color: rgb(var(--success-rgb)); font-weight: 700; }
+.coupon-offer.is-short { border-style: dashed; }
+.coupon-offer-apply { flex-shrink: 0; border: 1.5px solid var(--primary); border-radius: 14px; background: transparent; color: var(--primary); padding: 10px 16px; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+.coupon-offers-more { display: grid; gap: 8px; }
+.coupon-offers-more summary { cursor: pointer; color: var(--primary); font-size: 0.85rem; font-weight: 700; }
+.coupon-offers-more[open] summary { margin-bottom: 8px; }
+.coupon-reminder { text-align: center; }
+.coupon-reminder .button { margin-top: 10px; }
+.coupon-reminder-icon { font-size: 2rem; margin: 0; }
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 90; width: max-content; max-width: calc(100vw - 32px); padding: 12px 16px; border-radius: 14px; background: var(--surface-2); color: var(--text-strong); border: 1px solid var(--border-accent); box-shadow: var(--shadow-soft); font-size: 0.9rem; }
+.toast[hidden] { display: none; }
 .summary { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; display: grid; gap: 10px; }
 .summary-row { display: flex; justify-content: space-between; color: var(--muted); }
 .summary-row[hidden] { display: none; }

@@ -78,6 +78,8 @@ def create_app(test_config=None):
 
     from app.duplicates import check_duplicates_command
     app.cli.add_command(check_duplicates_command)
+    from app.coupon_report import coupon_report_command
+    app.cli.add_command(coupon_report_command)
 
     @app.after_request
     def set_security_headers(response):
