@@ -17,7 +17,14 @@
     return [...new Set([exact, ...rounded])].sort((a, b) => a - b).slice(0, MAX_BUTTONS)
   }
 
-  const api = { CASH_DENOMINATIONS, quickCashAmounts }
+  // The "¿Con cuánto pagas?" example: the largest suggestion, never below the total;
+  // null (no example) when there's nothing to pay.
+  function placeholderAmount (total, denominations = CASH_DENOMINATIONS) {
+    const amounts = quickCashAmounts(total, denominations)
+    return amounts.length ? amounts[amounts.length - 1] : null
+  }
+
+  const api = { CASH_DENOMINATIONS, quickCashAmounts, placeholderAmount }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.QuickCash = api
 })(this)

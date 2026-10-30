@@ -66,6 +66,7 @@ const elements = {
   discount: document.getElementById('discount'),
   couponBox: document.getElementById('coupon-box'),
   couponOffers: document.getElementById('coupon-offers'),
+  couponTitleText: document.getElementById('coupon-title-text'),
   couponCode: document.getElementById('coupon-code'),
   couponRemove: document.getElementById('coupon-remove'),
   couponReminder: document.getElementById('coupon-reminder'),
@@ -702,12 +703,13 @@ function scheduleCouponRefresh() {
   })
 }
 
-// The coupon card: the server's offers minus the one already applied - the best one,
-// then the rest behind "Ver N cupones más".
+// The coupon section: the server's offers minus the one already applied, under a
+// title; past 3, the rest behind "Ver todos los cupones (N)" (see CouponUI.offersLayout).
+// The manual box's title follows: "otro código" next to coupons, "un código" alone.
 function renderCouponOffers() {
   if (!elements.couponOffers) return
   const appliedCode = STATE.appliedCoupon && STATE.appliedCoupon.code
-  const offers = STATE.couponOffers.filter((offer) => offer.code !== appliedCode)
+  const layout = CouponUI.offersLayout(STATE.couponOffers.filter((offer) => offer.code !== appliedCode))
   const offerHtml = (offer) => {
     const lines = CouponUI.offerLines(offer, formatPrice)
     return `
@@ -720,12 +722,14 @@ function renderCouponOffers() {
         ${lines.canApply ? `<button type="button" class="coupon-offer-apply" data-coupon-apply="${escapeHtml(offer.code)}" aria-label="Aplicar el cupón ${escapeHtml(offer.code)}">Aplicar</button>` : ''}
       </div>`
   }
-  const [first, ...rest] = offers
-  elements.couponOffers.innerHTML = !first ? '' : offerHtml(first) + (rest.length ? `
-    <details class="coupon-offers-more">
-      <summary>Ver ${rest.length} cupón${rest.length === 1 ? '' : 'es'} más</summary>
-      ${rest.map(offerHtml).join('')}
-    </details>` : '')
+  elements.couponOffers.innerHTML = !layout.title ? '' : `
+    <p class="coupon-offers-title">${escapeHtml(layout.title)}</p>
+    ${layout.shown.map(offerHtml).join('')}
+    ${layout.more.length ? `
+      <div id="coupon-offers-rest" class="coupon-offers-rest" hidden>${layout.more.map(offerHtml).join('')}</div>
+      <button type="button" class="coupon-offers-all" data-coupon-show-all aria-controls="coupon-offers-rest" aria-expanded="false">${escapeHtml(layout.moreLabel)}</button>` : ''}
+    <p class="coupon-offers-note">Puedes usar un cupón por pedido.</p>`
+  elements.couponTitleText.textContent = layout.manualTitle
 }
 
 // The line under Retiro / Despacho - see delivery_status.js.
@@ -935,6 +939,8 @@ function getOrderTotal() {
 
 function renderQuickCashButtons(total) {
   const amounts = QuickCash.quickCashAmounts(total)
+  const example = QuickCash.placeholderAmount(total)
+  elements.cashAmount.placeholder = example ? `Ej: ${formatPrice(example).slice(1)}` : ''
   elements.quickCashButtons.innerHTML = amounts.map((amount) => `
     <label class="quick-cash-option" data-amount="${amount}">${amount === Math.ceil(total) ? `Exacto ${formatPrice(amount)}` : formatPrice(amount)}</label>
   `).join('')
@@ -1946,6 +1952,11 @@ window.addEventListener('load', () => {
     }
     const offerApply = event.target.closest('[data-coupon-apply]')
     if (offerApply) applyCoupon(offerApply.getAttribute('data-coupon-apply'), 'card')
+    const showAll = event.target.closest('[data-coupon-show-all]')
+    if (showAll) {
+      document.getElementById('coupon-offers-rest').hidden = false
+      showAll.remove()
+    }
     const add = event.target.closest('[data-add]')
     const remove = event.target.closest('[data-remove]')
     const increment = event.target.closest('[data-increment]')
