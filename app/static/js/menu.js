@@ -3,14 +3,15 @@
 // files - every price and the order sending would then throw. Reload once to get a
 // matching page (the sessionStorage flag stops a reload loop if they're truly missing).
 if (typeof BundlePricing === 'undefined' || typeof OrderMessage === 'undefined' || typeof CartLines === 'undefined' ||
-    typeof DescriptionFormat === 'undefined' || typeof CouponUI === 'undefined' || typeof DeliveryStatus === 'undefined') {
+    typeof DescriptionFormat === 'undefined' || typeof CouponUI === 'undefined' || typeof DeliveryStatus === 'undefined' ||
+    typeof QuickCash === 'undefined') {
   let alreadyRetried = false
   try {
     alreadyRetried = sessionStorage.getItem('menu-assets-reloaded') === '1'
     if (!alreadyRetried) sessionStorage.setItem('menu-assets-reloaded', '1')
   } catch {}
   if (!alreadyRetried) window.location.reload()
-  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js / coupon_ui.js / delivery_status.js not loaded')
+  throw new Error('menu.js: bundle_pricing.js / order_message.js / cart_lines.js / description_format.js / coupon_ui.js / delivery_status.js / quick_cash.js not loaded')
 }
 try { sessionStorage.removeItem('menu-assets-reloaded') } catch {}
 
@@ -932,16 +933,8 @@ function getOrderTotal() {
   return Math.max(0, subtotal + shipping - bundleDiscount - discount)
 }
 
-function getQuickCashAmounts(total) {
-  if (total <= 0) return []
-  const exact = Math.ceil(total)
-  const nextThousand = Math.ceil(exact / 1000) * 1000
-  const bills = [2000, 5000, 10000, 20000, 50000].filter((bill) => bill > nextThousand).slice(0, 2)
-  return [...new Set([exact, nextThousand, ...bills])].sort((a, b) => a - b).slice(0, 4)
-}
-
 function renderQuickCashButtons(total) {
-  const amounts = getQuickCashAmounts(total)
+  const amounts = QuickCash.quickCashAmounts(total)
   elements.quickCashButtons.innerHTML = amounts.map((amount) => `
     <label class="quick-cash-option" data-amount="${amount}">${amount === Math.ceil(total) ? `Exacto ${formatPrice(amount)}` : formatPrice(amount)}</label>
   `).join('')
