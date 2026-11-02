@@ -29,8 +29,11 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
     if app.config.get('BEHIND_PROXY'):
-        # One proxy (nginx) in front: trust exactly one X-Forwarded-Proto/-Host hop.
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+        # One proxy (nginx) in front: trust exactly one hop of X-Forwarded-For/-Proto/-Host.
+        # x_for makes request.remote_addr the customer's IP (the last one nginx appended,
+        # not whatever the browser typed in front), so the rate limits - keyed on
+        # get_remote_address - count each customer apart instead of all as 127.0.0.1.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     db.init_app(app)
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'  # Redirigir a la vista de login
