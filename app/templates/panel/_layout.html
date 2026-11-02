@@ -205,6 +205,7 @@
       {% if current_user.is_owner %}
         <a href="{{ url_for('catalog.promotions') }}" class="{{ 'active' if request.endpoint and (request.endpoint == 'catalog.promotions' or 'coupon' in request.endpoint or 'bundle_promo' in request.endpoint) else '' }}">Promociones</a>
         <a href="{{ url_for('catalog.hero_banners') }}" class="{{ 'active' if request.endpoint and 'hero_banner' in request.endpoint else '' }}">Banners</a>
+        <a href="{{ url_for('catalog.seasons') }}" class="{{ 'active' if request.endpoint and ('season' in request.endpoint or 'celebration' in request.endpoint) else '' }}">Adornos de temporada</a>
         <a href="{{ url_for('catalog.delivery') }}" class="{{ 'active' if request.endpoint and 'delivery' in request.endpoint else '' }}">Zonas de reparto</a>
         <a href="{{ url_for('catalog.couriers') }}" class="{{ 'active' if request.endpoint and 'courier' in request.endpoint else '' }}">Repartidores</a>
       {% endif %}

@@ -1516,6 +1516,8 @@ function addToCart(productId, selectedOptions = [], quantity = 1) {
   STATE.cart = CartLines.addUnits(STATE.cart, product, selectedOptions, quantity)
   saveCart()
   renderCart()
+  // For the seasonal decorations' burst (seasonal.js), when a season is on.
+  document.dispatchEvent(new CustomEvent('menu:cart-add'))
 }
 
 function removeFromCart(cartKey) {

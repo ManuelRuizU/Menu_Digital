@@ -5,6 +5,7 @@ from collections import namedtuple
 from datetime import datetime, timezone
 
 from flask import Response, abort, current_app, jsonify, render_template, request, url_for
+from flask_login import current_user
 from shapely.geometry import Point, shape
 
 from app.main import main
@@ -13,6 +14,7 @@ from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponR
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
 from app.coupon_attempts import clean_code, clean_source, log_attempt
+from app.seasons import menu_season
 from app.storefront import (banner_ics, clp, coupon_benefit_text, explore_categories, hero_slides,
                             reminder_available)
 from app.utils import customer_name_parts, hex_to_rgb, parse_money, validate_order_fields
@@ -150,8 +152,14 @@ def index():
     menu_products = (Product.query.filter_by(is_active=True)
                      .order_by(Product.category_id, Product.subcategory_id, Product.name).all())
 
+    # Seasonal decorations: today's celebration, or - only for the logged-in owner - the
+    # one asked for with ?temporada= ("Ver cómo se ve" in the panel), never for customers.
+    can_preview = bool(current_user.is_authenticated and current_user.is_admin and current_user.is_owner)
+    season = menu_season(today, owner, request.args.get('temporada'), can_preview)
+
     return render_template(
         'index.html',
+        season=season,
         hero_slides=hero_slides(today, active_banner_coupons()),
         explore_categories=explore_categories(menu_products),
         is_closed=(is_closed_temporarily or closed_by_schedule),

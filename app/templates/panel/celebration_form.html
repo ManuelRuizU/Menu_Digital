@@ -1,0 +1,63 @@
+{% extends "panel/_layout.html" %}
+{% block title %}{{ 'Editar celebración' if celebration else 'Nueva celebración' }}{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>{{ 'Editar celebración' if celebration else 'Nueva celebración' }}</h1>
+      <a href="{{ url_for('catalog.seasons') }}"><button type="button" class="secondary">Volver</button></a>
+    </div>
+
+    <form class="card" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label for="name">Nombre</label>
+      <input type="text" id="name" name="name" maxlength="40" value="{{ values.name }}" placeholder="Aniversario del local">
+
+      <label for="start_date">Desde</label>
+      <input type="date" id="start_date" name="start_date" value="{{ values.start_date }}">
+      <label for="end_date">Hasta (incluido)</label>
+      <input type="date" id="end_date" name="end_date" value="{{ values.end_date }}">
+
+      <label for="motif">Motivo</label>
+      <select id="motif" name="motif">
+        <option value="personal" {{ 'selected' if values.motif == 'personal' else '' }}>Personalizado: tus emojis y tu color</option>
+        {% for key in motif_order %}
+          <option value="{{ key }}" {{ 'selected' if values.motif == key else '' }}>{{ motifs[key].particle }} Como {{ motifs[key].name }}</option>
+        {% endfor %}
+      </select>
+
+      <fieldset id="personal-fields">
+        <legend>Personalizado</legend>
+        <p class="muted">Hasta 3 emojis, uno por casilla (sin letras).</p>
+        <div class="emoji-inputs">
+          {% for n in (1, 2, 3) %}
+            <input type="text" name="emoji_{{ n }}" value="{{ values.emojis[n - 1] }}" maxlength="16" aria-label="Emoji {{ n }}">
+          {% endfor %}
+        </div>
+        <label for="accent">Color de acento</label>
+        <input type="color" id="accent" name="accent" value="{{ values.accent }}">
+      </fieldset>
+
+      <label class="checkbox-row"><input type="checkbox" name="ambient" {{ 'checked' if values.ambient else '' }}> Adornos sobre el encabezado</label>
+      <label class="checkbox-row"><input type="checkbox" name="burst" {{ 'checked' if values.burst else '' }}> Festejo al agregar al carrito</label>
+      <label class="checkbox-row"><input type="checkbox" name="is_active" {{ 'checked' if values.is_active else '' }}> Activa</label>
+
+      <div class="inline-actions">
+        <button type="submit">Guardar</button>
+      </div>
+    </form>
+
+    <style>
+      .emoji-inputs { display: flex; gap: 8px; }
+      .emoji-inputs input { width: 3.5em; text-align: center; font-size: 1.3rem; }
+      #personal-fields { border: 1px solid #ddd; border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+    </style>
+    <script>
+      (function () {
+        const motif = document.getElementById('motif')
+        const personal = document.getElementById('personal-fields')
+        const sync = () => { personal.hidden = motif.value !== 'personal' }
+        motif.addEventListener('change', sync)
+        sync()
+      })()
+    </script>
+{% endblock %}
