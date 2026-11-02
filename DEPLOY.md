@@ -113,9 +113,10 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-`BEHIND_PROXY=1` le dice a la app que nginx está delante: así los links absolutos (el QR,
-el "Recuérdamelo" de los banners) salen con `https://`. Va junto con la línea
-`proxy_set_header X-Forwarded-Proto $scheme;` de nginx (paso 4) - una sin la otra no sirve.
+`BEHIND_PROXY=1` le dice a la app que nginx está delante: así los límites de intentos (login,
+pedidos) cuentan a cada cliente por su IP real en vez de a todos como `127.0.0.1`, y los links
+absolutos (el QR, el "Recuérdamelo" de los banners) salen con `https://`. Va junto con las
+líneas `X-Forwarded-Proto` y `X-Forwarded-For` de nginx (paso 4) - una sin la otra no sirve.
 
 `-w 1` (un solo worker) es intencional: el respaldo automático corre dentro del proceso y con más de un worker se duplicaría.
 
@@ -141,6 +142,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```
@@ -276,6 +278,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 
