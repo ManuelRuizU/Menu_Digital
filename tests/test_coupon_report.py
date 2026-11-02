@@ -96,3 +96,74 @@ def test_report_never_writes(app, db):
     assert 'DULCE: -10% · vigente · público (banner)' in result.output
     assert 'con cupón: 0 de 1' in result.output
     assert not db.session.dirty and not db.session.new
+
+
+def test_dates_are_in_santiago_time(app, db):
+    # 22:00 on 01/11 in Santiago is 01:00 on 02/11 in UTC (what the database keeps): the
+    # last use must read as the 1st, inside a coupon that ends that day.
+    product = _product(db)
+    coupon = _coupon(db, valid_until=date(2026, 11, 1))
+    order = _order(db, product, coupon=coupon)
+    order.created_at = datetime(2026, 11, 2, 1, 0)
+    CouponRedemption.query.filter_by(order_id=order.id).one().created_at = datetime(2026, 11, 2, 1, 0)
+    db.session.commit()
+    report = build_report(days=30, now=datetime(2026, 11, 2, 2, 0))
+    assert report['today'] == date(2026, 11, 1)
+    row = report['coupons'][0]
+    assert row['state'] == 'vigente'
+    assert row['last_use'].strftime('%d/%m/%Y %H:%M') == '01/11/2026 22:00'
+    assert report['end'].strftime('%d/%m %H:%M') == '01/11 23:00'
+    result = app.test_cli_runner().invoke(coupon_report_command, ['--days', '30'])
+    assert 'último: 01/11/2026 22:00' in result.output
+    assert 'vigencia … a 01/11/2026' in result.output
+
+
+def test_report_gross_sales_discount_share_and_tickets(db):
+    product = _product(db, price=5000)
+    coupon = _coupon(db)
+    with_coupon = _order(db, product, quantity=2, coupon=coupon)
+    with_coupon.total_price, with_coupon.discount_amount = 9000, 1000
+    _order(db, product, quantity=1)
+    _order(db, product, quantity=3)
+    cancelled = _order(db, product, quantity=4, coupon=coupon, status='Cancelled')
+    cancelled.discount_amount = 2000
+    db.session.commit()
+    report = build_report(days=30)
+    # 10000 (9000 paid + 1000 coupon) + 5000 + 15000; the cancelled order doesn't count.
+    assert report['gross_sales'] == 30000
+    assert report['discount_total'] == 1000
+    assert report['discount_percent'] == 3.3
+    assert report['ticket_with_coupon'] == 9000
+    assert report['ticket_without_coupon'] == 10000
+
+
+def test_report_with_nothing_sold_has_no_division_errors(db):
+    report = build_report(days=7)
+    assert (report['gross_sales'], report['discount_percent'],
+            report['ticket_with_coupon'], report['ticket_without_coupon']) == (0, 0, None, None)
+
+
+def test_compare_days_reports_the_same_numbers_for_an_earlier_window(app, db):
+    product = _product(db, price=5000)
+    coupon = _coupon(db)
+    now = datetime(2026, 11, 2, 12, 0)
+    for days_ago, quantity, used in ((1, 2, True), (2, 1, False), (8, 4, False), (12, 1, False)):
+        order = _order(db, product, quantity=quantity, coupon=coupon if used else None)
+        order.created_at = now - timedelta(days=days_ago)
+    db.session.commit()
+    report = build_report(days=3, now=now, compare_days=7)
+    assert (report['orders_valid'], report['orders_with_coupon'], report['gross_sales']) == (2, 1, 15000)
+    previous = report['previous']
+    # Only the order from 8 days ago falls in [10, 7) days ago; the one from 12 doesn't.
+    assert (previous['orders_valid'], previous['orders_with_coupon'], previous['gross_sales']) == (1, 0, 20000)
+    assert previous['ticket_without_coupon'] == 20000
+    assert previous['ticket_with_coupon'] is None
+    assert previous['start'].strftime('%d/%m %H:%M') == '23/10 09:00'
+    assert previous['end'].strftime('%d/%m %H:%M') == '26/10 09:00'
+    assert 'previous' not in build_report(days=3, now=now)
+
+    result = app.test_cli_runner().invoke(coupon_report_command, ['--days', '3', '--compare-days', '7'])
+    assert result.exit_code == 0, result.output
+    assert 'Comparación: 3 días, 7 días antes' in result.output
+    assert 'ventas brutas:' in result.output and 'ticket promedio: con cupón' in result.output
+    assert app.test_cli_runner().invoke(coupon_report_command, ['--compare-days', '0']).exit_code != 0
