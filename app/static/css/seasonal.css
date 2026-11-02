@@ -1,0 +1,108 @@
+/* Seasonal decorations (app/seasons.py, js/seasonal.js) - loaded only while a
+   celebration is on. --season-accent / --season-band come from the server.
+   Subtle on purpose: the owner's own colors and buttons stay as they are. */
+
+/* The accent: a thin stripe along the top of the header, and the carousel's active dot.
+   These stay with reduced motion - they don't move. */
+.has-season > .hero { position: relative; }
+.has-season > .hero::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 18px;
+  right: 18px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--season-band);
+  pointer-events: none;
+}
+.has-season .hero-dot.active::before { background: var(--season-accent); }
+
+/* The owner's "Ver cómo se ve" - never seen by customers. */
+.season-preview-band {
+  margin: 0 0 12px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--season-accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-align: center;
+}
+.season-preview-band a { color: #fff; margin-left: 8px; text-decoration: underline; }
+
+/* Particles and the crossing: over the header and carousel only, under the cart, the
+   drawers and the modals (z-index 40+), and never catching a tap. */
+.season-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  overflow: hidden;
+  pointer-events: none;
+}
+.season-particle {
+  position: absolute;
+  top: -24px;
+  opacity: var(--alpha, 0.7);
+  line-height: 1;
+  will-change: transform;
+  animation-name: season-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes season-fall {
+  from { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(var(--sway, 0px), calc(var(--fall, 300px) / 2), 0) rotate(90deg); }
+  to { transform: translate3d(0, var(--fall, 300px), 0) rotate(180deg); opacity: 0; }
+}
+.season-crossing {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  font-size: 26px;
+  line-height: 1;
+  white-space: nowrap;
+  will-change: transform;
+  animation-name: season-cross;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+/* Right to left: the reindeer and the sleigh face left. */
+@keyframes season-cross {
+  from { transform: translate3d(var(--from, 400px), 0, 0); }
+  to { transform: translate3d(-110%, 0, 0); }
+}
+.season-layer.is-paused .season-particle,
+.season-layer.is-paused .season-crossing { animation-play-state: paused; }
+
+/* The burst on "add to cart", up and out in under a second: from the top edge of the
+   cart sheet on a phone (seasonal.js waits for it to open), from the button on a
+   desktop. Above the dimmed page (backdrop, 55), under the cart panel (60) - it never
+   draws over the cart. */
+.season-burst {
+  position: fixed;
+  z-index: 57;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.season-burst span {
+  position: absolute;
+  left: -10px;
+  top: -10px;
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: season-pop 700ms ease-out forwards;
+}
+@keyframes season-pop {
+  0% { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate3d(var(--dx, 0px), var(--dy, -70px), 0) scale(1.1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .season-layer, .season-burst { display: none; }
+}

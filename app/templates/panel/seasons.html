@@ -1,0 +1,93 @@
+{% extends "panel/_layout.html" %}
+{% block title %}Adornos de temporada{% endblock %}
+{% block content %}
+    <div class="card-row">
+      <h1>Adornos de temporada</h1>
+      <a href="{{ url_for('catalog.new_celebration') }}"><button type="button">Nueva celebración</button></a>
+    </div>
+    <p class="muted">
+      Decoraciones suaves en la carta para las fechas que elijas: un toque de color, unos adornos sobre el
+      encabezado que se detienen solos y un pequeño festejo al agregar al carrito. Nunca aparecen en el carrito
+      y, si el cliente prefiere menos movimiento en su teléfono, solo se ve el color.
+    </p>
+
+    <div class="card">
+      <form method="post" action="{{ url_for('catalog.seasons_switch') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="checkbox-row"><input type="checkbox" name="enabled" {{ 'checked' if enabled else '' }}
+          onchange="this.form.submit()"> <strong>Adornos de temporada</strong> (interruptor general)</label>
+        <noscript><button type="submit">Guardar</button></noscript>
+      </form>
+      <p>
+        {% if not enabled %}
+          Apagados: la carta no muestra ningún adorno, aunque haya celebraciones activadas abajo.
+        {% elif showing %}
+          Hoy se ve: <strong>{{ showing[0] }}</strong> (hasta el {{ showing[1][1].strftime('%d/%m') }}).
+        {% else %}
+          Hoy no hay ninguna celebración activa.
+        {% endif %}
+        {% if enabled and upcoming %} Próxima: <strong>{{ upcoming[0] }}</strong> desde el {{ upcoming[1].strftime('%d/%m') }}.{% endif %}
+      </p>
+      {% for warning in warnings %}
+        <p class="season-warning">⚠️ {{ warning }}</p>
+      {% endfor %}
+    </div>
+
+    <h2>Celebraciones propias</h2>
+    {% if not customs %}
+      <p class="muted">Aún no tienes. Crea una para un aniversario, una promo o la fiesta de tu ciudad.</p>
+    {% endif %}
+    {% for item in customs %}
+      {% set c = item.celebration %}
+      <div class="card">
+        <strong>{{ c.name }}</strong>
+        <span class="muted">· {{ c.start_date.strftime('%d/%m/%Y') }} a {{ c.end_date.strftime('%d/%m/%Y') }}
+          · {{ item.look }} · {{ 'Activa' if c.is_active else 'Apagada' }}</span>
+        <div class="inline-actions">
+          <a href="{{ url_for('main.index', temporada=item.preview) }}" target="_blank" rel="noopener"><button type="button" class="secondary">Ver cómo se ve</button></a>
+          <a href="{{ url_for('catalog.edit_celebration', celebration_id=c.id) }}"><button type="button">Editar</button></a>
+          <form method="post" action="{{ url_for('catalog.delete_celebration', celebration_id=c.id) }}"
+                data-confirm="¿Borrar «{{ c.name }}»?" onsubmit="return confirm(this.dataset.confirm)">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">Borrar</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+
+    <h2>Catálogo</h2>
+    <p class="muted">Todas empiezan apagadas. Las fechas se repiten cada año; las de Pascua, Día de la Madre, del Padre y del Niño se calculan solas.</p>
+    {% for row in presets %}
+      {% set c = row.celebration %}
+      <form class="card" id="c-{{ row.key }}" method="post" action="{{ url_for('catalog.save_preset_celebration', key=row.key) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="card-row">
+          <strong>{{ row.motif.particle }} {{ row.motif.name }}</strong>
+          <span class="muted">{% if row.span %}{{ row.span[0].strftime('%d/%m') }} a {{ row.span[1].strftime('%d/%m/%Y') }}{% endif %}</span>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" name="is_active" {{ 'checked' if c.is_active else '' }}> Activa</label>
+        {% if row.computed %}
+          <label for="days-{{ row.key }}">Empieza cuántos días antes</label>
+          <input type="number" id="days-{{ row.key }}" name="days_before" min="0" max="30" value="{{ row.days_before }}">
+        {% else %}
+          <div class="season-dates">
+            <label>Desde (día/mes) <input type="text" name="start_md" value="{{ row.start }}" inputmode="numeric" maxlength="5" placeholder="1/12"></label>
+            <label>Hasta (día/mes) <input type="text" name="end_md" value="{{ row.end }}" inputmode="numeric" maxlength="5" placeholder="25/12"></label>
+          </div>
+        {% endif %}
+        <label class="checkbox-row"><input type="checkbox" name="ambient" {{ 'checked' if c.ambient else '' }}> Adornos sobre el encabezado ({{ row.motif.particle }} y {{ row.motif.crossing }})</label>
+        <label class="checkbox-row"><input type="checkbox" name="burst" {{ 'checked' if c.burst else '' }}> Al agregar al carrito ({{ row.motif.burst|join(' ') }})</label>
+        <div class="inline-actions">
+          <button type="submit">Guardar</button>
+          <a href="{{ url_for('main.index', temporada=row.preview) }}" target="_blank" rel="noopener"><button type="button" class="secondary">Ver cómo se ve</button></a>
+        </div>
+      </form>
+    {% endfor %}
+
+    <style>
+      .season-warning { margin: 6px 0 0; color: #8a5300; }
+      .season-dates { display: flex; flex-wrap: wrap; gap: 12px; }
+      .season-dates label { display: grid; gap: 4px; }
+      .season-dates input { width: 7em; }
+    </style>
+{% endblock %}

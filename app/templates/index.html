@@ -8,6 +8,11 @@
      after it - so the owner's custom colors always win, on top of any theme. */
   html[data-theme] { --primary: {{ primary_color }}; --primary-rgb: {{ primary_rgb }}; --accent: {{ accent_color }}; --accent-rgb: {{ accent_rgb }}; }
 </style>
+{# Seasonal decorations (app/seasons.py): nothing at all is loaded without a celebration. #}
+{% if season and not is_closed %}
+<style>:root { --season-accent: {{ season.accent }}; --season-band: {{ season.band }}; }</style>
+<link rel="stylesheet" href="{{ static_versioned('css/seasonal.css') }}">
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -25,7 +30,11 @@
   {% endif %}
 </div>
 {% else %}
-<div class="page-shell">
+<div class="page-shell{{ ' has-season' if season else '' }}">
+  {% if season and season.preview %}
+    <p class="season-preview-band" role="status">Vista previa: {{ season.name }} · solo tú la ves
+      <a href="{{ url_for('main.index') }}">Salir</a></p>
+  {% endif %}
   <header class="hero">
     <button type="button" id="nav-toggle" class="hamburger-btn" aria-label="Ver categorías">☰</button>
     {% if logo_url %}
@@ -435,5 +444,9 @@
 <script src="{{ static_versioned('js/hero_carousel.js') }}"></script>
 <script src="{{ static_versioned('js/explore_scroller.js') }}"></script>
 <script src="{{ static_versioned('js/menu.js') }}"></script>
+{% if season and not is_closed %}
+<script id="season-data" type="application/json">{{ season|tojson }}</script>
+<script src="{{ static_versioned('js/seasonal.js') }}"></script>
+{% endif %}
 {% endif %}
 {% endblock %}

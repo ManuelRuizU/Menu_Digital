@@ -64,6 +64,8 @@ class User(UserMixin, db.Model):
     gift_threshold_amount = db.Column(db.Integer, nullable=True)
     gift_product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
     gift_product = db.relationship('Product', foreign_keys=[gift_product_id])
+    # "Adornos de temporada": the master switch - off, no celebration shows (app/seasons.py).
+    seasonal_decor_enabled = db.Column(db.Boolean, nullable=False, default=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -521,3 +523,29 @@ class HeroBanner(db.Model):
 
     def __repr__(self):
         return f'<HeroBanner {self.id} {self.title or ""}>'
+
+
+class Celebration(db.Model):
+    """A seasonal decoration (app/seasons.py). kind 'preset': one of the catalog's, a row
+    only once the owner touches it - start_md/end_md ('MM-DD') or days_before override
+    its default dates, every year. kind 'custom': the owner's own, start_date..end_date
+    (Santiago days, inclusive), with a catalog motif or 'personal' (emojis + accent)."""
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(10), nullable=False)
+    motif = db.Column(db.String(20), nullable=False)
+    name = db.Column(db.String(40), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=False)
+    start_md = db.Column(db.String(5), nullable=True)
+    end_md = db.Column(db.String(5), nullable=True)
+    days_before = db.Column(db.Integer, nullable=True)
+    start_date = db.Column(db.Date, nullable=True)
+    end_date = db.Column(db.Date, nullable=True)
+    # Space-separated, each one checked to be a single emoji (seasons.is_single_emoji).
+    emojis = db.Column(db.String(64), nullable=True)
+    accent = db.Column(db.String(7), nullable=True)
+    ambient = db.Column(db.Boolean, nullable=False, default=True)
+    burst = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Celebration {self.kind} {self.motif} {self.name or ""}>'
