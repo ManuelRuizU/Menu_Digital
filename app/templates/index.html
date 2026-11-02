@@ -81,14 +81,25 @@
                 </picture>
               {% endif %}
               {% if slide.kind == 'banner' %}
-                {% if slide.title or slide.text or slide.button %}
+                {% if slide.title or slide.text or slide.button or slide.countdown or slide.reminder_url %}
                   <span class="hero-copy">
+                    {# Worked out on the server with Santiago's date (storefront.countdown_label). #}
+                    {% if slide.countdown %}<span class="hero-countdown">{{ slide.countdown }}</span>{% endif %}
                     {% if slide.title %}<span class="hero-title">{{ slide.title }}</span>{% endif %}
                     {% if slide.text %}<span class="hero-text">{{ slide.text }}</span>{% endif %}
-                    {% if slide.button %}
-                      {% set label, target_kind, target_id = slide.button %}
-                      <button type="button" class="hero-cta"
-                              {% if target_kind == 'product' %}data-details="{{ target_id }}"{% else %}data-target="cat-{{ target_id }}"{% endif %}>{{ label }}</button>
+                    {% if slide.button or slide.reminder_url %}
+                      <span class="hero-actions">
+                        {% if slide.button %}
+                          {% set label, target_kind, target_id = slide.button %}
+                          <button type="button" class="hero-cta"
+                                  {% if target_kind == 'product' %}data-details="{{ target_id }}"{% else %}data-target="cat-{{ target_id }}"{% endif %}>{{ label }}</button>
+                        {% endif %}
+                        {# A plain link, no JS: iOS Safari offers "Agregar al calendario", Android
+                           downloads it and opens the calendar. #}
+                        {% if slide.reminder_url %}
+                          <a class="hero-cta hero-cta-reminder" href="{{ slide.reminder_url }}" download>🔔 Recuérdamelo</a>
+                        {% endif %}
+                      </span>
                     {% endif %}
                   </span>
                 {% endif %}

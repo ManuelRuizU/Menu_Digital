@@ -105,12 +105,17 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/Menu_Digital
+Environment=BEHIND_PROXY=1
 ExecStart=/opt/Menu_Digital/.venv/bin/gunicorn -w 1 --timeout 60 -b 127.0.0.1:8000 manage:app
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+`BEHIND_PROXY=1` le dice a la app que nginx está delante: así los links absolutos (el QR,
+el "Recuérdamelo" de los banners) salen con `https://`. Va junto con la línea
+`proxy_set_header X-Forwarded-Proto $scheme;` de nginx (paso 4) - una sin la otra no sirve.
 
 `-w 1` (un solo worker) es intencional: el respaldo automático corre dentro del proceso y con más de un worker se duplicaría.
 
@@ -135,6 +140,7 @@ server {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -207,6 +213,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/clientes/pizzasdonpedro
+Environment=BEHIND_PROXY=1
 ExecStart=/opt/clientes/pizzasdonpedro/.venv/bin/gunicorn -w 1 --timeout 60 -b 127.0.0.1:8001 manage:app
 Restart=always
 
@@ -268,6 +275,7 @@ server {
         proxy_pass http://127.0.0.1:8001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 

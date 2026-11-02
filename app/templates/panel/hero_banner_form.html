@@ -85,6 +85,13 @@
       <label for="valid_until">Mostrar hasta (opcional, incluido)</label>
       <input type="date" id="valid_until" name="valid_until" value="{{ values.valid_until }}">
 
+      <label for="event_date">Fecha del evento (opcional)</label>
+      <input type="date" id="event_date" name="event_date" value="{{ values.event_date }}">
+      <p class="muted">Para anunciar un evento: muestra la cuenta regresiva ("Faltan 9 días", "¡Es mañana!",
+        "¡Es hoy!"). Puede caer dentro de las fechas del banner o después, nunca antes de «Mostrar desde».</p>
+      <label class="checkbox-row"><input type="checkbox" name="show_reminder" {{ 'checked' if values.show_reminder else '' }}>
+        Mostrar botón «Recuérdamelo» (agrega el evento al calendario del cliente)</label>
+
       <label class="checkbox-row"><input type="checkbox" name="is_active" {{ 'checked' if values.is_active else '' }}> Activo (máximo {{ max_active }})</label>
 
       <div class="inline-actions">

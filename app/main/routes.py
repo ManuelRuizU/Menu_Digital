@@ -2,18 +2,19 @@ import json
 import math
 import re
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timezone
 
-from flask import current_app, jsonify, render_template, request, url_for
+from flask import Response, abort, current_app, jsonify, render_template, request, url_for
 from shapely.geometry import Point, shape
 
 from app.main import main
 from app.models import (BUSINESS_TZ, BundlePromo, BusinessHours, Coupon, CouponRedemption, DAY_NAMES,
-                         DeliveryRadiusTier, DeliveryZone, Order, OrderItem, OrderItemOption, Product,
+                         DeliveryRadiusTier, DeliveryZone, HeroBanner, Order, OrderItem, OrderItemOption, Product,
                          ProductOption, THEMES, User)
 from app import csrf, db, limiter
 from app.coupon_attempts import clean_code, clean_source, log_attempt
-from app.storefront import clp, coupon_benefit_text, explore_categories, hero_slides
+from app.storefront import (banner_ics, clp, coupon_benefit_text, explore_categories, hero_slides,
+                            reminder_available)
 from app.utils import customer_name_parts, hex_to_rgb, parse_money, validate_order_fields
 
 
@@ -199,6 +200,26 @@ def privacy():
         accent_color=(owner.accent_color if owner and owner.accent_color else theme_defaults['accent']),
         whatsapp_number=(owner.whatsapp_number if owner else None),
     )
+
+
+@main.route('/recordatorio/<int:banner_id>.ics')
+def banner_reminder(banner_id):
+    """The banner's "Recuérdamelo": a calendar file for its event day. Only while the
+    slide shows the button - the same check, on Santiago's date."""
+    banner = db.session.get(HeroBanner, banner_id)
+    if banner is None or not reminder_available(banner, datetime.now(BUSINESS_TZ).date()):
+        abort(404)
+    owner = get_owner()
+    hours = resolve_hours_for_day(banner.event_date.weekday())
+    body = banner_ics(banner,
+                      business_name=(owner.business_name if owner and owner.business_name else 'Menú digital'),
+                      menu_url=url_for('main.index', _external=True),
+                      host=request.host.split(':')[0],
+                      now_utc=datetime.now(timezone.utc),
+                      opens_at=hours.opens_at if hours and not hours.is_closed else None)
+    return Response(body, mimetype='text/calendar',
+                    headers={'Content-Disposition': f'attachment; filename="recordatorio-{banner.event_date:%Y-%m-%d}.ics"',
+                             'Cache-Control': 'no-store'})
 
 
 @main.route('/api/products')
@@ -538,13 +559,14 @@ CouponCheck = namedtuple('CouponCheck', 'discount reason message missing')
 
 def coupon_message(reason, code, coupon=None, missing=0):
     """The customer-facing text for a rejection - one place for the cart box, the coupon
-    card, the reminder and create_order. 'already_used' is a thank-you, not an error."""
+    card, the reminder and create_order. 'already_used' is a thank-you and 'not_yet' an
+    invitation, not errors."""
     code = code or (coupon.code if coupon else '')
     if reason == 'not_found':
         return f'No encontramos el código «{code}». Revisa que esté bien escrito.' if code \
             else 'No encontramos ese código. Revisa que esté bien escrito.'
     if reason == 'not_yet':
-        return f'El código {code} empieza a funcionar el {coupon.valid_from.strftime("%d/%m")}.'
+        return f'{code} empieza el {coupon.valid_from.strftime("%d/%m")}. ¡Te esperamos!'
     if reason == 'expired':
         return f'El código {code} venció el {coupon.valid_until.strftime("%d/%m")}.'
     if reason == 'exhausted':

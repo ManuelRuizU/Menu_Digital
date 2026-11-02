@@ -37,9 +37,10 @@ test('reminderOffer: first applicable, never with a coupon applied or twice', ()
   assert.equal(CouponUI.reminderOffer(undefined, { applied: false, alreadyShown: false }), null)
 })
 
-test('messageTone: already used is a thank-you, cart reasons wait', () => {
+test('messageTone: already used and not yet started are friendly, cart reasons wait', () => {
   assert.equal(CouponUI.messageTone({ ok: true }), 'ok')
   assert.equal(CouponUI.messageTone({ ok: false, reason: 'already_used' }), 'thanks')
+  assert.equal(CouponUI.messageTone({ ok: false, reason: 'not_yet' }), 'thanks')
   assert.equal(CouponUI.messageTone({ ok: false, reason: 'min_order', waits: true }), 'info')
   assert.equal(CouponUI.messageTone({ ok: false, reason: 'expired' }), 'error')
 })

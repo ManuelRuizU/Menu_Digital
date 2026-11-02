@@ -43,6 +43,12 @@ class Config:
     # only for local testing over plain http://127.0.0.1.
     SESSION_COOKIE_SECURE = os.environ.get('DISABLE_SECURE_COOKIES') != '1'
 
+    # Behind nginx (VPS): BEHIND_PROXY=1 makes the app trust nginx's X-Forwarded-Proto and
+    # X-Forwarded-Host, so absolute links (the QR, the "Recuérdamelo" calendar file) come
+    # out as https://. Off by default - without a proxy in front, those headers could be
+    # sent by anyone, and local development has no proxy.
+    BEHIND_PROXY = os.environ.get('BEHIND_PROXY') == '1'
+
     # Small "hecho con amor" credit shown on the public menu footer - override via env
     # vars for a different install/reseller of this codebase.
     CREATOR_NAME = os.environ.get('CREATOR_NAME', 'ZERO')

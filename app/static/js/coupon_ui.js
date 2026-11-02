@@ -7,8 +7,8 @@
 
   const STORAGE_KEY = 'menu-digital-coupon'
   const SOURCES = ['card', 'banner', 'reminder', 'manual']
-  // A rejection worded as a thank-you, not as an error.
-  const FRIENDLY_REASONS = ['already_used']
+  // Rejections worded as a thank-you or an invitation, not as an error.
+  const FRIENDLY_REASONS = ['already_used', 'not_yet']
   // Up to this many cards show; past it, the first ones and "Ver todos los cupones (N)".
   const OFFERS_SHOWN = 3
 
