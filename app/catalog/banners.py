@@ -10,13 +10,15 @@ from flask_login import login_required
 from app import db
 from app.catalog import catalog
 from app.decorators import owner_required
-from app.models import HERO_TARGET_TYPES, MAX_ACTIVE_HERO_BANNERS, Category, HeroBanner, Product
+from app.models import BUSINESS_TZ, HERO_TARGET_TYPES, MAX_ACTIVE_HERO_BANNERS, Category, HeroBanner, Product
 from app.uploads import delete_image, save_image, save_image_with_half
 from app.utils import clean_name
 
 TITLE_MAX, TEXT_MAX, BUTTON_MAX = 80, 200, 30
 DESKTOP_MAX_DIMENSION = 1920
 MOBILE_MAX_DIMENSION = 1080
+NO_END_AFTER_EVENT = ('Después del evento el banner seguirá visible sin la cuenta regresiva; '
+                      'pon una fecha en «Mostrar hasta».')
 TOO_MANY_ACTIVE = (f'Ya hay {MAX_ACTIVE_HERO_BANNERS} banners activos, el máximo. '
                    'Desactiva uno antes de activar otro.')
 
@@ -58,6 +60,8 @@ def _form_values(form):
         'target_category_id': form.get('target_category_id', type=int),
         'valid_from': (form.get('valid_from') or '').strip(),
         'valid_until': (form.get('valid_until') or '').strip(),
+        'event_date': (form.get('event_date') or '').strip(),
+        'show_reminder': form.get('show_reminder') == 'on',
         'is_active': form.get('is_active') == 'on',
     }
 
@@ -65,20 +69,25 @@ def _form_values(form):
 def _banner_values(banner):
     if banner is None:
         return {'title': '', 'text': '', 'button_label': '', 'target_type': 'none', 'target_product_id': None,
-                'target_category_id': None, 'valid_from': '', 'valid_until': '', 'is_active': True}
+                'target_category_id': None, 'valid_from': '', 'valid_until': '', 'event_date': '',
+                'show_reminder': False, 'is_active': True}
     return {
         'title': banner.title or '', 'text': banner.text or '', 'button_label': banner.button_label or '',
         'target_type': banner.target_type, 'target_product_id': banner.target_product_id,
         'target_category_id': banner.target_category_id,
         'valid_from': banner.valid_from.isoformat() if banner.valid_from else '',
         'valid_until': banner.valid_until.isoformat() if banner.valid_until else '',
+        'event_date': banner.event_date.isoformat() if banner.event_date else '',
+        'show_reminder': banner.show_reminder,
         'is_active': banner.is_active,
     }
 
 
-def validate_banner(values, banner=None):
+def validate_banner(values, banner=None, today=None):
     """(fields, error): fields ready to set on a HeroBanner, or the first problem found.
-    banner is the one being edited (None when creating), for the active-banner limit."""
+    banner is the one being edited (None when creating), for the active-banner limit and
+    to tell a newly typed event date from the one already saved. today: Santiago's."""
+    today = today or datetime.now(BUSINESS_TZ).date()
     if len(values['title']) > TITLE_MAX:
         return None, f'El título puede tener hasta {TITLE_MAX} caracteres.'
     if len(values['text']) > TEXT_MAX:
@@ -116,6 +125,19 @@ def validate_banner(values, banner=None):
     if valid_from and valid_until and valid_from > valid_until:
         return None, 'La fecha "desde" no puede ser posterior a la fecha "hasta".'
 
+    # The event can fall inside the banner's dates or after them (a teaser that stops
+    # showing before the day), never before it starts showing. A past date is refused
+    # only when typed now - an old banner stays editable after its event.
+    event_date, error = _parse_date(values['event_date'])
+    if error:
+        return None, error
+    if event_date and valid_from and event_date < valid_from:
+        return None, 'La fecha del evento no puede ser anterior a «Mostrar desde».'
+    if event_date and event_date < today and (banner is None or banner.event_date != event_date):
+        return None, 'La fecha del evento ya pasó.'
+    if values['show_reminder'] and not event_date:
+        return None, 'El botón «Recuérdamelo» necesita una fecha del evento.'
+
     becomes_active = values['is_active'] and (banner is None or not banner.is_active)
     if becomes_active and _active_count(exclude_id=banner.id if banner else None) >= MAX_ACTIVE_HERO_BANNERS:
         return None, TOO_MANY_ACTIVE
@@ -123,7 +145,8 @@ def validate_banner(values, banner=None):
     return {
         'title': values['title'] or None, 'text': values['text'] or None, 'button_label': label or None,
         'target_type': target_type, 'target_product_id': product_id, 'target_category_id': category_id,
-        'valid_from': valid_from, 'valid_until': valid_until, 'is_active': values['is_active'],
+        'valid_from': valid_from, 'valid_until': valid_until, 'event_date': event_date,
+        'show_reminder': values['show_reminder'], 'is_active': values['is_active'],
     }, None
 
 
@@ -220,6 +243,8 @@ def _save_banner(banner):
     for filename in replaced:
         delete_image(_upload_dir(), filename)
     flash('Banner creado' if is_new else 'Banner guardado')
+    if banner.event_date and not banner.valid_until:
+        flash(NO_END_AFTER_EVENT)
     return redirect(url_for('catalog.hero_banners'))
 
 

@@ -493,7 +493,9 @@ MAX_ACTIVE_HERO_BANNERS = 5
 class HeroBanner(db.Model):
     """A slide the owner uploads for the big carousel at the top of the menu, shown
     before the coupons that are flagged "Mostrar en el banner". valid_from/valid_until
-    are Santiago calendar days, both inclusive (same as coupons)."""
+    are Santiago calendar days, both inclusive (same as coupons). event_date, optional, is
+    the Santiago day the banner announces: the slide counts down to it, and with
+    show_reminder it offers a calendar file for that day."""
     id = db.Column(db.Integer, primary_key=True)
     desktop_image = db.Column(db.String(255), nullable=False)
     mobile_image = db.Column(db.String(255), nullable=True)
@@ -509,6 +511,8 @@ class HeroBanner(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     valid_from = db.Column(db.Date, nullable=True)
     valid_until = db.Column(db.Date, nullable=True)
+    event_date = db.Column(db.Date, nullable=True)
+    show_reminder = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     def is_current(self, today):

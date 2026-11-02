@@ -4,10 +4,11 @@ banners, then banner coupons) and "Explora el menú" - built
 on the server, so the first slide is in the HTML the browser gets (no layout jump, and
 fetchpriority actually applies) and every rule is checked here, never in the browser."""
 import os
+from datetime import datetime, time, timedelta, timezone
 
 from flask import current_app, url_for
 
-from app.models import MAX_ACTIVE_HERO_BANNERS, HeroBanner, Product
+from app.models import BUSINESS_TZ, MAX_ACTIVE_HERO_BANNERS, HeroBanner, Product
 from app.uploads import half_width_filename
 
 def clp(amount):
@@ -47,7 +48,29 @@ def _banner_button(banner):
     return None
 
 
-def banner_slide(banner):
+def countdown_label(event_date, today):
+    """The slide's countdown to its event, by Santiago days: "Faltan N días", "¡Es
+    mañana!", "¡Es hoy!" - None with no event or once it has passed."""
+    if event_date is None:
+        return None
+    days = (event_date - today).days
+    if days < 0:
+        return None
+    if days == 0:
+        return '¡Es hoy!'
+    if days == 1:
+        return '¡Es mañana!'
+    return f'Faltan {days} días'
+
+
+def reminder_available(banner, today):
+    """The "Recuérdamelo" file is offered while the banner shows and its event is still
+    ahead (or today) - same check for the button and for the .ics route."""
+    return (banner.is_active and banner.show_reminder and banner.is_current(today)
+            and countdown_label(banner.event_date, today) is not None)
+
+
+def banner_slide(banner, today):
     return {
         'kind': 'banner',
         'image': upload_url('banners', banner.desktop_image),
@@ -56,6 +79,8 @@ def banner_slide(banner):
         'title': banner.title,
         'text': banner.text,
         'button': _banner_button(banner),
+        'countdown': countdown_label(banner.event_date, today),
+        'reminder_url': url_for('main.banner_reminder', banner_id=banner.id) if reminder_available(banner, today) else None,
     }
 
 
@@ -102,7 +127,79 @@ def hero_slides(today, banner_coupons):
     banners = (HeroBanner.query.filter_by(is_active=True)
                .order_by(HeroBanner.position, HeroBanner.id).all())
     current = [banner for banner in banners if banner.is_current(today)][:MAX_ACTIVE_HERO_BANNERS]
-    return [banner_slide(banner) for banner in current] + [coupon_slide(coupon) for coupon in banner_coupons]
+    return [banner_slide(banner, today) for banner in current] + [coupon_slide(coupon) for coupon in banner_coupons]
+
+
+def _ics_text(value):
+    """A TEXT value per RFC 5545: backslash, ';', ',' and newlines escaped."""
+    return (value.replace('\\', '\\\\').replace(';', '\\;').replace(',', '\\,')
+            .replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\\n'))
+
+
+def _ics_fold(line):
+    """Lines longer than 75 octets continue on the next line after a space - cut
+    between characters, never inside a UTF-8 sequence (accents, emojis)."""
+    parts, current = [], ''
+    for char in line:
+        limit = 75 if not parts else 74
+        if len((current + char).encode('utf-8')) > limit:
+            parts.append(current)
+            current = char
+        else:
+            current += char
+    parts.append(current)
+    return '\r\n '.join(parts)
+
+
+REMINDER_DEFAULT_TIME = time(10, 0)
+REMINDER_BEFORE_OPENING = timedelta(minutes=30)
+
+
+def reminder_alarm_utc(day, opens_at):
+    """When the calendar alert goes off: 30 minutes before the business opens that day
+    (opens_at 'HH:MM', Santiago time), or 10:00 Santiago with no hours for that day - as
+    a UTC moment, so it rings at the right time on any phone."""
+    if opens_at:
+        hour, minute = (int(part) for part in opens_at.split(':'))
+        local = datetime.combine(day, time(hour, minute), tzinfo=BUSINESS_TZ) - REMINDER_BEFORE_OPENING
+    else:
+        local = datetime.combine(day, REMINDER_DEFAULT_TIME, tzinfo=BUSINESS_TZ)
+    return local.astimezone(timezone.utc)
+
+
+def banner_ics(banner, business_name, menu_url, host, now_utc, opens_at=None):
+    """The "Recuérdamelo" calendar file: an all-day event on the banner's event day
+    (floating date, so it lands on that day in the customer's own calendar), with an
+    alert before the business opens (reminder_alarm_utc), the banner's text and the link
+    to the menu. The UID is stable, so adding it twice updates the same event instead
+    of duplicating it."""
+    day = banner.event_date
+    summary = banner.title or business_name
+    description = '\n\n'.join(part for part in (banner.text, f'Ver la carta: {menu_url}') if part)
+    lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Menu Digital//Recordatorio//ES',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        f'UID:banner-{banner.id}-{day:%Y%m%d}@{host}',
+        f'DTSTAMP:{now_utc:%Y%m%dT%H%M%SZ}',
+        f'DTSTART;VALUE=DATE:{day:%Y%m%d}',
+        f'DTEND;VALUE=DATE:{day + timedelta(days=1):%Y%m%d}',
+        f'SUMMARY:{_ics_text(summary)}',
+        f'DESCRIPTION:{_ics_text(description)}',
+        f'URL:{menu_url}',
+        'TRANSP:TRANSPARENT',
+        'BEGIN:VALARM',
+        'ACTION:DISPLAY',
+        f'DESCRIPTION:{_ics_text(summary)}',
+        f'TRIGGER;VALUE=DATE-TIME:{reminder_alarm_utc(day, opens_at):%Y%m%dT%H%M%SZ}',
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR',
+    ]
+    return '\r\n'.join(_ics_fold(line) for line in lines) + '\r\n'
 
 
 def explore_categories(products):

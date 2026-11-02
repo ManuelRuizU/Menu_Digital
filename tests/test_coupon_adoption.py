@@ -55,7 +55,7 @@ def test_each_rejection_has_a_reason_and_a_clear_message(client, db):
     cases = {
         'nadaque': ('not_found', 'No encontramos el código «NADAQUE». Revisa que esté bien escrito.', False),
         'vencido': ('expired', f'El código VENCIDO venció el {yesterday.strftime("%d/%m")}.', False),
-        'pronto': ('not_yet', f'El código PRONTO empieza a funcionar el {tomorrow.strftime("%d/%m")}.', False),
+        'pronto': ('not_yet', f'PRONTO empieza el {tomorrow.strftime("%d/%m")}. ¡Te esperamos!', False),
         'agotado': ('exhausted', 'El código AGOTADO ya se agotó.', False),
         'minimo': ('min_order', 'MINIMO requiere una compra mínima de $10.000: te faltan $6.000.', True),
     }

@@ -86,6 +86,7 @@ Se recomienda mantener **un solo worker** (`-w 1`): el respaldo automático por 
 |---|---|---|
 | `SECRET_KEY` | Clave de seguridad de Flask | Se genera sola y se guarda en `instance/secret_key` |
 | `DATABASE_URL` | Ubicación de la base de datos | `sqlite:///app.db` (queda en `instance/app.db`) |
+| `BEHIND_PROXY` | `1` cuando nginx está delante (VPS): los links absolutos salen con `https://`. Requiere `proxy_set_header X-Forwarded-Proto $scheme;` en nginx | apagado |
 
 ## Pruebas automáticas
 

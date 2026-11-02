@@ -11,6 +11,7 @@ from flask_login import LoginManager
 from flask_wtf import CSRFProtect
 from flask_migrate import Migrate, stamp
 from sqlalchemy import inspect
+from werkzeug.middleware.proxy_fix import ProxyFix
 from .extensions import db  # Importa db desde extensions.py
 from app.admin import MyAdminIndexView, UserModelView
 
@@ -27,6 +28,9 @@ def create_app(test_config=None):
     app.config.from_object(Config)
     if test_config:
         app.config.update(test_config)
+    if app.config.get('BEHIND_PROXY'):
+        # One proxy (nginx) in front: trust exactly one X-Forwarded-Proto/-Host hop.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     db.init_app(app)
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'  # Redirigir a la vista de login

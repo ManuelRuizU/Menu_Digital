@@ -27,6 +27,7 @@
                 {% if banner.target_type == 'product' %}{{ banner.target_product.name if banner.target_product else '¿?' }}
                 {% else %}{{ banner.target_category.name if banner.target_category else '¿?' }}{% endif %}
               {% endif %}
+              {% if banner.event_date %}· Evento: {{ banner.event_date.strftime('%d/%m') }}{% if banner.show_reminder %} (con «Recuérdamelo»){% endif %}{% endif %}
               {% if banner.mobile_image %}· con imagen móvil{% endif %}
             </span>
           </div>
