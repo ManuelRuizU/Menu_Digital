@@ -105,6 +105,9 @@ const elements = {
   checkoutTotal: document.getElementById('checkout-total'),
   savingsNote: document.getElementById('savings-note'),
   cartFab: document.getElementById('cart-fab'),
+  addedNotice: document.getElementById('added-notice'),
+  addedNoticeText: document.getElementById('added-notice-text'),
+  addedNoticeOpen: document.getElementById('added-notice-open'),
   cartFabCount: document.getElementById('cart-fab-count'),
   cartFabTotal: document.getElementById('cart-fab-total'),
   deliveryAddressBlock: document.getElementById('delivery-address-block'),
@@ -447,9 +450,10 @@ function handleModalAddClick() {
     return
   }
   hideModalError()
-  addToCart(currentModalProduct.id, getModalSelectedOptions(), modalQuantity)
-  openCart()
+  const productId = currentModalProduct.id
+  addToCart(productId, getModalSelectedOptions(), modalQuantity)
   closeProductModal()
+  afterAdding(productId)
 }
 
 function closeProductModal() {
@@ -477,6 +481,7 @@ function currentCartStep() {
 function openCart() {
   // Always from the top of the order - step 2 is one tap away with "Continuar".
   showCartStep(1, false)
+  hideAddedNotice()
   elements.cartPanel.classList.add('open')
   elements.cartBackdrop.classList.add('open')
   document.body.classList.add('cart-open')
@@ -486,6 +491,97 @@ function closeCart() {
   elements.cartPanel.classList.remove('open')
   elements.cartBackdrop.classList.remove('open')
   document.body.classList.remove('cart-open')
+}
+
+// --- After adding a product -----------------------------------------------------------
+// On a phone the cart is a sheet over the menu: adding no longer opens it - a short
+// "✓ Agregado · Ver carrito" notice (with the one most useful thing to know, see
+// CartLines.addedNotice) and a small jump of the cart button, so the customer keeps browsing. On a desktop the
+// cart is a column beside the menu, as before.
+const ADDED_NOTICE_MS = 2000
+let addedNoticeTimer = null
+
+function isCartSheetLayout() {
+  return window.matchMedia('(max-width: 940px)').matches
+}
+
+let addedSeq = 0
+const announcedCoupons = new Set()
+
+// Whether the automatic gift was already reached before the last add (addToCart), so
+// the notice celebrates only the add that crosses the amount.
+let giftReachedBeforeAdd = false
+
+// The notice's facts, from the same functions the cart draws with.
+function addedNoticeText(productId, coupon) {
+  const lines = pricingLines()
+  const nudges = STATE.bundlePromos.map((promo) => {
+    const nudge = BundlePricing.nextUnitNudge(promo, lines)
+    return nudge && { productIds: promo.productIds, quantity: nudge.quantity, totalPrice: nudge.totalPrice }
+  }).filter(Boolean)
+  const { total } = orderTotals()
+  return CartLines.addedNotice(productId, STATE.cart, {
+    coupon,
+    giftWon: !giftReachedBeforeAdd && giftIsReached(total) ? GIFT_PRODUCT_NAME : null,
+    nudges,
+    promoDiscounts: promoDiscountEntries(),
+    giftMissing: giftShortfall(total),
+  }, formatPrice)
+}
+
+function afterAdding(productId) {
+  if (!isCartSheetLayout()) {
+    openCart()
+    return
+  }
+  const id = Number(productId)
+  const seq = ++addedSeq
+  const couponWaiting = !STATE.appliedCoupon && STATE.couponPending
+  showAddedNotice(addedNoticeText(id, null))
+  bumpCartFab()
+  // A coupon waiting for the cart (its minimum, its products, a banner coupon saved with
+  // an empty cart) may apply with this add: the server says so on the re-check that
+  // saveCart scheduled - then the notice says it, once per coupon. Not when another add
+  // came after this one (it waits for its own re-check) or the cart is open (it shows it).
+  if (!couponWaiting || !couponCheckPromise) return
+  couponCheckPromise.then(() => {
+    const applied = STATE.appliedCoupon
+    if (seq !== addedSeq || !applied || announcedCoupons.has(applied.code)) return
+    if (elements.cartPanel.classList.contains('open')) return
+    announcedCoupons.add(applied.code)
+    showAddedNotice(addedNoticeText(id, applied.code))
+  })
+}
+
+let addedNoticeClearTimer = null
+
+function hideAddedNotice() {
+  clearTimeout(addedNoticeTimer)
+  elements.addedNotice.classList.remove('is-visible')
+  elements.addedNoticeOpen.tabIndex = -1
+  elements.addedNoticeOpen.setAttribute('aria-hidden', 'true')
+  // Emptied once faded, so nothing stale is left for a screen reader to find.
+  addedNoticeClearTimer = setTimeout(() => { elements.addedNoticeText.textContent = '' }, 250)
+}
+
+// One notice at a time: adding again replaces its text and restarts the ~2 s.
+function showAddedNotice(text) {
+  clearTimeout(addedNoticeClearTimer)
+  elements.addedNoticeText.textContent = text
+  elements.addedNotice.classList.add('is-visible')
+  elements.addedNoticeOpen.tabIndex = 0
+  elements.addedNoticeOpen.removeAttribute('aria-hidden')
+  clearTimeout(addedNoticeTimer)
+  if (!elements.addedNotice.contains(document.activeElement)) {
+    addedNoticeTimer = setTimeout(hideAddedNotice, ADDED_NOTICE_MS)
+  }
+}
+
+function bumpCartFab() {
+  const fab = elements.cartFab
+  fab.classList.remove('is-bumped')
+  void fab.offsetWidth // restart the animation when it was still playing
+  fab.classList.add('is-bumped')
 }
 
 function initCartSwipeToClose() {
@@ -1163,10 +1259,14 @@ function offerSavingPerUnit(productId) {
 
 // { [cartKey]: { amount, promoLabels } } - preview only, from the same pricing the
 // summary uses (create_order prices the real order).
-function getLineSavings() {
-  const promos = BundlePricing.bundleDiscounts(STATE.bundlePromos, pricingLines())
+// [{ label, productIds, amount }] - the automatic promos discounting the cart now.
+function promoDiscountEntries() {
+  return BundlePricing.bundleDiscounts(STATE.bundlePromos, pricingLines())
     .map(({ promo, amount }) => ({ label: promo.label, productIds: promo.productIds, amount }))
-  return CartLines.lineSavings(STATE.cart, offerSavingPerUnit, promos)
+}
+
+function getLineSavings() {
+  return CartLines.lineSavings(STATE.cart, offerSavingPerUnit, promoDiscountEntries())
 }
 
 function renderCart() {
@@ -1247,10 +1347,17 @@ function renderCartGiftLine(gift) {
 // (threshold reached, or a gift coupon applied) is shown as a card in the cart list by
 // renderCartGiftLine - repeating it here would show the same gift twice. A gift coupon
 // also hides the nudge: it replaces the automatic gift, so there's nothing to reach.
+// How much is missing for the automatic gift (0: none set, already reached, or a gift
+// coupon replaces it) - the cart's hint and the "✓ Agregado" notice.
+function giftShortfall(total) {
+  const missing = Boolean(GIFT_THRESHOLD && GIFT_PRODUCT_NAME && STATE.cart.length
+    && !appliedGiftCoupon() && total < GIFT_THRESHOLD)
+  return missing ? GIFT_THRESHOLD - total : 0
+}
+
 function updateGiftHint(total) {
   if (!elements.giftHint) return
-  const showNudge = Boolean(GIFT_THRESHOLD && GIFT_PRODUCT_NAME && STATE.cart.length
-    && !appliedGiftCoupon() && total < GIFT_THRESHOLD)
+  const showNudge = giftShortfall(total) > 0
   if (showNudge) {
     elements.giftHint.textContent = `Agrega ${formatPrice(GIFT_THRESHOLD - total)} más y llévate de regalo: ${GIFT_PRODUCT_NAME}`
   }
@@ -1299,7 +1406,8 @@ function renderPromoNudges() {
   }).join('')
 }
 
-function updateSummary() {
+// The cart preview's amounts (create_order prices the real order).
+function orderTotals() {
   const subtotal = CartLines.subtotal(STATE.cart)
   const wantsDelivery = getDeliveryMode() === 'envio' && STATE.selectedLocation
   const outOfCoverage = wantsDelivery && !STATE.deliveryCovered
@@ -1308,6 +1416,11 @@ function updateSummary() {
   const bundleDiscount = bundleDiscounts.reduce((sum, entry) => sum + entry.amount, 0)
   const discount = STATE.appliedCoupon ? STATE.appliedCoupon.discountAmount : 0
   const total = Math.max(0, subtotal + shipping - bundleDiscount - discount)
+  return { subtotal, outOfCoverage, shipping, bundleDiscounts, bundleDiscount, discount, total }
+}
+
+function updateSummary() {
+  const { subtotal, outOfCoverage, shipping, bundleDiscounts, bundleDiscount, discount, total } = orderTotals()
 
   elements.subtotal.textContent = formatPrice(subtotal)
   updateShippingRow(outOfCoverage, shipping)
@@ -1513,6 +1626,7 @@ function renderSuggestions(results) {
 function addToCart(productId, selectedOptions = [], quantity = 1) {
   const product = STATE.products.find((item) => item.id === Number(productId))
   if (!product) return
+  giftReachedBeforeAdd = giftIsReached(orderTotals().total)
   STATE.cart = CartLines.addUnits(STATE.cart, product, selectedOptions, quantity)
   saveCart()
   renderCart()
@@ -1882,6 +1996,11 @@ window.addEventListener('load', () => {
   togglePaymentFields()
 
   elements.cartFab.addEventListener('click', openCart)
+  elements.addedNoticeOpen.addEventListener('click', () => { hideAddedNotice(); openCart() })
+  // While the notice has focus (keyboard, screen reader) it stays until focus leaves.
+  elements.addedNotice.addEventListener('focusin', () => clearTimeout(addedNoticeTimer))
+  elements.addedNotice.addEventListener('focusout', () => { addedNoticeTimer = setTimeout(hideAddedNotice, ADDED_NOTICE_MS) })
+  elements.cartFab.addEventListener('animationend', () => elements.cartFab.classList.remove('is-bumped'))
   document.querySelectorAll('[data-cart-close]').forEach((button) => button.addEventListener('click', closeCart))
   elements.cartContinue.addEventListener('click', () => showCartStep(2))
   elements.cartBack.addEventListener('click', () => showCartStep(1))
@@ -1964,9 +2083,13 @@ window.addEventListener('load', () => {
     const increment = event.target.closest('[data-increment]')
     const decrement = event.target.closest('[data-decrement]')
     if (add) {
-      addToCart(add.getAttribute('data-add'))
-      openCart()
+      const productId = Number(add.getAttribute('data-add'))
+      // The cart's own "+" (cross-sell row) stays in the cart, as before. Checked before
+      // adding: renderCart repaints that row and takes this button out of the page.
+      const fromCart = Boolean(add.closest('#cart-panel'))
+      addToCart(productId)
       closeProductModal()
+      if (!fromCart) afterAdding(productId)
     }
     if (remove) removeFromCart(remove.getAttribute('data-remove'))
     if (increment) incrementCartItem(increment.getAttribute('data-increment'))

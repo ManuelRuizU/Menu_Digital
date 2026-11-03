@@ -1,8 +1,8 @@
 // Seasonal decorations on the menu ("Adornos de temporada"). The server already decided
 // which celebration shows today and how it looks (app/seasons.py, #season-data); this
 // only plays it: a few particles over the header and carousel that stop on their own,
-// one crossing per visit, and a small burst of emojis when something is added to the
-// cart. Never over the cart, never catching taps (pointer-events: none), no audio, and
+// one crossing per visit, and a small burst of emojis rising from the button when
+// something is added to the cart. Never over the cart, never catching taps (pointer-events: none), no audio, and
 // with prefers-reduced-motion only the colors stay. Paused while the tab is hidden.
 // The menu loads it only when a celebration is on; tests/js require()s the pure parts.
 ;(function (root) {
@@ -11,7 +11,8 @@
   const AMBIENT_MS = 10000 // particles stop being added after this much visible time
   const SPAWN_EVERY_MS = 650
   const MAX_PARTICLES = 12
-  const BURST_MS = 800
+  const BURST_MS = 1400 // the burst's flight, ease-out, fading over its last third
+  const BURST_RISE = [200, 240] // px up
   const BURST_COUNT = 5
   const CROSSING_MS = 6500
   const CROSSED_KEY = 'menu-season-crossed'
@@ -38,14 +39,15 @@
     }
   }
 
-  // Where each emoji of a burst flies: up and fanned out, a little apart in time.
+  // Where each emoji of a burst flies: ~220 px up, opening slightly to the sides, a
+  // little apart in time.
   function burstVectors (count, emojis, random = Math.random) {
     return Array.from({ length: count }, (_, i) => {
       const spread = count > 1 ? i / (count - 1) - 0.5 : 0
       return {
         emoji: emojis[i % emojis.length],
-        dx: Math.round(spread * 90 + (random() - 0.5) * 16),
-        dy: -Math.round(60 + random() * 40),
+        dx: Math.round(spread * 70 + (random() - 0.5) * 14),
+        dy: -Math.round(BURST_RISE[0] + random() * (BURST_RISE[1] - BURST_RISE[0])),
         delay: Math.round(random() * 90),
       }
     })
@@ -72,7 +74,7 @@
     }
   }
 
-  const api = { AMBIENT_MS, MAX_PARTICLES, BURST_MS, BURST_COUNT, plan, createBurstGate, burstVectors, shouldCross, markCrossed, createVisibleClock }
+  const api = { AMBIENT_MS, MAX_PARTICLES, BURST_MS, BURST_RISE, BURST_COUNT, plan, createBurstGate, burstVectors, shouldCross, markCrossed, createVisibleClock }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api
     return
@@ -194,26 +196,6 @@
     setTimeout(() => { if (layer.isConnected) layer.appendChild(rider) }, 1200)
   }
 
-  // Where a burst starts. On a phone, adding opens the cart as a sheet over the menu:
-  // the burst waits for it to finish opening and rises from its top edge, over the
-  // dimmed menu - never inside the cart. On a desktop (the cart is a column beside the
-  // menu) it rises from the tapped button, as does one from the product modal there.
-  const SHEET_OPEN_WAIT_MS = 400
-
-  function cartSheet () {
-    const panel = document.getElementById('cart-panel')
-    if (!panel || !panel.classList.contains('open')) return null
-    return getComputedStyle(panel).position === 'fixed' ? panel : null
-  }
-
-  function afterSheetOpens (sheet, then) {
-    let done = false
-    const finish = () => { if (!done) { done = true; sheet.removeEventListener('transitionend', onEnd); then() } }
-    const onEnd = (event) => { if (event.target === sheet) finish() }
-    sheet.addEventListener('transitionend', onEnd)
-    setTimeout(finish, SHEET_OPEN_WAIT_MS)
-  }
-
   function launchBurst (x, y) {
     const layer = document.createElement('div')
     layer.className = 'season-burst'
@@ -248,17 +230,9 @@
       if (!lastTap || now - lastTap.at > CLICK_TO_ADD_MS || document.hidden || !allow(now)) return
       const { rect } = lastTap
       lastTap = null
-      const x = rect.left + rect.width / 2
-      // menu:cart-add fires inside addToCart, just before the menu opens the cart.
-      setTimeout(() => {
-        const sheet = cartSheet()
-        if (!sheet) return launchBurst(x, rect.top + rect.height / 2)
-        afterSheetOpens(sheet, () => {
-          const edge = sheet.getBoundingClientRect().top
-          const margin = 28
-          launchBurst(Math.min(Math.max(x, margin), window.innerWidth - margin), edge - 6)
-        })
-      }, 0)
+      // From the tapped button, up over the menu (adding no longer opens the cart on a
+      // phone; on a desktop the cart is a column beside the menu).
+      launchBurst(rect.left + rect.width / 2, rect.top + rect.height / 2)
     })
   }
 

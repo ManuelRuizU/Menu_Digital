@@ -427,6 +427,12 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  {# Phones: shown after adding instead of opening the cart (menu.js afterAdding). Always
+     in the page so screen readers announce each new text. #}
+  <div id="added-notice" class="added-notice" role="status" aria-live="polite">
+    <span id="added-notice-text"></span>
+    <button type="button" id="added-notice-open" tabindex="-1" aria-hidden="true">Ver carrito</button>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

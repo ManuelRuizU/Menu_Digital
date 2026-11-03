@@ -459,6 +459,25 @@ button.hero-slide { cursor: pointer; }
 .coupon-reminder-icon { font-size: 2rem; margin: 0; }
 .toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 90; width: max-content; max-width: calc(100vw - 32px); padding: 12px 16px; border-radius: 14px; background: var(--surface-2); color: var(--text-strong); border: 1px solid var(--border-accent); box-shadow: var(--shadow-soft); font-size: 0.9rem; }
 .toast[hidden] { display: none; }
+/* "✓ Agregado · Ver carrito" (phones): just above the cart button, fades in and out.
+   Never display:none or visibility:hidden - it stays in the page so screen readers
+   announce each new text (aria-live); while hidden it can't be tapped or focused. */
+.added-notice { position: fixed; left: 14px; right: 14px; bottom: 88px; z-index: 45; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: 14px; background: var(--surface-2); color: var(--text-strong); border: 1px solid var(--border-accent); box-shadow: var(--shadow-soft); font-size: 0.9rem; font-weight: 600; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; }
+.added-notice.is-visible { opacity: 1; transform: none; pointer-events: auto; }
+.added-notice span { flex: 1; min-width: 0; }
+.added-notice button { flex-shrink: 0; border: 1.5px solid var(--primary); border-radius: 12px; background: transparent; color: var(--primary); padding: 8px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+@media (min-width: 941px) { .added-notice { display: none; } }
+/* The cart button's jump after adding (phones). */
+.cart-fab.is-bumped { animation: cart-fab-bump 0.45s ease-out; }
+@keyframes cart-fab-bump {
+  0%, 100% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-8px) scale(1.03); }
+  65% { transform: translateY(0) scale(0.99); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .added-notice, .added-notice.is-visible { transition: none; transform: none; }
+  .cart-fab.is-bumped { animation: none; }
+}
 .summary { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; display: grid; gap: 10px; }
 .summary-row { display: flex; justify-content: space-between; color: var(--muted); }
 .summary-row[hidden] { display: none; }

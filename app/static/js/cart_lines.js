@@ -67,7 +67,38 @@
     return Object.values(savings).reduce((sum, entry) => sum + entry.amount, 0)
   }
 
-  const api = { addUnits, pricingLines, subtotal, lineSavings, totalSavings }
+  // The "✓ Agregado" notice after adding a product (mobile): one message, the most useful
+  // one, in this order -
+  //   a) "Cupón X aplicado" - facts.coupon, only when this add applied it the first time;
+  //   a2) "¡Ganaste X de regalo!" - facts.giftWon, only on the add that reached the
+  //      amount of the automatic gift;
+  //   b) "Agrega 1 más y llévate N por $X" - the next quantity price of a promo the
+  //      product is in (facts.nudges: [{ productIds, quantity, totalPrice }],
+  //      BundlePricing.nextUnitNudge, the cart's own "Agrega 1 más" line);
+  //   c) "Llevas N …: ahorras $X" - a promo with the product discounting the cart now
+  //      (facts.promoDiscounts: the cart preview's [{ label, productIds, amount }]); a
+  //      one-product promo names the product, a mixed one names the promo;
+  //   d) "Te faltan $X para tu regalo" - facts.giftMissing, as the cart's gift hint;
+  //   e) just "✓ Agregado".
+  function addedNotice (productId, cart, facts, formatPrice) {
+    const prefix = '✓ Agregado'
+    if (facts.coupon) return `${prefix} · Cupón ${facts.coupon} aplicado`
+    if (facts.giftWon) return `${prefix} · ¡Ganaste ${facts.giftWon} de regalo!`
+    const nudge = (facts.nudges || []).find((entry) => entry.productIds.includes(productId))
+    if (nudge) return `${prefix} · Agrega 1 más y llévate ${nudge.quantity} por ${formatPrice(nudge.totalPrice)}`
+    const promo = (facts.promoDiscounts || []).find((entry) => entry.amount > 0 && entry.productIds.includes(productId))
+    if (promo) {
+      const inPromo = cart.filter((item) => promo.productIds.includes(item.id))
+      const units = inPromo.reduce((sum, item) => sum + item.quantity, 0)
+      const names = [...new Set(inPromo.map((item) => item.name))]
+      const what = promo.productIds.length === 1 && names.length === 1 ? names[0] : `de «${promo.label}»`
+      return `${prefix} · Llevas ${units} ${what}: ahorras ${formatPrice(promo.amount)}`
+    }
+    if (facts.giftMissing > 0) return `${prefix} · Te faltan ${formatPrice(facts.giftMissing)} para tu regalo`
+    return prefix
+  }
+
+  const api = { addUnits, pricingLines, subtotal, lineSavings, totalSavings, addedNotice }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.CartLines = api
 })(this)

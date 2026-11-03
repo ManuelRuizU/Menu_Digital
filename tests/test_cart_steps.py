@@ -53,3 +53,13 @@ def test_pickup_line_shows_the_business_address(client, db):
     html = _menu(client)
     assert 'data-pickup-address=""' in html and 'Retiro en el local · sin costo' in html
     assert html.index('delivery_status.js') < html.index('menu.js')
+
+
+def test_added_notice_is_a_live_region_outside_the_cart(client, db):
+    # Phones: adding shows "✓ Agregado · Ver carrito" instead of opening the cart. It is
+    # always in the page (aria-live announces each text) and its button starts unfocusable.
+    html = _menu(client)
+    assert '<div id="added-notice" class="added-notice" role="status" aria-live="polite">' in html
+    assert '<button type="button" id="added-notice-open" tabindex="-1" aria-hidden="true">Ver carrito</button>' in html
+    cart = html[html.index('id="cart-panel"'):html.index('id="cart-step-2"')]
+    assert 'added-notice' not in cart
