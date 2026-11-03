@@ -116,3 +116,43 @@ test('lineSavings: offer price per unit, single-line promo, mixed promo on its l
   assert.equal(totalSavings(savings), 12790)
   assert.deepEqual(lineSavings([], offer, promos), {})
 })
+
+test('addedNotice: a one-product promo, a mixed promo, or just "✓ Agregado"', () => {
+  const fp = (v) => '$' + Math.round(v).toLocaleString('es-CL')
+  const cart = [
+    { id: 8, name: 'Hand roll', quantity: 2 },
+    { id: 1, name: 'Jugo', quantity: 1 },
+    { id: 3, name: 'Bebida', quantity: 1 },
+  ]
+  const promoDiscounts = [
+    { label: 'Hand rolls por cantidad', productIds: [8], amount: 990 },
+    { label: '2x1 en bebidas', productIds: [1, 3], amount: 1500 },
+  ]
+  assert.equal(cartLines.addedNotice(8, cart, { promoDiscounts }, fp), '✓ Agregado · Llevas 2 Hand roll: ahorras $990')
+  assert.equal(cartLines.addedNotice(3, cart, { promoDiscounts }, fp), '✓ Agregado · Llevas 2 de «2x1 en bebidas»: ahorras $1.500')
+  assert.equal(cartLines.addedNotice(5, cart, { promoDiscounts }, fp), '✓ Agregado')
+  // A promo the product is in, but not discounting yet (1 of a 2x1): plain notice.
+  assert.equal(cartLines.addedNotice(3, cart, { promoDiscounts: [{ label: '2x1', productIds: [3], amount: 0 }] }, fp), '✓ Agregado')
+  assert.equal(cartLines.addedNotice(5, cart, {}, fp), '✓ Agregado')
+})
+
+test('addedNotice: one message, coupon > gift won > next price > promo saving > gift missing > plain', () => {
+  const fp = (v) => '$' + Math.round(v).toLocaleString('es-CL')
+  const cart = [{ id: 8, name: 'Hand roll', quantity: 2 }, { id: 5, name: 'Gyozas', quantity: 1 }]
+  const all = {
+    coupon: 'VERANO',
+    giftWon: 'Mochi',
+    nudges: [{ productIds: [8], quantity: 3, totalPrice: 8990 }],
+    promoDiscounts: [{ label: 'Hand rolls', productIds: [8], amount: 990 }],
+    giftMissing: 4500,
+  }
+  const without = (...keys) => Object.fromEntries(Object.entries(all).filter(([key]) => !keys.includes(key)))
+  assert.equal(cartLines.addedNotice(8, cart, all, fp), '✓ Agregado · Cupón VERANO aplicado')
+  assert.equal(cartLines.addedNotice(8, cart, without('coupon'), fp), '✓ Agregado · ¡Ganaste Mochi de regalo!')
+  assert.equal(cartLines.addedNotice(8, cart, without('coupon', 'giftWon'), fp), '✓ Agregado · Agrega 1 más y llévate 3 por $8.990')
+  assert.equal(cartLines.addedNotice(8, cart, without('coupon', 'giftWon', 'nudges'), fp), '✓ Agregado · Llevas 2 Hand roll: ahorras $990')
+  assert.equal(cartLines.addedNotice(8, cart, without('coupon', 'giftWon', 'nudges', 'promoDiscounts'), fp), '✓ Agregado · Te faltan $4.500 para tu regalo')
+  assert.equal(cartLines.addedNotice(8, cart, { ...without('coupon', 'giftWon', 'nudges', 'promoDiscounts'), giftMissing: 0 }, fp), '✓ Agregado')
+  // The next price and the promo saving are about the product just added, never another.
+  assert.equal(cartLines.addedNotice(5, cart, without('coupon', 'giftWon'), fp), '✓ Agregado · Te faltan $4.500 para tu regalo')
+})

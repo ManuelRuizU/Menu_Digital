@@ -16,20 +16,21 @@ test('plan: follows the effects the owner chose', () => {
 })
 
 test('burst gate: tapping fast gives one burst, never a pile', () => {
-  const allow = Seasonal.createBurstGate(800)
+  const allow = Seasonal.createBurstGate(Seasonal.BURST_MS)
   assert.equal(allow(1000), true)
   assert.equal(allow(1100), false)
-  assert.equal(allow(1700), false)
-  assert.equal(allow(1800), true)
+  assert.equal(allow(2300), false)
+  assert.equal(allow(2400), true)
 })
 
-test('burst: 4 to 6 emojis of the theme, flying up', () => {
+test('burst: 4 to 6 emojis of the theme, ~220 px up in ~1.4 s, opening slightly', () => {
   assert.ok(Seasonal.BURST_COUNT >= 4 && Seasonal.BURST_COUNT <= 6)
-  assert.ok(Seasonal.BURST_MS < 1000)
+  assert.equal(Seasonal.BURST_MS, 1400)
   const pieces = Seasonal.burstVectors(5, ['🎄', '🎁', '⭐'], () => 0.5)
   assert.deepEqual(pieces.map((p) => p.emoji), ['🎄', '🎁', '⭐', '🎄', '🎁'])
-  assert.ok(pieces.every((p) => p.dy < 0))
+  assert.ok(pieces.every((p) => p.dy <= -200 && p.dy >= -240))
   assert.ok(pieces[0].dx < 0 && pieces[4].dx > 0)
+  assert.ok(pieces.every((p) => Math.abs(p.dx) <= 45), 'a slight side opening, not a fan')
 })
 
 test('crossing: once per visit, always in the owner preview', () => {
